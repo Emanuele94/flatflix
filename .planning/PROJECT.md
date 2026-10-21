@@ -2,7 +2,7 @@
 
 ## What This Is
 
-flatflix is a home media system for one household, running in Docker on a laptop on the home LAN (later a dedicated mini PC). It has two parts that share one media folder: (1) a phone-friendly portal where a non-technical person searches for a film or series and starts the download on qBittorrent, and (2) a TV app for a Hisense VIDAA TV that browses and plays the library from Jellyfin in full HD. It is a public open-source repo (MIT): https://github.com/Emanuele94/flatflix
+flatflix is a home media system for one household, running in Docker on the home LAN: developed on a WSL2 laptop, then installed on a dedicated box running Ubuntu Server. It has two parts that share one media folder: (1) a phone-friendly portal where a non-technical person searches for a film or series and starts the download on qBittorrent, and (2) a TV app for a Hisense VIDAA TV that browses and plays the library from Jellyfin in full HD. It is a public open-source repo (MIT): https://github.com/Emanuele94/flatflix
 
 ## Core Value
 
@@ -22,6 +22,8 @@ Full list with IDs, source references and phase mapping: `.planning/REQUIREMENTS
 
 - [ ] Portal: login-protected, mobile-friendly search of films and series, results with size/seeders/leechers/source, one-tap download into the right predefined folder (Film or SerieTV) — Phase 1
 - [ ] Portal: see in-progress and completed downloads, cancel a download, friendly errors, rate limiting, audit logs — Phase 2
+- [ ] Download filtering: only video and subtitle files are ever downloaded (qBittorrent exclusion list + per-file allowlist), torrents without a video are rejected up front — Phase 1
+- [ ] Quarantine: completed files are verified with ffprobe inside a throwaway Firecracker microVM before reaching the media folders; rejected files never reach Jellyfin — Phase 2.1
 - [ ] Jellyfin on the laptop behind Caddy (single origin), stable LAN IP, real-TV compatibility gate (H.264/HEVC, audio, subtitles) proving no video transcoding — Phase 3
 - [ ] Downloads from the portal land in Jellyfin's required naming layout and appear in the Film / SerieTV libraries without manual steps — Phase 4
 - [ ] TV app (Home, Library, Detail, Player) fully usable with the remote only, playing at 1080p or better, with Continue watching and watched state — Phase 5
@@ -47,11 +49,14 @@ Full list with IDs, source references and phase mapping: `.planning/REQUIREMENTS
   - W2 Shared media wiring: host paths, permissions, incomplete-downloads folder, read-only Jellyfin mounts, libraries, rescan trigger — contract in Phase 1, Jellyfin side in Phase 4.
   - W3 Port map: port 8080 appears twice in the portal compose example and Caddy has no port — defined in Phase 1, applied to Caddy/Jellyfin in Phase 3.
 - Build order is a user decision: portal first, then home theater. The Phase 3 Jellyfin library uses a scratch sample folder so the two parts are not integrated until the naming decision is made (Phase 4 integrates them).
-- Runtime: Docker on a home laptop (trial), later a mini PC (Intel N100/N150 if transcoding is needed, otherwise possibly a Raspberry Pi 5). Clients: Hisense VIDAA TV browser, smartphones.
+- Runtime: the laptop is only the dev machine (WSL2, `/dev/kvm` available). Production is a dedicated box the user will buy and install with Ubuntu Server; it must support KVM so Firecracker runs (x86_64 with VT-x, e.g. Intel N100/N150). Clients: Hisense VIDAA TV browser, smartphones.
+- Download safety (user request, added after roadmap creation): the household user must not be able to download anything other than films and series. Three layers: qBittorrent exclusion list and per-file allowlist (Phase 1), then quarantine plus ffprobe inside a Firecracker microVM (Phase 2.1). Note: Jellyfin still runs its own ffmpeg on validated files, so the sandbox catches anomalous files but does not isolate Jellyfin itself.
 
 ## Constraints
 
-- **Runtime**: Docker on a LAN laptop, no cloud — home use; later move to a mini PC must only change the host address
+- **Runtime**: Docker on the LAN, no cloud — dev on a WSL2 laptop, production on a dedicated Ubuntu Server box; moving must only change the host address
+- **Sandbox**: file validation runs in Firecracker microVMs — host needs KVM (`/dev/kvm`); production CPU must have VT-x/AMD-V; Raspberry Pi 5 likely unsuitable (Firecracker on ARM expects GICv3)
+- **Download filtering**: only video (`.mkv`, `.mp4`, `.avi`, `.m4v`) and subtitle files are downloaded; nothing reaches the media folders without passing quarantine validation
 - **Playback**: at least 1080p, no video transcoding (direct play, remux to HLS or audio-only transcode only) — Full HD without quality loss; TV hardware-decodes H.264 and HEVC; about 8-20 Mbps needed, Ethernet or 5 GHz Wi-Fi
 - **TV client**: dated VIDAA browser, low CPU/memory, remote-only input — transpiled lightweight build, spatial navigation, few large images, real-TV tests from the first screen
 - **Portability**: frontend is a pure web app with no VIDAA-specific APIs — so plan A (VIDAA icon tool) to plan B (HDMI stick + WebView APK) needs no rewrite
@@ -73,6 +78,8 @@ No locked decisions. No ADRs were ingested (both source docs are unlocked SPECs)
 | Public MIT repo, no secrets / LAN IPs / real credentials | User constraint; protects the household | Decided (user, 2026-10-21) |
 | Planning files in English; user communicates in Italian | User instruction | Decided (user, 2026-10-21) |
 | Jellyfin + Caddy single origin as the home-theater backend/proxy | SPEC architecture (not ADR-locked); avoids CORS and server code | Baseline (SPEC, revisitable) |
+| Validate downloads with ffprobe inside Firecracker microVMs (not a hardened container) | User choice; strongest isolation for parsing untrusted files; KVM available on dev and required on production | Decided (user, 2026-10-21) |
+| Production host: dedicated box with Ubuntu Server, KVM-capable | User decision; the laptop is only for development | Decided (user, 2026-10-21); exact model pending |
 | Who puts downloads into Jellyfin naming layout (W1) | Options: portal post-download step, external library manager, relaxed Jellyfin requirement; decide on scan-test evidence | — Pending (Phase 3 decides, Phase 4 implements) |
 | Shared media wiring contract (W2): host paths, PUID/PGID, incomplete folder, read-only mounts, libraries, rescan trigger | Neither doc specified it | — Pending (Phase 1 part, Phase 4 rest) |
 | Laptop port map and whether Caddy also fronts the portal (W3) | Port 8080 ambiguity; Caddy port undefined | — Pending (Phase 1 map, Phase 3 Caddy) |
@@ -81,7 +88,7 @@ No locked decisions. No ADRs were ingested (both source docs are unlocked SPECs)
 | One shared Jellyfin user or separate profiles | Separate profiles are out of scope for now | — Pending (Phase 3) |
 | Default audio and subtitle language | Open decision in home-theater.md | — Pending (Phase 3) |
 | TV distribution: plan A (VIDAA icon tool) or plan B (HDMI stick + APK) | Plan A is unofficial and may break on firmware updates | — Pending (Phase 6) |
-| Final server hardware after the laptop trial | Mini PC N100/N150 if transcoding is needed, else maybe Raspberry Pi 5 | — Pending (after Phase 6; informed by Phase 3 gate) |
+| Exact production box model | Must be x86_64 with VT-x + KVM for Firecracker; N100/N150 class also covers Jellyfin transcoding if Phase 3 needs it | — Pending (before Phase 6; informed by Phase 3 gate) |
 | If and when to open access from outside home (Tailscale / WireGuard) | Out of scope for v1 | — Pending (v2) |
 
 ## Evolution
@@ -102,4 +109,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-21 after roadmap creation (new-project-from-ingest)*
+*Last updated: 2026-10-21 after adding download filtering and Firecracker validation (Phase 2.1)*

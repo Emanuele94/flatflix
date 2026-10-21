@@ -1,0 +1,43 @@
+{
+  "contract": "1.0.0",
+  "flavor": "core",
+  "milestone": null,
+  "phases": [
+    {
+      "number": "1",
+      "name": "Portal Search & Start Download",
+      "status": "pending"
+    },
+    {
+      "number": "2",
+      "name": "Portal Download Management & Hardening",
+      "status": "pending"
+    },
+    {
+      "number": "3",
+      "name": "Jellyfin Server & TV Playback Gate",
+      "status": "pending"
+    },
+    {
+      "number": "4",
+      "name": "Library Hand-off",
+      "status": "pending"
+    },
+    {
+      "number": "5",
+      "name": "TV App Browse & Play",
+      "status": "pending"
+    },
+    {
+      "number": "6",
+      "name": "TV Icon & End-to-End Acceptance",
+      "status": "pending"
+    }
+  ],
+  "next": {
+    "command": "/gsd:progress --next",
+    "label": "Advance to the next step (plan phase 1)",
+    "reason": "Phase 1 of 6 — needs a plan"
+  },
+  "updated_at": "2026-10-21T21:19:51.964Z"
+}

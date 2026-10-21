@@ -14,6 +14,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [ ] **Phase 1: Portal Search & Start Download** - Log in from a phone, search films/series, start a download into the right folder; stack, port map and media contract set up
 - [ ] **Phase 2: Portal Download Management & Hardening** - See and cancel downloads, friendly errors, rate limiting and audit logs
+- [ ] **Phase 2.1: Download Quarantine & Firecracker Validation** (INSERTED) - Completed downloads are verified with ffprobe inside a Firecracker microVM before they reach the media folders
 - [ ] **Phase 3: Jellyfin Server & TV Playback Gate** - Jellyfin behind Caddy, stable LAN address, real-TV compatibility verdict, naming decision recorded
 - [ ] **Phase 4: Library Hand-off** - Portal downloads appear in Jellyfin with correct names and artwork, no manual steps
 - [ ] **Phase 5: TV App Browse & Play** - Remote-only TV app with Home, Library, Detail and Player at 1080p without video transcoding
@@ -22,19 +23,23 @@ Decimal phases appear between their surrounding integers in numeric order.
 ## Phase Details
 
 ### Phase 1: Portal Search & Start Download
+
 **Goal**: A household member can log in to the portal from her phone, search for a film or series, and start a download that lands in the correct predefined folder, without ever seeing qBittorrent, save paths or credentials.
 **Depends on**: Nothing (first phase)
-**Requirements**: AUTH-01, SEC-01, SEC-02, SEC-03, SEC-04, SRCH-01, SRCH-02, SRCH-03, DOWN-01, DOWN-02, DOWN-03, PUI-01, PUI-02, INFRA-01, INFRA-02, MEDIA-01
+**Requirements**: AUTH-01, SEC-01, SEC-02, SEC-03, SEC-04, SRCH-01, SRCH-02, SRCH-03, DOWN-01, DOWN-02, DOWN-03, PUI-01, PUI-02, INFRA-01, INFRA-02, MEDIA-01, FILT-01, FILT-02
 **Success Criteria** (what must be TRUE):
   1. From a smartphone browser on the LAN, the user opens the portal, is asked to log in, and cannot reach search or download pages or endpoints without logging in.
   2. The user chooses Film or Serie, types a keyword, and sees first results in about 2 seconds with name, size, seeders, leechers and source, sorted by most seeders; a search timeout shows a plain message, not an error.
   3. Tapping Download on a result starts it in qBittorrent and, once complete, the file is in the Film or SerieTV host folder matching the chosen type, with no path or category ever shown or chosen by the user.
   4. qBittorrent is not reachable from the LAN and its credentials and paths appear in no browser response; the whole portal stack comes up with one `docker compose up` from a `.env` built from `.env.example`, and the repo holds no secrets or LAN IPs.
   5. One documented laptop port map (Caddy, portal frontend, qBittorrent WebUI if published, Jellyfin 8096) and one media-folder contract (host paths, owner IDs, separate incomplete-downloads folder) exist, and no two services collide on a port.
+  6. A torrent whose file list has no allowed video file is rejected before any data is downloaded, with a plain message to the user; in an accepted torrent, executables, scripts, shortcuts, archives and every other non-video, non-subtitle file are never downloaded (qBittorrent exclusion list plus per-file priority 0).
+
 **Plans**: TBD
 **UI hint**: yes
 
 ### Phase 2: Portal Download Management & Hardening
+
 **Goal**: The user can follow and cancel her downloads from the phone, and the portal degrades gracefully, throttles abuse and keeps audit logs.
 **Depends on**: Phase 1
 **Requirements**: DOWN-04, DOWN-05, DOWN-06, SEC-05, SEC-06
@@ -43,10 +48,27 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. The user can cancel a download from the list, and it also disappears from qBittorrent.
   3. When qBittorrent is down, a torrent is invalid or a category path is wrong, the user sees a plain-language message (with automatic retry when qBittorrent is unreachable), never a raw error.
   4. Rapid repeated search or download requests are throttled, and the logs record logins, searches, downloads, cancels and errors without any credentials.
+
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 02.1: Download Quarantine & Firecracker Validation (INSERTED)
+
+**Goal**: No downloaded file reaches the media folders (and so Jellyfin) unless a sandboxed probe proves it is a real video: completed downloads land in quarantine, ffprobe inspects each file inside a throwaway Firecracker microVM, and only passing files move on.
+**Depends on**: Phase 2 (download list shows the new verifying / rejected states). Runs on the dev machine (WSL2 with `/dev/kvm`) and must run unchanged on the production Ubuntu Server box.
+**Requirements**: QUAR-01, QUAR-02, QUAR-03, QUAR-04, QUAR-05
+**Success Criteria** (what must be TRUE):
+  1. A completed download sits in a quarantine folder that Jellyfin cannot see; nothing goes straight from qBittorrent to the Film or SerieTV media folders.
+  2. Each file is probed by ffprobe inside a fresh Firecracker microVM with no network device, the file attached read-only, fixed vCPU/memory limits and a hard timeout; the VM is destroyed after every check, and a probe crash or timeout counts as a failure.
+  3. A real film or episode passes (container matches extension, at least one video stream with a known codec, plausible duration and size) and moves to the media folder of its category; a renamed executable, a truncated file or a non-video file fails.
+  4. A failed file never reaches the media folders (deleted, or held out of reach for the admin per the Phase 2.1 decision), its torrent is removed from qBittorrent, the user sees a plain "rejected" state in the download list, and the admin log records the reason.
+  5. The microVM runner (pinned Firecracker version, guest kernel and ffprobe rootfs built by scripts in the repo, no binaries committed) is set up from documented steps on Ubuntu Server as well as on the dev machine, behind one stable interface so the sandbox can be swapped without touching the portal.
+
 **Plans**: TBD
 **UI hint**: yes
 
 ### Phase 3: Jellyfin Server & TV Playback Gate
+
 **Goal**: Jellyfin runs on the laptop behind Caddy at a stable address, the real TV's playback behaviour is measured (go/no-go for "no video transcoding"), and the file-naming ownership decision is made on evidence, before the portal and Jellyfin are integrated.
 **Depends on**: Phase 1 (port map and media contract); Phase 2 complete so the portal part is finished first
 **Requirements**: JFIN-01, JFIN-02, JFIN-03, COMPAT-01, COMPAT-02, COMPAT-03, COMPAT-04, INFRA-03, INFRA-04, NAME-01
@@ -56,11 +78,13 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. A go/no-go verdict is recorded from Jellyfin's admin dashboard: target 1080p content never needs video transcoding on this TV, or a mitigation (re-encode, plan B stick, stronger hardware) is chosen.
   4. After a laptop or router restart the TV still reaches the same address, and Caddy, Jellyfin and the portal run on the documented port map with no collisions.
   5. The naming decision (who puts downloads into Jellyfin's layout) is recorded in PROJECT.md Key Decisions, backed by a scan test with raw torrent-style names.
+
 **Plans**: TBD
 
 ### Phase 4: Library Hand-off
+
 **Goal**: A film or series episode downloaded through the portal shows up in Jellyfin with the right title and artwork, with no manual step by the household or the admin.
-**Depends on**: Phase 2, Phase 3 (naming decision recorded). Independent of Phase 5, which can run before or after it.
+**Depends on**: Phase 2.1 (only validated files are handed off; renaming slots into the move step after validation), Phase 3 (naming decision recorded). Independent of Phase 5, which can run before or after it.
 **Requirements**: NAME-02, NAME-03, NAME-04, MEDIA-02, MEDIA-03
 **Success Criteria** (what must be TRUE):
   1. A film downloaded through the portal ends up as `Title (Year)/Title (Year).<ext>` and appears in Jellyfin's Film library with poster and plot.
@@ -68,9 +92,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. A download still in progress does not appear in Jellyfin; once it completes, it appears within the stated refresh time with no admin action.
   4. A download that cannot be identified is not lost or mis-filed: it stays in an unsorted place and is flagged in the logs for the admin.
   5. Jellyfin reads the media folders read-only (it cannot change or delete downloads) and shows no permission errors in its logs.
+
 **Plans**: TBD
 
 ### Phase 5: TV App Browse & Play
+
 **Goal**: A household member can browse the library and play a film or episode on the TV using only the remote, at 1080p or better with original video quality.
 **Depends on**: Phase 3 (compatibility gate passed or mitigation chosen; Caddy single origin)
 **Requirements**: TV-01, TV-02, TV-03, TV-04, TV-05, TV-06, TV-07, PLAY-01, PLAY-02, PLAY-03, PLAY-04
@@ -80,10 +106,12 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Pressing OK on a film or episode starts full-screen playback at 1080p or better; Jellyfin's dashboard shows direct play, remux or audio-only transcode, never video transcode; Play/Pause and seeking work from the remote and subtitles can be switched on.
   4. Leaving a title mid-playback makes it appear in Continue watching at the right position, and finishing it marks it watched.
   5. With the laptop off or unreachable, the app shows a clear "server unreachable" screen instead of a blank or hung page.
+
 **Plans**: TBD
 **UI hint**: yes
 
 ### Phase 6: TV Icon & End-to-End Acceptance
+
 **Goal**: The app launches from an icon on the VIDAA home, and a non-technical household member completes the whole phone-to-TV flow; the stack is reproducible from the repo.
 **Depends on**: Phase 4, Phase 5
 **Requirements**: LAUNCH-01, LAUNCH-02, ACPT-01, ACPT-02, INFRA-05
@@ -92,17 +120,19 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. A household member, with only a phone, logs into the portal, searches and starts a film download; later, with only the TV remote from the icon, she finds the film and plays it at 1080p or better with no video transcoding.
   3. The same flow works for a series episode, which appears under the right season.
   4. On a fresh machine, documented steps plus a `.env` built from `.env.example` bring up the whole stack, and moving machines changes only the host address; the repo contains no secrets or LAN IPs.
+
 **Plans**: TBD
 
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 (Phases 4 and 5 are independent and may be swapped)
+Phases execute in numeric order: 1 → 2 → 2.1 → 3 → 4 → 5 → 6 (Phases 4 and 5 are independent and may be swapped)
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Portal Search & Start Download | 0/TBD | Not started | - |
 | 2. Portal Download Management & Hardening | 0/TBD | Not started | - |
+| 2.1 Download Quarantine & Firecracker Validation | 0/TBD | Not started | - |
 | 3. Jellyfin Server & TV Playback Gate | 0/TBD | Not started | - |
 | 4. Library Hand-off | 0/TBD | Not started | - |
 | 5. TV App Browse & Play | 0/TBD | Not started | - |
@@ -129,4 +159,7 @@ The three warnings from `.planning/INGEST-CONFLICTS.md` were approved by the use
 | Rescan trigger mechanism (Jellyfin API call, scheduled scan, or folder watch) | Phase 4 |
 | TV framework (Preact or SolidJS) and Jellyfin auth method (login or API key) | Phase 5 |
 | Plan A or plan B for the TV icon | Phase 6 |
-| Final server hardware; access from outside home | After Phase 6 (v2) |
+| Allowed extensions and plausibility thresholds (min duration/size per type) | Phase 1 (extensions), Phase 2.1 (thresholds) |
+| Fate of rejected files: delete at once or keep briefly for the admin | Phase 2.1 |
+| Exact production box model (x86_64 with VT-x and KVM, Ubuntu Server) | Before Phase 6; must run Firecracker |
+| Access from outside home | After Phase 6 (v2) |

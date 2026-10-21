@@ -5,7 +5,7 @@
 
 Both source docs are SPECs, so there were no REQ-* entries to carry over. IDs below were derived by the roadmapper from the requirement-style lists in the specs.
 
-Source tags: `qbit` = /home/emanuele/projects/flatflix/qbit-wrapper.md (F1-F8, NF1-NF6, sections 5-13); `ht` = /home/emanuele/projects/flatflix/home-theater.md; `W1`/`W2`/`W3` = ingest warnings in /home/emanuele/projects/flatflix/.planning/INGEST-CONFLICTS.md (naming gap, shared media wiring, port map); `derived` = added by the roadmapper to make a warning or the success metric testable.
+Source tags: `qbit` = /home/emanuele/projects/flatflix/qbit-wrapper.md (F1-F8, NF1-NF6, sections 5-13); `ht` = /home/emanuele/projects/flatflix/home-theater.md; `W1`/`W2`/`W3` = ingest warnings in /home/emanuele/projects/flatflix/.planning/INGEST-CONFLICTS.md (naming gap, shared media wiring, port map); `derived` = added by the roadmapper to make a warning or the success metric testable; `user` = added by the user after roadmap creation (2026-10-21).
 
 ## v1 Requirements
 
@@ -41,13 +41,23 @@ Requirements for the initial release. Each maps to exactly one roadmap phase.
 - [ ] **PUI-01**: The portal interface is responsive and fully usable on a smartphone. (qbit NF1)
 - [ ] **PUI-02**: The end user never sees qBittorrent, save paths, category names or credentials; the main flow is a search followed by a single Download button. (qbit sections 1, 2, 15 closing note)
 
+### Download Filtering & Validation
+
+- [ ] **FILT-01**: At startup the backend sets qBittorrent's global excluded-file-names list (executables, scripts, shortcuts, archives, disk images, e.g. `*.exe`, `*.bat`, `*.cmd`, `*.ps1`, `*.scr`, `*.lnk`, `*.msi`, `*.zip`, `*.rar`, `*.7z`, `*.iso`), so such files are never downloaded. (user)
+- [ ] **FILT-02**: The backend adds every torrent stopped, waits for its metadata and reads the file list against an allowlist (video: `.mkv`, `.mp4`, `.avi`, `.m4v`; subtitles: `.srt`, `.ass`, `.ssa`, `.sub`, `.idx`). A torrent with no allowed video file is removed before any data is downloaded and the user sees a plain message; in an accepted torrent every non-allowed file gets priority 0; only then is the torrent started. (user)
+- [ ] **QUAR-01**: Completed downloads are saved to a quarantine folder (per category) outside the media folders that Jellyfin reads; no file moves to a media folder without passing validation. (user)
+- [ ] **QUAR-02**: Each completed video file is probed with ffprobe inside a fresh Firecracker microVM: no network device, the file attached read-only, fixed vCPU and memory limits, a hard wall-clock timeout, and the VM destroyed after the check; a crash or timeout counts as a failure. (user)
+- [ ] **QUAR-03**: A file passes only if its real container (per ffprobe) matches its extension, it has at least one video stream with a known codec, and its duration and size are plausible for its type (configurable thresholds for film and episode). (user)
+- [ ] **QUAR-04**: Passing files move to the media folder of their category (Phase 4 later adds renaming to this move); failing files never reach a media folder, their torrent is removed from qBittorrent, the download list shows a plain "verifying" then "ready" or "rejected" state, and the reason is logged for the admin. (user)
+- [ ] **QUAR-05**: The microVM runner uses a pinned Firecracker version and a guest kernel plus ffprobe rootfs built by scripts in the repo (no binaries committed); documented steps set it up on the dev machine (WSL2 with `/dev/kvm`) and on the production Ubuntu Server box; the portal calls it through one stable interface so the sandbox can be swapped. (user)
+
 ### Shared Infrastructure
 
 - [ ] **INFRA-01**: The portal stack (frontend, backend, qBittorrent) starts with a single `docker compose up` on the laptop and `GET /api/health` reports service status. (qbit section 7, 11)
 - [ ] **INFRA-02**: One laptop-wide port map, documented in one place, assigns host ports for Caddy, the portal frontend, the qBittorrent WebUI (only if published) and Jellyfin 8096 without collisions; qBittorrent's WebUI port differs from the portal frontend's and `QBITTORRENT_URL` matches. (W3)
 - [ ] **INFRA-03**: Caddy and Jellyfin run according to the port map; the portal and Jellyfin/Caddy stacks share a Docker network or one compose project; whether Caddy also fronts the portal is decided and recorded; the TV reaches Jellyfin only through Caddy's single address. (W3, ht architecture)
 - [ ] **INFRA-04**: A DHCP reservation keeps the laptop on the same LAN IP, so the TV address does not change after reboots. (ht setup)
-- [ ] **INFRA-05**: The whole stack (portal, Jellyfin, Caddy) comes up on a fresh machine from the repo using documented steps and a `.env` built from `.env.example`; moving to another machine changes only the host address. (ht architecture, derived)
+- [ ] **INFRA-05**: The whole stack (portal, Firecracker validation runner, Jellyfin, Caddy) comes up on a fresh Ubuntu Server machine from the repo using documented steps and a `.env` built from `.env.example`; moving to another machine changes only the host address. (ht architecture, derived)
 
 ### Shared Media & Naming
 
@@ -108,7 +118,7 @@ Deferred to a future release. Tracked but not in the current roadmap.
 - **PROF-01**: Separate Jellyfin profiles per household member
 - **EXT-01**: Access from outside the home via VPN (Tailscale or WireGuard), with HTTPS if the portal is exposed
 - **PLANB-01**: Plan B packaging: same frontend in a WebView (e.g. Capacitor) as an APK for a Google TV / Fire TV stick (pulled into v1 if LAUNCH-02 finds plan A not viable)
-- **HW-01**: Move the stack to a dedicated always-on server (mini PC or Raspberry Pi 5)
+- **HW-01**: Move the stack to a dedicated always-on server running Ubuntu Server; it must be x86_64 with VT-x/AMD-V and KVM so Firecracker runs (e.g. Intel N100/N150 mini PC). Raspberry Pi 5 is likely unsuitable: Firecracker on ARM expects a GICv3 interrupt controller (verify before buying)
 
 ## Out of Scope
 
@@ -155,6 +165,13 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INFRA-04 | Phase 3 | Pending |
 | INFRA-05 | Phase 6 | Pending |
 | MEDIA-01 | Phase 1 | Pending |
+| FILT-01 | Phase 1 | Pending |
+| FILT-02 | Phase 1 | Pending |
+| QUAR-01 | Phase 2.1 | Pending |
+| QUAR-02 | Phase 2.1 | Pending |
+| QUAR-03 | Phase 2.1 | Pending |
+| QUAR-04 | Phase 2.1 | Pending |
+| QUAR-05 | Phase 2.1 | Pending |
 | MEDIA-02 | Phase 4 | Pending |
 | MEDIA-03 | Phase 4 | Pending |
 | NAME-01 | Phase 3 | Pending |
@@ -185,10 +202,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ACPT-02 | Phase 6 | Pending |
 
 **Coverage:**
-- v1 requirements: 52 total
-- Mapped to phases: 52
+- v1 requirements: 59 total
+- Mapped to phases: 59
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-10-21*
-*Last updated: 2026-10-21 after initial roadmap creation*
+*Last updated: 2026-10-21 after adding download filtering (FILT) and Firecracker validation (QUAR, Phase 2.1)*

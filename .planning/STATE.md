@@ -1,8 +1,15 @@
 ---
-gsd_state_version: '1.0'
+gsd_state_version: "1.0"
+current_phase: 1
+current_phase_name: Portal Search & Start Download
 status: planning
+stopped_at: Roadmap, requirements and state written; awaiting orchestrator review and commit
+last_updated: "2026-10-21T21:21:11.947Z"
+last_activity: 2026-10-21
+last_activity_desc: Roadmap created from ingest of home-theater.md and qbit-wrapper.md (52 v1 requirements, 6 phases)
+state_head: e801e4bf9b9c5c597a181c82c0001f8e10036957
 progress:
-  total_phases: 6
+  total_phases: 7
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -20,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-10-21)
 
 ## Current Position
 
-Phase: 1 of 6 (Portal Search & Start Download)
+Phase: 1 of 7 (Portal Search & Start Download)
 Plan: 0 of TBD in current phase
 Status: Ready to plan
 Last activity: 2026-10-21 — Roadmap created from ingest of home-theater.md and qbit-wrapper.md (52 v1 requirements, 6 phases)
@@ -65,9 +72,15 @@ None yet.
 
 - [Phase 1]: Port map (W3) and media-folder contract (W2) must be set when the portal stack first comes up; do not reuse host port 8080 for two services.
 - [Phase 1-2]: Do not preclude any naming option (W1): keep completed-torrent info (hash, name, category, content path) reachable from the backend and avoid freezing the download request body if Phase 3 picks portal-side renaming.
+- [Phase 1]: Add torrents stopped and filter the file list (FILT-02) before starting; keep the download flow able to route completed files to quarantine later (Phase 2.1 changes the save path).
+- [Phase 2.1]: Firecracker needs `/dev/kvm`: present on the WSL2 dev machine; the production Ubuntu Server box must be x86_64 with VT-x (Raspberry Pi 5 likely unsuitable). Guest kernel and rootfs must be built by repo scripts, not committed.
 - [Phase 3]: Naming decision (NAME-01) must be recorded before Phase 4 starts; Phase 3's Jellyfin library stays on a scratch sample folder until then.
 - [Phase 3]: TV compatibility gate may force a mitigation (re-encode, plan B stick, N100 hardware) that changes Phase 5 and 6 scope.
 - [Phase 6]: Plan A (community VIDAA icon tool) is unofficial; a firmware update may break it.
+
+### Roadmap Evolution
+
+- Phase 02.1 inserted after Phase 2: Download Quarantine & Firecracker Validation: ffprobe in Firecracker microVM before files reach media folders; plus FILT-01/02 download filtering added to Phase 1 (user request)
 
 ## Deferred Items
 
