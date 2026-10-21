@@ -1,0 +1,13 @@
+{
+  "source_path": "/home/emanuele/projects/flatflix/home-theater.md",
+  "type": "SPEC",
+  "confidence": "low",
+  "manifest_override": false,
+  "title": "Home Theater App — Piano di progetto",
+  "summary": "Project plan for a personal home theater app streaming a Jellyfin library to a Hisense VIDAA TV via a Preact frontend; covers requirements, API use, and phases.",
+  "scope": ["Jellyfin", "Caddy", "Docker", "VIDAA OS", "Hisense TV", "Preact", "Vite", "SolidJS", "Lightning 3 / Blits", "HLS / hls.js", "PlaybackInfo device profile", "hosted app distribution", "Capacitor APK (plan B)"],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": "Mixed signals, no clear single type. SPEC signals: Jellyfin REST API endpoint table, codec/transcoding constraint table, device profile and bitrate constraints. PRD signals: explicit requirements list and out-of-scope list (no user stories or acceptance criteria). DOC signals: project plan prose, risks table, phases, open decisions. No ADR signals (no Status field, no Context/Decision/Consequences; open decisions are unchecked). Ambiguity resolved by precedence rule (SPEC > PRD > DOC). Not locked. Only external URLs are referenced (VIDAA, Lightning, Norigin, preact-spatial-navigation, solidjs-spatial-navigation, unpkg); none are project doc paths, so cross_refs is empty. source_hash could not be computed: this agent has no hashing tool, so the file is written as home-theater.json without the 8-char SHA-256 suffix. Rename to home-theater-<sha256(source_path)[0:8]>.json before the synthesizer consumes it."
+}

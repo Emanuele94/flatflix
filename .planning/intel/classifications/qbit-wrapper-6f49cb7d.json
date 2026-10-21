@@ -1,0 +1,13 @@
+{
+  "source_path": "/home/emanuele/projects/flatflix/qbit-wrapper.md",
+  "type": "SPEC",
+  "confidence": "medium",
+  "manifest_override": false,
+  "title": "Architettura – Portale Self-Service Film e Serie TV su qBittorrent",
+  "summary": "Architecture for a self-service web portal that searches and downloads films and TV series via the qBittorrent Web API, covering categories, endpoints, security, and configuration.",
+  "scope": ["qBittorrent", "Web API v2", "search plugins", "categories Film and SerieTV", "backend API", "reverse proxy", "TMDB (optional)", "Docker deployment"],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": "Mixed document. SPEC signals dominate: endpoint tables, HTTP request examples, deployment YAML, env var config, error code table, NFRs. PRD-like signals also present: numbered functional requirements F1-F8 and goals/non-goals. Chose SPEC by the ambiguity rule. Body is in Italian. No links to other docs."
+}
