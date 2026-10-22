@@ -1,7 +1,8 @@
 ---
 phase: "02"
 slug: portal-download-management-hardening
-status: draft
+status: approved
+reviewed_at: "2026-10-22"
 shadcn_initialized: false
 preset: none
 created: "2026-10-22"
@@ -314,7 +315,7 @@ Rules for every string: plain words, no status codes, no qBittorrent terms (torr
 
 ## UI Considerations
 
-Applicable state considerations resolved: 17 covered, 2 backstop, 1 unresolved. (Empty and error COPY lives in the Copywriting Contract above; rows here reference it.)
+Applicable state considerations resolved: 21 covered, 2 backstop, 1 unresolved, 1 dismissed. Probe run 2026-10-22 over 7 elements (tab bar, list, row, cancel, remove, search 429, banner); detected kinds confirmed by the user. (Empty and error COPY lives in the Copywriting Contract above; rows here reference it.)
 
 | Category | Element(s) | Status | Resolution / Reason |
 |----------|------------|--------|---------------------|
@@ -337,6 +338,11 @@ Applicable state considerations resolved: 17 covered, 2 backstop, 1 unresolved. 
 | empty | Search form on 429 (form) | ✅ covered | The throttle message appears in the existing form-error block; the form stays editable |
 | error | Search form and result rows on 429 | ✅ covered | `throttled` copy in the form-error block and as a retryable row message; no countdown |
 | populated | Progress bar | 🧪 backstop | iOS Safari and Android Chrome render the CSS-only `<progress>` (fill color, indeterminate animation) as specified: held-out check on real phones in the phase gate |
+| error | Download row | ✅ covered | `problem`, `rejected`, `unsupported`, `unavailable`, `failed` rows per the Download row state table (copy in the Copywriting Contract) |
+| empty / zero-one-many | Download row | ✅ covered | A row always has a state; null fields follow the `partial` row above; one row and many rows share the layout |
+| error | Service banner (status message) | ✅ covered | Outage section: `downloadServiceDown` (auto-retry) vs `downloadServiceProblem` (ask the admin); clears on the next successful poll |
+| loading | Service banner | ✅ covered | No loading state of its own; it appears only after a poll fails and is removed on the first success |
+| empty / partial / populated / zero-one-many | Remove from list button | ➖ dismissed | Probe classified it as a collection; it is a single button, covered by the Cancel / Remove loading and error rows above |
 | overflow | Downloads list at very large volume (hundreds of rows) | ⚠ unresolved | No virtualization is specified; household volume is small and rows are time-limited; the planner treats this as an assumption |
 
 ---
@@ -354,12 +360,12 @@ No component registry, no UI kit, no icon package, and no new npm dependency in 
 
 ## Checker Sign-Off
 
-- [ ] Dimension 1 Copywriting: PASS
-- [ ] Dimension 2 Visuals: PASS
-- [ ] Dimension 3 Color: PASS
-- [ ] Dimension 4 Typography: PASS
-- [ ] Dimension 5 Spacing: PASS
-- [ ] Dimension 6 Registry Safety: PASS
-- [ ] Dimension 7 Inventory Provenance: PASS (no design system, `Tool: none`, inventory section omitted by template rule)
+- [x] Dimension 1 Copywriting: PASS
+- [x] Dimension 2 Visuals: PASS
+- [x] Dimension 3 Color: PASS
+- [x] Dimension 4 Typography: PASS
+- [x] Dimension 5 Spacing: PASS
+- [x] Dimension 6 Registry Safety: PASS
+- [x] Dimension 7 Inventory Provenance: PASS (no design system, `Tool: none`, inventory section omitted by template rule)
 
-**Approval:** pending
+**Approval:** approved 2026-10-22 (gsd-ui-checker, after revision 1; user confirmed the researcher defaults, the Phase 1 typography shift and "TV Series")
