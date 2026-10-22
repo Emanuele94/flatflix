@@ -5,6 +5,7 @@ no plugin page link, torrent link, byte size, category or path ever leaves the b
 """
 
 import logging
+import math
 import unicodedata
 
 from fastapi import Depends, HTTPException, Request
@@ -78,6 +79,16 @@ def unavailable(exc: QbitError) -> HTTPException:
 
 @router.post("/search", dependencies=[Depends(require_ready)])
 async def start_search(body: SearchRequest, request: Request) -> dict[str, str]:
+    # The slot is taken only here: the session, readiness and body checks run as dependencies and
+    # validation before the handler, so anonymous or malformed requests never use one (SEC-05).
+    ip = request.client.host if request.client else "unknown"
+    retry_in = request.app.state.search_throttle.try_acquire(ip)
+    if retry_in is not None:
+        raise HTTPException(
+            status_code=429,
+            detail="too_many_requests",
+            headers={"Retry-After": str(max(1, math.ceil(retry_in)))},
+        )
     try:
         search_id = await request.app.state.search.start(body.q, body.type)
     except QbitError as exc:

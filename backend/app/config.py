@@ -104,6 +104,11 @@ class Settings(BaseSettings):
     completed_visible_days: int = Field(default=7, ge=1)
     failed_visible_hours: int = Field(default=24, ge=1)
 
+    # Rate limits (SEC-05, D-38): starts per address per minute. Only a stuck finger or a script
+    # should reach them; status polling and the downloads list are never limited.
+    search_rate_per_minute: int = Field(default=10, ge=1)
+    download_rate_per_minute: int = Field(default=20, ge=1)
+
     # The tested qBittorrent WebAPI floor (D-22); an older server stops bootstrap.
     min_webapi_version: str = "2.15.1"
 

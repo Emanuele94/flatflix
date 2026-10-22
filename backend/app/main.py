@@ -82,6 +82,12 @@ def create_app(settings: Settings | None = None, qbit: QbitClient | None = None)
         window_seconds=settings.login_window_seconds,
         global_max_attempts=settings.login_global_max_attempts,
     )
+    # Per address only: these routes already sit behind the login, and the limit targets a stuck
+    # finger or a script, not password guessing, so there is no ceiling across addresses (D-38).
+    # Task 2 renames the class to SlidingWindowThrottle; the window is one minute.
+    app.state.search_throttle = LoginThrottle(
+        max_attempts=settings.search_rate_per_minute, window_seconds=60
+    )
     app.add_middleware(
         SessionMiddleware,
         secret_key=settings.secret_key.get_secret_value(),
