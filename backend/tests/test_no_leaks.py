@@ -40,6 +40,8 @@ CANARY_FILM_PATH = "/media/CanaryFilm"
 CANARY_TV_PATH = "/media/CanarySerie"
 CANARY_INCOMPLETE_PATH = "/incomplete"
 
+BTIH = hashlib.sha1(b"leak-canary-film").hexdigest()
+
 # Marker name -> text that must not appear anywhere in a response (case-sensitive).
 FORBIDDEN: dict[str, str] = {
     "qbit password": CANARY_QBIT_PASS,
@@ -58,9 +60,9 @@ FORBIDDEN: dict[str, str] = {
     "descrLink key": "descrLink",
     "category key": '"category"',
     "plugin url": ".example",
+    "info hash": BTIH,
 }
 
-BTIH = hashlib.sha1(b"leak-canary-film").hexdigest()
 MAGNET = f"magnet:?xt=urn:btih:{BTIH}&dn=Sintel"
 FILM_FILES = [
     ("Sintel/Sintel.mp4", 129241752),
@@ -149,7 +151,10 @@ async def client(canary_app: tuple[FastAPI, FakeQbit]) -> AsyncIterator[httpx.As
 
 
 def sweep_targets(app: FastAPI) -> list[tuple[str, str]]:
-    """(method, path with dummy params) of every API route, logout last (it ends the session)."""
+    """(method, path with dummy params) of every API route, logout last (it ends the session).
+
+    Routes: login, logout, session, health, search x2, download x2, downloads list.
+    """
     targets = []
     for context in iter_route_contexts(app.routes):
         path = re.sub(r"\{[^}]+\}", "x", context.path)
@@ -215,6 +220,9 @@ async def test_no_response_carries_a_secret_path_magnet_or_category(
     assert download.json()["status"] == "started"
     job = seen.record("job poll", await client.get(f"/api/download/{download.json()['job_id']}"))
     assert job.status_code == 200
+    listing = seen.record("downloads list", await client.get("/api/downloads"))
+    assert listing.status_code == 200
+    assert listing.json()["items"], "the canary torrent never reached the downloads list"
 
     # The fake really received the torrent in the canary category: the data was in play.
     (add,) = fake.calls_to("/api/v2/torrents/add")

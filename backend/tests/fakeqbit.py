@@ -3,6 +3,12 @@
 Later plans add endpoints with `register(method, path, handler)`. The handler
 receives the `httpx.Request` and returns an `httpx.Response`; it may be sync or
 async. Requests without a live session cookie get 403, like the real service.
+
+Failure switches (both off by default):
+- `unreachable = True`: every request raises `httpx.ConnectError`, so the client raises
+  `QbitUnavailable`.
+- `refuse_logins = True`: every login answers 401 without counting towards the ban, so the
+  client raises `QbitAuthError`. Combine with `expire_sessions()` to force a re-login.
 """
 
 import asyncio
@@ -49,6 +55,14 @@ class FakeTorrent:
     files: list[dict] | None = None
     polls_left: int = 0  # `torrents/files` answers [] this many more times
     downloaded: int = 0  # payload bytes fetched so far (a stopped torrent can still hold some)
+    # What `torrents/info` reports. `None` means the default: the hash as the name, and a state
+    # derived from `started` (a magnet without `dn` is named by its hash until metadata arrives).
+    name: str | None = None
+    state: str | None = None
+    progress: float = 0.0
+    eta: int = 8640000  # qBittorrent's "infinite"
+    completion_on: int = -1  # -1 until the torrent has finished
+    size: int = 0
 
 
 @dataclass
@@ -68,6 +82,8 @@ class FakeQbit:
         self.login_attempts = 0  # every POST to the login route
         self.webapi_version = "2.15.1"
         self.ban_after = 5  # failed logins before every login answers 403
+        self.unreachable = False
+        self.refuse_logins = False
         self._failed_logins = 0
         self._sessions: set[str] = set()
         self._routes: dict[tuple[str, str], Callable] = {}
@@ -392,15 +408,54 @@ class FakeQbit:
                 self._pending_downloads.remove(pending)
                 self.torrents[pending[1].hash] = pending[1]
 
+    def add_torrent_row(
+        self,
+        torrent_hash: str,
+        *,
+        name: str | None = None,
+        category: str = "Film",
+        tags: tuple[str, ...] = (),
+        state: str | None = None,
+        progress: float = 0.0,
+        eta: int = 8640000,
+        completion_on: int = -1,
+        added_on: float | None = None,
+        started: bool = False,
+    ) -> FakeTorrent:
+        """Place a torrent as if it was added outside the portal (the admin in the WebUI, D-25).
+
+        No call is recorded, no job exists for it, and its metadata is whatever `set_metadata`
+        said (nothing by default).
+        """
+        torrent = FakeTorrent(
+            hash=torrent_hash,
+            url="",
+            category=category,
+            tags=list(tags),
+            added_on=self.clock() if added_on is None else added_on,
+            started=started,
+            name=name,
+            state=state,
+            progress=progress,
+            eta=eta,
+            completion_on=completion_on,
+        )
+        self.torrents[torrent_hash] = torrent
+        return torrent
+
     def _info_row(self, torrent: FakeTorrent) -> dict:
         return {
             "hash": torrent.hash,
-            "name": torrent.hash,
+            "name": torrent.name or torrent.hash,
             "category": torrent.category,
             "tags": ", ".join(torrent.tags),
             "added_on": int(torrent.added_on),
-            "state": "downloading" if torrent.started else "stoppedDL",
+            "state": torrent.state or ("downloading" if torrent.started else "stoppedDL"),
             "downloaded": torrent.downloaded,
+            "progress": torrent.progress,
+            "eta": torrent.eta,
+            "completion_on": torrent.completion_on,
+            "size": torrent.size,
         }
 
     def _torrents_info(self, request: httpx.Request) -> httpx.Response:
@@ -484,6 +539,8 @@ class FakeQbit:
 
     def _login(self, form: dict[str, str]) -> httpx.Response:
         self.login_attempts += 1
+        if self.refuse_logins:
+            return httpx.Response(401, text="Unauthorized")
         if self.banned:
             return httpx.Response(403, text="Your IP address has been banned.")
         if form.get("username") == self._username and form.get("password") == self._password:
@@ -500,6 +557,8 @@ class FakeQbit:
     async def handler(self, request: httpx.Request) -> httpx.Response:
         # One real suspension point so concurrent callers interleave like on a socket.
         await asyncio.sleep(0)
+        if self.unreachable:
+            raise httpx.ConnectError("fake qBittorrent is down", request=request)
         path = request.url.path
         form: dict[str, str] = {}
         if request.headers.get("content-type", "").startswith("application/x-www-form-urlencoded"):

@@ -4,34 +4,26 @@ Assertions are about responses and the fake's state; the pure rules live in
 test_download_listing.py.
 """
 
+import logging
 import re
 import time
 
 import httpx
+import pytest
 
 from app.download.listing import download_id
-from tests.conftest import PORTAL_SECRET_KEY
-from tests.fakeqbit import FakeQbit, FakeTorrent
+from tests.conftest import PORTAL_SECRET_KEY, QBIT_PASS
+from tests.fakeqbit import FakeQbit
 
 HASH = "a" * 40
 ITEM_KEYS = {"id", "name", "type", "state", "progress", "eta_seconds", "action"}
-
-
-def place(fake: FakeQbit, torrent_hash: str, category: str, started: bool = True) -> None:
-    fake.torrents[torrent_hash] = FakeTorrent(
-        hash=torrent_hash,
-        url="",
-        category=category,
-        tags=[],
-        added_on=time.time(),
-        started=started,
-    )
+DAY = 86400
 
 
 async def test_a_film_torrent_is_listed_with_the_plain_contract(
     user_api: httpx.AsyncClient, fake_qbit: FakeQbit
 ) -> None:
-    place(fake_qbit, HASH, "Film")
+    fake_qbit.add_torrent_row(HASH, category="Film", started=True)
 
     response = await user_api.get("/api/downloads")
 
@@ -50,7 +42,7 @@ async def test_a_film_torrent_is_listed_with_the_plain_contract(
 async def test_a_torrent_in_another_category_is_not_listed(
     user_api: httpx.AsyncClient, fake_qbit: FakeQbit
 ) -> None:
-    place(fake_qbit, "b" * 40, "Other")
+    fake_qbit.add_torrent_row("b" * 40, category="Other", started=True)
 
     response = await user_api.get("/api/downloads")
 
@@ -69,3 +61,86 @@ async def test_the_list_needs_a_session(api: httpx.AsyncClient) -> None:
     response = await api.get("/api/downloads")
 
     assert response.status_code == 401
+
+
+async def test_a_torrent_the_admin_added_by_hand_is_listed(
+    user_api: httpx.AsyncClient, fake_qbit: FakeQbit
+) -> None:
+    fake_qbit.add_torrent_row(
+        "c" * 40,
+        name="Show S01E01 1080p",
+        category="SerieTV",
+        state="stalledUP",
+        progress=1.0,
+        completion_on=int(time.time()) - 3600,
+    )
+
+    response = await user_api.get("/api/downloads")
+
+    (item,) = response.json()["items"]
+    assert item["type"] == "serie"
+    assert item["state"] == "ready"
+    assert item["progress"] == 100
+    assert item["action"] == "remove"
+    assert item["name"] == "Show S01E01 1080p"
+
+
+async def test_a_sub_category_is_not_listed_while_its_parent_is(
+    user_api: httpx.AsyncClient, fake_qbit: FakeQbit
+) -> None:
+    fake_qbit.add_torrent_row("d" * 40, category="Film/Extra", started=True)
+    fake_qbit.add_torrent_row("e" * 40, category="Film", started=True)
+
+    response = await user_api.get("/api/downloads")
+
+    assert [item["id"] for item in response.json()["items"]] == [
+        download_id(PORTAL_SECRET_KEY, "e" * 40)
+    ]
+
+
+async def test_old_finished_downloads_leave_the_list_but_old_active_ones_stay(
+    user_api: httpx.AsyncClient, fake_qbit: FakeQbit
+) -> None:
+    now = int(time.time())
+    fake_qbit.add_torrent_row(
+        "1" * 40, state="uploading", progress=1.0, completion_on=now - 8 * DAY
+    )
+    fake_qbit.add_torrent_row("2" * 40, started=True, added_on=now - 30 * DAY)
+
+    response = await user_api.get("/api/downloads")
+
+    (item,) = response.json()["items"]
+    assert item["id"] == download_id(PORTAL_SECRET_KEY, "2" * 40)
+    assert item["state"] == "downloading"
+    # The torrent itself is never touched by the window.
+    assert "1" * 40 in fake_qbit.torrents
+    assert fake_qbit.deleted == []
+
+
+async def test_an_outage_answers_502_and_keeps_the_session(
+    user_api: httpx.AsyncClient, fake_qbit: FakeQbit
+) -> None:
+    fake_qbit.unreachable = True
+
+    response = await user_api.get("/api/downloads")
+
+    assert response.status_code == 502
+    assert response.json() == {"detail": "qbit_unreachable"}
+    assert (await user_api.get("/api/session")).status_code == 200
+
+
+async def test_a_refused_login_answers_502_never_401(
+    user_api: httpx.AsyncClient, fake_qbit: FakeQbit, caplog: pytest.LogCaptureFixture
+) -> None:
+    fake_qbit.refuse_logins = True
+    fake_qbit.expire_sessions()
+
+    with caplog.at_level(logging.WARNING):
+        response = await user_api.get("/api/downloads")
+
+    assert response.status_code == 502
+    assert response.json() == {"detail": "qbit_refused"}
+    assert (await user_api.get("/api/session")).status_code == 200
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("QbitAuthError" in message for message in warnings)
+    assert all(QBIT_PASS not in message for message in warnings)
