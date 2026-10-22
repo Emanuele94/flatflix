@@ -1,13 +1,15 @@
 """Download flow against the real pinned qBittorrent (research A8, FILT-01, FILT-02, DOWN-03).
 
-Only two kinds of torrent are ever added: the Sintel open-movie demo magnet (Blender
-Foundation, CC BY 3.0) and locally bencoded synthetic torrents. A test deletes (with files) only
-what it added itself; a torrent that already exists before the test, such as the household's
-real Sintel download, is never touched and makes the Sintel test skip.
+Only three kinds of torrent are ever added: the Sintel open-movie demo magnet (Blender
+Foundation, CC BY 3.0), locally bencoded synthetic torrents, and open-licensed Blender results
+found through a magnet-printing plugin (limetorrents or torrentproject). A test deletes (with
+files) only what it added itself; a torrent that already exists before the test, such as the
+household's real Sintel download, is never touched and makes the Sintel test skip.
 """
 
 import asyncio
 import hashlib
+import re
 import secrets
 import time
 
@@ -156,7 +158,7 @@ async def test_synthetic_torrent_exclusions(real_settings: Settings, real_app: F
             added = await http.post(
                 "/api/v2/torrents/add",
                 files={"torrents": ("movie.torrent", payload, "application/x-bittorrent")},
-                data={"category": "Film", "autoTMM": "true", "stopped": "true"},
+                data={"category": "Film", "autoTMM": "true", "stopCondition": "MetadataReceived"},
             )
             assert added.status_code == 200, added.status_code
 
@@ -215,14 +217,15 @@ async def listed_files(qbit: QbitClient, torrent_hash: str) -> list[dict]:
     return rows
 
 
-async def test_a_metadata_complete_torrent_added_stopped_holds_still_until_the_pipeline_starts_it(
+async def test_a_metadata_complete_torrent_added_with_the_stop_condition_holds_still_until_the_pipeline_starts_it(
     real_settings: Settings, real_app: FastAPI, real_qbit: QbitClient
 ) -> None:
-    """The non-magnet path (WR-04): a .torrent that has its metadata at add is added `stopped`.
+    """The .torrent routes: a torrent that has its metadata at add, with the portal's add form.
 
-    The pipeline adds such a result with `stopped=true` and then runs `reconcile`'s resume path
-    here, which is the same `_process` the download job runs: allowlist, priorities, verify,
-    start. Before the start the torrent must be stopped with zero payload and a readable file list.
+    qBittorrent 5.2.4 adds such a torrent paused under `stopCondition=MetadataReceived`
+    (sessionimpl.cpp:2794-2801). Before the start it must be in a stopped state with zero payload
+    and a readable file list. Then `reconcile`'s resume path, which is the same `_process` the
+    download job runs, filters and starts it: allowlist, priorities, verify, start.
     """
     job_id = secrets.token_hex(8)
     payload, torrent_hash = synthetic_torrent(LAYOUT)
@@ -233,7 +236,7 @@ async def test_a_metadata_complete_torrent_added_stopped_holds_still_until_the_p
             {
                 "category": "Film",
                 "autoTMM": "true",
-                "stopped": "true",
+                "stopCondition": "MetadataReceived",
                 "tags": f"fx,fx-pending,fx-job-{job_id}",
             },
         )
@@ -272,27 +275,128 @@ async def test_a_metadata_complete_torrent_added_stopped_holds_still_until_the_p
         await real_qbit.delete([torrent_hash], True)
 
 
-async def test_records_what_a_stop_condition_does_to_a_torrent_that_already_has_metadata(
-    real_settings: Settings, real_app: FastAPI, real_qbit: QbitClient, record_property
-) -> None:
-    """Evidence only (WR-04): the pipeline no longer relies on the answer.
+# The only titles this guard may ever download: the Blender open movies (CC BY). Keep this
+# list equal to OPEN_LICENSED in scripts/smoke.py.
+OPEN_LICENSED = re.compile(
+    r"\b(big[ ._-]?buck[ ._-]?bunny|sintel|tears[ ._-]?of[ ._-]?steel"
+    r"|elephants?[ ._-]?dream|cosmos[ ._-]?laundromat)\b",
+    re.IGNORECASE,
+)
+# Plugins whose downloader prints a magnet instead of a .torrent path (G-01-3).
+MAGNET_PRINTING = {"limetorrents", "torrentproject"}
+PLUGIN_QUERIES = ("Tears of Steel", "Sintel", "Big Buck Bunny")
+METADATA_FETCHING_STATES = {"metaDL", "forcedMetaDL"}
+SEARCH_WAIT_SECONDS = 45
 
-    Adds a synthetic .torrent with `stopCondition=MetadataReceived` and records the state qBittorrent
-    reports a few seconds later. A stopped state would mean the condition also holds a
-    metadata-complete torrent; anything else is why non-magnet adds use `stopped=true` instead.
+
+async def find_magnet_printing_result(
+    real_app: FastAPI, real_api: httpx.AsyncClient
+) -> tuple[str, str] | None:
+    """(result_id, plugin) of an open-licensed result whose cached URL is a page, not a magnet."""
+    for query in PLUGIN_QUERIES:
+        started = await real_api.post("/api/search", json={"q": query, "type": "film"})
+        assert started.status_code == 200, started.text
+        search_id = started.json()["search_id"]
+        deadline = time.monotonic() + SEARCH_WAIT_SECONDS
+        body: dict = {}
+        while time.monotonic() < deadline:
+            body = (await real_api.get(f"/api/search/{search_id}")).json()
+            if body["done"]:
+                break
+            await asyncio.sleep(1)
+        for row in body.get("results", []):
+            if row["source"] not in MAGNET_PRINTING or not OPEN_LICENSED.search(row["name"]):
+                continue
+            cached = real_app.state.search.get_result(row["result_id"])
+            if cached is not None and not cached.file_url.lower().startswith("magnet:"):
+                return row["result_id"], row["source"]
+    return None
+
+
+async def test_a_plugin_result_whose_downloader_prints_a_magnet_fetches_metadata_with_zero_payload(
+    real_settings: Settings,
+    real_app: FastAPI,
+    real_api: httpx.AsyncClient,
+    real_qbit: QbitClient,
+    record_property,
+) -> None:
+    """The route UAT test 3 failed on (G-01-3): a page result whose downloader prints a magnet.
+
+    The torrent must fetch its metadata (never sit stopped without it) and must hold no payload
+    when the pipeline decides: before `start` for an accepted torrent, before `delete` for a
+    rejected one.
     """
-    payload, torrent_hash = synthetic_torrent(LAYOUT)
-    try:
-        await add_synthetic(
-            real_settings,
-            payload,
-            {"category": "Film", "autoTMM": "true", "stopCondition": "MetadataReceived"},
+    found = await find_magnet_printing_result(real_app, real_api)
+    if found is None:
+        pytest.skip(
+            "no open-licensed Blender result from limetorrents or torrentproject for "
+            + ", ".join(PLUGIN_QUERIES)
         )
-        await listed_files(real_qbit, torrent_hash)
-        await asyncio.sleep(5)
-        row = await torrent_row(real_qbit, torrent_hash)
-        assert row is not None
-        record_property("state_with_stop_condition_and_metadata_at_add", row["state"])
-        print(f"WR-04 evidence: state={row['state']} downloaded={row['downloaded']}")
+    result_id, plugin = found
+    before = {str(row["hash"]) for row in await real_qbit.torrents_info()}
+    held_before: dict[str, list[int]] = {"start": [], "delete": []}
+    qbit: QbitClient = real_app.state.qbit
+    real_start, real_delete = qbit.start, qbit.delete
+
+    def spy(kind: str, real):
+        async def wrapper(hashes, *args):
+            for row in await qbit.torrents_info(hashes=hashes):
+                held_before[kind].append(int(row["downloaded"]))
+            return await real(hashes, *args)
+
+        return wrapper
+
+    qbit.start = spy("start", real_start)
+    qbit.delete = spy("delete", real_delete)
+    job_id: str | None = None
+    try:
+        response = await real_api.post(
+            "/api/download", json={"result_id": result_id, "type": "film"}
+        )
+        assert response.status_code == 200, response.text
+        job_id = response.json()["job_id"]
+        observed: list[tuple[str, bool]] = []
+        stuck_polls = 0
+        outcome = response.json()["status"]
+        deadline = time.monotonic() + real_settings.metadata_timeout + 30
+        while outcome == "preparing" and time.monotonic() < deadline:
+            await asyncio.sleep(2)
+            outcome = (await real_api.get(f"/api/download/{job_id}")).json()["status"]
+            for row in await real_qbit.torrents_info(tag=f"fx-job-{job_id}"):
+                try:
+                    has_metadata = bool(await real_qbit.torrent_files(str(row["hash"])))
+                except QbitError:
+                    has_metadata = False
+                observed.append((str(row["state"]), has_metadata))
+                # A stopped magnet can never fetch metadata: that is the G-01-3 defect. Two polls
+                # in a row, so the moment metadata arrives and the torrent stops is not mistaken.
+                if row["state"] in STOPPED_STATES and not has_metadata:
+                    stuck_polls += 1
+                    assert stuck_polls < 2, f"torrent sits stopped without metadata: {observed}"
+                else:
+                    stuck_polls = 0
+        decided = held_before["start"] or held_before["delete"]
+        record_property("plugin", plugin)
+        record_property("outcome", outcome)
+        record_property("downloaded_before_decision", decided[0] if decided else None)
+        print(f"G-01-3 evidence: plugin={plugin} outcome={outcome} downloaded={decided}")
+        if outcome == "started":
+            assert held_before["start"] == [0], held_before
+        elif outcome in ("rejected", "unsupported"):
+            assert held_before["delete"] and set(held_before["delete"]) == {0}, held_before
+        elif outcome == "duplicate":
+            pytest.skip("the torrent is already in qBittorrent; it is never touched")
+        elif outcome == "unavailable" and observed:
+            if all(state in METADATA_FETCHING_STATES for state, _ in observed):
+                pytest.skip(
+                    "no peers sent metadata before METADATA_TIMEOUT; the add itself was correct"
+                )
+            pytest.fail(f"unavailable with states {observed}")
+        else:
+            pytest.fail(f"job ended as {outcome!r} with states {observed}")
     finally:
-        await real_qbit.delete([torrent_hash], True)
+        qbit.start, qbit.delete = real_start, real_delete
+        job = real_app.state.jobs.get(job_id) if job_id else None
+        job_hash = job.torrent_hash if job else None
+        if job_hash and job_hash not in before and await torrent_row(real_qbit, job_hash):
+            await real_qbit.delete([job_hash], True)
