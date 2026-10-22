@@ -7,12 +7,14 @@ serves the frontend and proxies /api/* here.
 import asyncio
 import contextlib
 import logging
-from collections.abc import AsyncIterator
+import sys
+from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from starlette.middleware.sessions import SessionMiddleware
 
+from app import audit
 from app.auth import SESSION_COOKIE, LoginThrottle
 from app.config import Settings, get_settings
 from app.download.jobs import JobRegistry
@@ -27,16 +29,27 @@ from app.throttle import THROTTLE_WINDOW_SECONDS, SlidingWindowThrottle
 LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s %(message)s"
 
 
-def configure_logging(level: str) -> None:
-    logging.basicConfig(level=level, format=LOG_FORMAT)
+def configure_logging(level: str, secrets: Sequence[str] = ()) -> None:
+    # stdout of the container: Docker keeps and rotates it, there is no log file (D-40).
+    logging.basicConfig(level=level, format=LOG_FORMAT, stream=sys.stdout)
     logging.getLogger().setLevel(level)
     logging.getLogger("httpx").setLevel(logging.WARNING)
+    # The audit trail survives LOG_LEVEL=WARNING: its own level, not the root's (SEC-06).
+    logging.getLogger("app.audit").setLevel(logging.INFO)
+    audit.install_redaction(secrets)
 
 
 def create_app(settings: Settings | None = None, qbit: QbitClient | None = None) -> FastAPI:
     # Resolved eagerly: middleware added by later plans needs settings at build time.
     settings = settings or get_settings()
-    configure_logging(settings.log_level)
+    configure_logging(
+        settings.log_level,
+        [
+            settings.secret_key.get_secret_value(),
+            settings.qbittorrent_pass.get_secret_value(),
+            settings.app_pass_hash.get_secret_value(),
+        ],
+    )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:

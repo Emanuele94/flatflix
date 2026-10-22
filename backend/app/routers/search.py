@@ -11,6 +11,7 @@ import unicodedata
 from fastapi import Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app import audit
 from app.auth import protected_router
 from app.content_type import ContentType
 from app.qbit.bootstrap import require_ready
@@ -71,9 +72,14 @@ def snapshot_body(snapshot: SearchSnapshot) -> dict[str, object]:
     }
 
 
-def unavailable(exc: QbitError) -> HTTPException:
+def client_ip(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+def unavailable(exc: QbitError, ip: str | None = None) -> HTTPException:
     # Class name and status only: the qBittorrent answer body never reaches a log or the browser.
     logger.warning("search failed: %s (HTTP %s)", type(exc).__name__, exc.status)
+    audit.error("search", type(exc).__name__, exc.status, ip)
     return HTTPException(status_code=503, detail="search_unavailable")
 
 
@@ -81,18 +87,20 @@ def unavailable(exc: QbitError) -> HTTPException:
 async def start_search(body: SearchRequest, request: Request) -> dict[str, str]:
     # The slot is taken only here: the session, readiness and body checks run as dependencies and
     # validation before the handler, so anonymous or malformed requests never use one (SEC-05).
-    ip = request.client.host if request.client else "unknown"
+    ip = client_ip(request)
     retry_in = request.app.state.search_throttle.try_acquire(ip)
     if retry_in is not None:
+        audit.throttled(ip, "search")
         raise HTTPException(
             status_code=429,
             detail="too_many_requests",
             headers={"Retry-After": str(max(1, math.ceil(retry_in)))},
         )
+    audit.search(ip, body.type, body.q)
     try:
         search_id = await request.app.state.search.start(body.q, body.type)
     except QbitError as exc:
-        raise unavailable(exc) from None
+        raise unavailable(exc, ip) from None
     return {"search_id": search_id}
 
 
@@ -101,7 +109,7 @@ async def get_search(search_id: str, request: Request) -> dict[str, object]:
     try:
         snapshot = await request.app.state.search.snapshot(search_id)
     except QbitError as exc:
-        raise unavailable(exc) from None
+        raise unavailable(exc, client_ip(request)) from None
     if snapshot is None:
         raise HTTPException(status_code=404, detail="search_not_found")
     return snapshot_body(snapshot)
