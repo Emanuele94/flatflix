@@ -38,18 +38,41 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 13 plans (12 waves; listed in execution order, so plan numbers are not sequential)
 
 Plans:
+**Wave 1**
 - [ ] 01-01-PLAN.md — Toolchain and host gate: manifests, lockfiles, package-legitimacy review, Docker Desktop WSL check (wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 01-10-PLAN.md — Tracer: pinned qBittorrent 5.2.4 in compose with env-provisioned credentials and host media folders; loopback-only admin WebUI; port map + media contract doc (wave 2)
 - [ ] 01-03-PLAN.md — Pure content rules, test-first: file allowlist (FILT-02) and search-result filters (SRCH-02) (wave 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
 - [ ] 01-02-PLAN.md — Tracer: backend in compose logs into qBittorrent and reports /api/health; hardened client (wave 3)
+
+**Wave 4** *(blocked on Wave 3 completion)*
 - [ ] 01-04-PLAN.md — Tracer: portal through Caddy on port 80; compose and repo-hygiene invariants (wave 4)
+
+**Wave 5** *(blocked on Wave 4 completion)*
 - [ ] 01-05-PLAN.md — Tracer: login API with 30-day session through Caddy; deny-by-default routes; brute-force limit; hash helper (wave 5)
+
+**Wave 6** *(blocked on Wave 5 completion)*
 - [ ] 01-11-PLAN.md — Tracer: Italian login screen and logged-in shell; expired-session handling and plain messages (wave 6)
+
+**Wave 7** *(blocked on Wave 6 completion)*
 - [ ] 01-06-PLAN.md — Tracer: qBittorrent bootstrap (categories, paths, exclusions, pinned plugins, seeding limits) + doctor CLI (wave 7)
+
+**Wave 8** *(blocked on Wave 7 completion)*
 - [ ] 01-07-PLAN.md — Tracer: Film/Serie search API with live filtered results; strict input, timeout, cleanup (wave 8)
+
+**Wave 9** *(blocked on Wave 8 completion)*
 - [ ] 01-12-PLAN.md — Tracer: search screen with live rows; searching, empty and timeout states, row layout, badge (wave 9)
+
+**Wave 10** *(blocked on Wave 9 completion)*
 - [ ] 01-08-PLAN.md — Tracer: download API with stopCondition=MetadataReceived, allowlist before start, real-engine guard (wave 10)
+
+**Wave 11** *(blocked on Wave 10 completion)*
 - [ ] 01-13-PLAN.md — Tracer: Scarica button and row states (Avviato ✓, In preparazione, rejection) (wave 11)
+
+**Wave 12** *(blocked on Wave 11 completion)*
 - [ ] 01-09-PLAN.md — Tracer: household flow end to end with leak scan; setup guide; CLAUDE.md/REQUIREMENTS.md aligned; phone check (wave 12)
 
 **UI hint**: yes
