@@ -13,6 +13,8 @@ from app.search.filters import (
     dedupe_key,
     human_size,
     infohash,
+    is_public_address,
+    is_safe_torrent_url,
     is_suspicious,
     min_size_bytes,
     normalize_and_filter,
@@ -342,3 +344,86 @@ def test_every_row_carries_size_human():
     [row] = normalize_and_filter([raw(size=4509715660)], CFG)
 
     assert row.size_human == "4.2 GB"
+
+
+# --- untrusted result URLs (WR-03) ---------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        magnet(HASH_A),
+        "magnet:?xt=urn:btih:" + HASH_A + "&dn=Big Buck Bunny",
+        "https://www.limetorrents.lol/Big-Buck-Bunny-trailer-torrent-157833.html",
+        "http://tracker.example.org:8080/t/1.torrent",
+        "https://93.184.216.34/t/1.torrent",
+    ],
+)
+def test_magnets_and_public_http_urls_are_safe(url):
+    assert is_safe_torrent_url(url) is True
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "",
+        "file:///etc/passwd",
+        "ftp://example.org/t.torrent",
+        "data:text/plain,x",
+        "javascript:alert(1)",
+        "//example.org/t.torrent",
+        "http://localhost/t",
+        "http://qbittorrent:8080/api/v2/app/shutdown",
+        "http://backend:8000/api/health",
+        "http://127.0.0.1:8080/",
+        "http://[::1]/",
+        "http://10.0.0.5/t",
+        "http://192.168.1.10/t",
+        "http://172.16.0.9/t",
+        "http://169.254.169.254/latest/meta-data/",
+        "http://nas.local/t",
+        "http://printer.lan/t",
+        "http://user:pass@example.org/t",
+        "http://example.org:notaport/t",
+        "https://example.org/t\nhttp://127.0.0.1/",
+        " https://example.org/t",
+    ],
+)
+def test_other_schemes_and_internal_hosts_are_not_safe(url):
+    assert is_safe_torrent_url(url) is False
+
+
+def test_a_row_with_an_unsafe_url_is_dropped_whatever_its_seeders():
+    rows = [
+        raw(name="evil", seeders=999, file_url="http://qbittorrent:8080/x"),
+        raw(name="evil2", seeders=998, file_url="file:///etc/passwd"),
+        raw(name="good", seeders=10, file_url=magnet(HASH_B)),
+    ]
+    assert [r.name for r in normalize_and_filter(rows, CFG)] == ["good"]
+
+
+def test_a_row_from_an_engine_that_is_not_an_installed_plugin_is_dropped():
+    cfg = FilterConfig(allowed_engines=frozenset({"limetorrents"}))
+    rows = [
+        raw(name="rogue", seeders=99, engine="rogue", file_url=magnet(HASH_A)),
+        raw(name="lime", seeders=10, engine="limetorrents", file_url=magnet(HASH_B)),
+    ]
+    assert [r.name for r in normalize_and_filter(rows, cfg)] == ["lime"]
+
+
+@pytest.mark.parametrize(
+    ("address", "public"),
+    [
+        ("93.184.216.34", True),
+        ("2606:2800:220:1:248:1893:25c8:1946", True),
+        ("127.0.0.1", False),
+        ("10.1.2.3", False),
+        ("192.168.0.1", False),
+        ("169.254.1.1", False),
+        ("::1", False),
+        ("fe80::1%eth0", False),
+        ("not-an-address", False),
+    ],
+)
+def test_is_public_address(address, public):
+    assert is_public_address(address) is public

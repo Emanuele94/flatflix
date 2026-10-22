@@ -230,6 +230,7 @@ class SearchService:
                 entry.type, settings.min_film_size_mb, settings.min_serie_size_mb
             ),
             suspicious_terms=settings.suspicious_term_list,
+            allowed_engines=frozenset(settings.search_plugin_names),
         )
         filtered = normalize_and_filter((RawResult.from_qbit(row) for row in rows), cfg)
         return filtered[: settings.max_results]

@@ -21,15 +21,17 @@ import asyncio
 import logging
 import re
 import secrets
+import socket
 import time
 from collections.abc import Awaitable, Callable
+from urllib.parse import urlsplit
 
 from app.config import Settings
 from app.content_type import ContentType, qbit_category
 from app.download.allowlist import TorrentFile, decide
 from app.download.jobs import Job, JobRegistry, JobState
 from app.qbit.client import QbitClient, QbitError
-from app.search.filters import infohash
+from app.search.filters import infohash, is_public_address, is_safe_torrent_url
 from app.search.service import SearchService
 
 logger = logging.getLogger(__name__)
@@ -49,6 +51,15 @@ STARTED_DEDUPE_SECONDS = 60
 NOT_STARTED_STATES = frozenset({"stoppedDL", "pausedDL", "metaDL", "forcedMetaDL"})
 # Tries to clear the pending tags after a start (a leftover tag costs a re-filter, never a delete).
 TAG_CLEANUP_ATTEMPTS = 3
+
+
+Resolver = Callable[[str], Awaitable[list[str]]]
+
+
+async def resolve_host(host: str) -> list[str]:
+    """Every IP address a host name resolves to (a literal address resolves to itself)."""
+    infos = await asyncio.get_running_loop().getaddrinfo(host, None, type=socket.SOCK_STREAM)
+    return [str(info[4][0]) for info in infos]
 
 
 def _tags_of(row: dict) -> list[str]:
@@ -94,6 +105,7 @@ class DownloadPipeline:
         *,
         clock: Callable[[], float] = time.time,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        resolver: Resolver = resolve_host,
     ) -> None:
         self._qbit = qbit
         self._settings = settings
@@ -102,6 +114,7 @@ class DownloadPipeline:
         # Epoch seconds, because qBittorrent reports `added_on` the same way.
         self._clock = clock
         self._sleep = sleep
+        self._resolver = resolver
 
     def submit(self, result_id: str, content_type: ContentType) -> Job:
         """Create a job for a cached result and start it; returns at once.
@@ -153,6 +166,10 @@ class DownloadPipeline:
             raise ValueError("a job without a type cannot add a torrent")
         if "\n" in url or "\r" in url:
             raise ValueError("a torrent URL must be a single line")
+        if not is_safe_torrent_url(url) or not await self._url_is_public(url):
+            logger.warning("download job %s: the result URL is not allowed", job.job_id)
+            job.state = JobState.FAILED
+            return
         digest = infohash(url)
         if digest is not None:
             existing = await self._qbit.torrents_info(hashes=digest)
@@ -187,6 +204,21 @@ class DownloadPipeline:
             return
         job.torrent_hash = torrent_hash
         await self._process(job, torrent_hash, job_tag, deadline)
+
+    async def _url_is_public(self, url: str) -> bool:
+        """A magnet always; an http(s) URL only when every address its host resolves to is public.
+
+        Plugin URLs are untrusted (WR-03): a name that resolves to a loopback, private or
+        link-local address would make qBittorrent fetch from inside the household network.
+        """
+        if url.lower().startswith("magnet:"):
+            return True
+        host = (urlsplit(url).hostname or "").rstrip(".")
+        try:
+            addresses = await self._resolver(host)
+        except OSError:
+            return False  # an unresolvable host cannot be fetched either
+        return bool(addresses) and all(is_public_address(a) for a in addresses)
 
     async def _resume_or_duplicate(self, job: Job, row: dict) -> None:
         """The torrent is already in qBittorrent: ours and unfinished, or somebody else's.

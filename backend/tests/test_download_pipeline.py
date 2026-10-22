@@ -5,7 +5,8 @@ sent (call log) or what the fake ended up holding, never about internal calls.
 """
 
 import asyncio
-from dataclasses import dataclass
+import socket
+from dataclasses import dataclass, field
 
 import httpx
 import pytest
@@ -65,6 +66,13 @@ class Rig:
     app: FastAPI
     fake: FakeQbit
     clock: FakeClock
+    # Host name -> addresses; any host not listed resolves to one public address (no real DNS).
+    dns: dict[str, list[str]] = field(default_factory=dict)
+
+    async def resolver(self, host: str) -> list[str]:
+        if host in self.dns and self.dns[host] == []:
+            raise socket.gaierror("no such host")
+        return self.dns.get(host, ["93.184.216.34"])
 
     def cache(
         self,
@@ -86,7 +94,13 @@ class Rig:
         """Replace the pipeline with one that uses a different sleep (same clock)."""
         state = self.app.state
         state.pipeline = DownloadPipeline(
-            state.qbit, state.settings, state.search, state.jobs, clock=self.clock, sleep=sleep
+            state.qbit,
+            state.settings,
+            state.search,
+            state.jobs,
+            clock=self.clock,
+            sleep=sleep,
+            resolver=self.resolver,
         )
 
     async def post(self, result_id: str = RESULT_ID, type: str = "film", **extra) -> httpx.Response:
@@ -481,6 +495,51 @@ async def test_a_non_magnet_torrent_that_never_appears_is_unavailable(rig: Rig) 
 
     assert response.json()["status"] == "unavailable"
     assert rig.fake.deleted == []  # there is nothing to delete
+
+
+# -- untrusted plugin URLs (WR-03) ----------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "file:///etc/passwd",
+        "ftp://tracker.example/t.torrent",
+        "http://qbittorrent:8080/api/v2/app/shutdown",
+        "http://127.0.0.1:8080/",
+        "http://192.168.1.1/t.torrent",
+    ],
+)
+async def test_a_cached_url_that_is_not_safe_is_never_sent_to_qbittorrent(
+    rig: Rig, url: str
+) -> None:
+    rig.cache(url=url, engine="limetorrents")
+
+    response = await rig.post()
+
+    assert response.json()["status"] == "failed"
+    assert rig.adds() == []
+    assert rig.fake.torrents == {}
+
+
+async def test_a_host_that_resolves_to_a_private_address_is_refused(rig: Rig) -> None:
+    rig.cache(url=PAGE_URL, engine="limetorrents")
+    rig.dns["limetorrents.example"] = ["93.184.216.34", "192.168.1.20"]  # one bad answer is enough
+
+    response = await rig.post()
+
+    assert response.json()["status"] == "failed"
+    assert rig.adds() == []
+
+
+async def test_a_host_that_does_not_resolve_is_refused(rig: Rig) -> None:
+    rig.cache(url=PAGE_URL, engine="limetorrents")
+    rig.dns["limetorrents.example"] = []
+
+    response = await rig.post()
+
+    assert response.json()["status"] == "failed"
+    assert rig.adds() == []
 
 
 # -- concurrency (SEC-03, DOWN-01) ---------------------------------------------------------------

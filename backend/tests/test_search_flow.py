@@ -541,3 +541,19 @@ async def test_no_torrent_endpoint_is_ever_called_by_search_polling_timeout_or_c
     assert [call.path for call in made if call.method == "POST"] != []
     allowed = {"/api/v2/search/start", STOP, DELETE}
     assert {call.path for call in made if call.method == "POST"} <= allowed
+
+
+async def test_a_result_with_a_hostile_url_or_a_foreign_engine_never_reaches_the_cache(
+    user_api: httpx.AsyncClient, fake_qbit: FakeQbit, service: SearchService
+) -> None:
+    hostile = row("Sintel hostile", 90)
+    hostile["fileUrl"] = "http://qbittorrent:8080/api/v2/app/shutdown"
+    foreign = row("Sintel foreign", 80, engine="rogueengine")
+    good = row("Sintel 1080p", 30)
+    fake_qbit.script_search([[hostile, foreign, good]])
+
+    search_id = await start(user_api, "sintel")
+    body = await poll(user_api, search_id)
+
+    assert [r["name"] for r in body["results"]] == ["Sintel 1080p"]
+    assert len(service._cache) == 1

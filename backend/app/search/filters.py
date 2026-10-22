@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
+import ipaddress
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -84,6 +85,9 @@ class FilterConfig:
     min_seeders: int = 5
     min_size_bytes: int = 500 * MB
     suspicious_terms: tuple[str, ...] = DEFAULT_SUSPICIOUS_TERMS
+    # Names of the installed search plugins; a row from any other engine is dropped. None means
+    # no restriction (the pure filter tests); the search service always passes the real list.
+    allowed_engines: frozenset[str] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,6 +103,65 @@ class FilteredResult:
     # Server-only: 01-07 never serializes engine or file_url to the browser.
     engine: str
     file_url: str
+
+
+# Host names that point inside the household network or the compose networks, never at a tracker
+# page. Single-label names (`qbittorrent`, `backend`, `web`) are refused too.
+_INTERNAL_SUFFIXES = (
+    ".localhost",
+    ".local",
+    ".localdomain",
+    ".internal",
+    ".lan",
+    ".home",
+    ".home.arpa",
+    ".intranet",
+    ".corp",
+)
+
+
+def is_safe_torrent_url(file_url: str) -> bool:
+    """True for a magnet link or an http(s) URL that does not point at a private address.
+
+    Plugin results are untrusted: a hostile indexer could hand back `http://qbittorrent:8080/...`,
+    `file:///...` or a LAN address, and qBittorrent (or the plugin's downloader) would fetch it
+    from inside the household network (WR-03). This is the static half of the check; the
+    download pipeline also resolves the host name before it adds a non-magnet URL.
+    """
+    if (
+        not file_url
+        or file_url != file_url.strip()
+        or any(ord(c) < 32 or ord(c) == 127 for c in file_url)
+    ):
+        return False
+    try:
+        parts = urlsplit(file_url)
+        scheme = parts.scheme.lower()
+        if scheme == "magnet":
+            return True
+        if scheme not in ("http", "https") or parts.username or parts.password:
+            return False
+        host = (parts.hostname or "").rstrip(".").lower()
+        parts.port  # noqa: B018 - raises ValueError for a malformed port
+    except ValueError:
+        return False
+    if not host:
+        return False
+    try:
+        return ipaddress.ip_address(host).is_global
+    except ValueError:
+        pass  # a name, not an address
+    if "." not in host or host == "localhost":
+        return False
+    return not host.endswith(_INTERNAL_SUFFIXES)
+
+
+def is_public_address(address: str) -> bool:
+    """True when a resolved IP address is a globally routable one."""
+    try:
+        return ipaddress.ip_address(address.split("%", 1)[0]).is_global
+    except ValueError:
+        return False
 
 
 def min_size_bytes(content_type: str, min_film_mb: int, min_serie_mb: int) -> int:
@@ -174,6 +237,10 @@ def normalize_and_filter(rows: Iterable[RawResult], cfg: FilterConfig) -> list[F
     """
     merged: dict[str, RawResult] = {}
     for row in rows:
+        if cfg.allowed_engines is not None and row.engine not in cfg.allowed_engines:
+            continue
+        if not is_safe_torrent_url(row.file_url):
+            continue
         if row.seeders < 0 or row.seeders < cfg.min_seeders:
             continue
         if row.size < 0 or row.size < cfg.min_size_bytes:
