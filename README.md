@@ -1,6 +1,6 @@
 # flatflix
 
-Progetto open source per la casa.
+Open source home project.
 
-- Portale per cercare e scaricare film e serie dal telefono: installazione e uso in [`docs/setup.md`](docs/setup.md), porte e cartelle in [`docs/ports-and-media.md`](docs/ports-and-media.md)
-- `home-theater.md` — parte home theater (in definizione)
+- Portal to search and download movies and series from a phone: setup and usage in [`docs/setup.md`](docs/setup.md), ports and folders in [`docs/ports-and-media.md`](docs/ports-and-media.md)
+- `home-theater.md` — home theater part (being defined)

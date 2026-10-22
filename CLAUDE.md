@@ -21,7 +21,7 @@ Public open source repo (MIT): https://github.com/Emanuele94/flatflix. Do not co
 
 ## The two parts
 
-Both run in Docker on a home laptop on the LAN, used by non-technical household members.
+The whole project (UI, code, docs) is English only. Both run in Docker on a home laptop on the LAN, used by non-technical household members.
 
 1. **Home theater** (`home-theater.md`): TV app for a Hisense TV (VIDAA OS).
    - Backend is stock **Jellyfin**: configure it, write no server code. **Caddy** serves the frontend and reverse-proxies Jellyfin API and video from one origin, so there is no CORS.
