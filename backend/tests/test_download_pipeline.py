@@ -11,9 +11,14 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
+from app.config import Settings
+from app.download.jobs import JobState
 from app.download.pipeline import DownloadPipeline
+from app.main import create_app
+from app.qbit.client import QbitClient
 from app.search.service import CachedResult
-from tests.fakeqbit import FakeQbit
+from tests.conftest import wait_for_bootstrap
+from tests.fakeqbit import FakeQbit, FakeTorrent
 
 MB = 1024 * 1024
 BTIH = "08ada5a7a6183aae1e09d831df6748d566095a10"
@@ -198,3 +203,400 @@ async def test_a_404_for_the_file_list_right_after_add_is_retried(rig: Rig) -> N
     response = await rig.post()
 
     assert response.json()["status"] == "started"
+
+
+# -- rejections (D-13, D-14) ---------------------------------------------------------------
+
+
+async def test_a_torrent_without_a_video_is_deleted_with_its_files_and_never_started(
+    rig: Rig,
+) -> None:
+    rig.cache()
+    rig.fake.set_metadata(BTIH, [("Movie/setup.exe", 5000), ("Movie/readme.txt", 10)])
+
+    response = await rig.post()
+
+    assert response.json()["status"] == "rejected"
+    assert rig.fake.deleted == [(BTIH, True)]
+    assert rig.fake.calls_to(START) == []
+    assert rig.fake.calls_to(FILE_PRIO) == []
+    assert BTIH not in rig.fake.torrents
+
+
+async def test_a_torrent_holding_only_samples_is_rejected(rig: Rig) -> None:
+    rig.cache()
+    rig.fake.set_metadata(
+        BTIH, [("Movie/Sample/sample.mkv", 30 * MB), ("Movie/movie-sample.avi", 20 * MB)]
+    )
+
+    response = await rig.post()
+
+    assert response.json()["status"] == "rejected"
+    assert rig.fake.deleted == [(BTIH, True)]
+    assert rig.fake.calls_to(START) == []
+
+
+async def test_a_season_pack_keeps_every_episode_and_drops_the_sample(rig: Rig) -> None:
+    rig.cache(SERIE_RESULT_ID, SERIE_MAGNET, "serie")
+    episodes = [(f"Show/Show.S01E{n:02d}.mkv", 700 * MB) for n in range(1, 11)]
+    rig.fake.set_metadata(
+        SERIE_BTIH, [*episodes, ("Show/Sample/sample.mkv", 30 * MB), ("Show/Show.nfo", 900)]
+    )
+
+    response = await rig.post(SERIE_RESULT_ID, "serie")
+
+    assert response.json()["status"] == "started"
+    priorities = {row["name"]: row["priority"] for row in rig.fake.torrents[SERIE_BTIH].files}
+    assert [priorities[name] for name, _ in episodes] == [1] * 10
+    assert priorities["Show/Sample/sample.mkv"] == 0
+    assert priorities["Show/Show.nfo"] == 0
+
+
+async def test_a_priority_that_did_not_stick_deletes_the_torrent_and_never_starts_it(
+    rig: Rig,
+) -> None:
+    rig.cache()
+    rig.fake.set_metadata(BTIH, SINTEL_FILES)
+    rig.fake.ignore_prio_ids = {1}  # the poster would stay enabled
+
+    response = await rig.post()
+
+    assert response.json()["status"] == "failed"
+    assert rig.fake.deleted == [(BTIH, True)]
+    assert rig.fake.calls_to(START) == []
+
+
+# -- slow and missing metadata (D-11, D-12) -------------------------------------------------
+
+
+async def test_slow_metadata_answers_preparing_and_the_job_ends_started_later(rig: Rig) -> None:
+    rig.app.state.settings = rig.app.state.settings.model_copy(
+        update={"download_wait_seconds": 0.05}
+    )
+
+    async def slow_sleep(seconds: float) -> None:
+        rig.clock.now += seconds
+        await asyncio.sleep(0.01)
+
+    rig.use_sleep(slow_sleep)
+    rig.cache()
+    rig.fake.set_metadata(BTIH, SINTEL_FILES, delay_polls=20)
+    began = rig.clock.now
+
+    first = await rig.post()
+
+    assert first.status_code == 200
+    assert first.json()["status"] == "preparing"
+    job_id = first.json()["job_id"]
+    assert (await rig.api.get(f"/api/download/{job_id}")).json()["status"] == "preparing"
+    await asyncio.wait_for(rig.app.state.jobs.task(job_id), 5)
+    later = await rig.api.get(f"/api/download/{job_id}")
+    assert later.json() == {"status": "started", "job_id": job_id}
+    assert rig.clock.now - began >= 20
+    assert len(rig.adds()) == 1
+
+
+async def test_no_metadata_before_the_timeout_deletes_the_torrent_as_unavailable(
+    rig: Rig,
+) -> None:
+    rig.cache()  # the fake never releases a file list for this torrent
+    began = rig.clock.now
+
+    response = await rig.post()
+
+    assert response.json()["status"] == "unavailable"
+    assert rig.fake.deleted == [(BTIH, True)]
+    assert rig.fake.calls_to(START) == []
+    waited = rig.clock.now - began
+    assert rig.app.state.settings.metadata_timeout <= waited < 310
+
+
+# -- duplicates and add failures ---------------------------------------------------------------
+
+
+async def test_a_magnet_already_in_qbittorrent_is_a_duplicate_and_is_not_added(rig: Rig) -> None:
+    rig.cache()
+    rig.fake.torrents[BTIH] = FakeTorrent(BTIH, MAGNET, "Film", [], rig.clock.now)
+
+    response = await rig.post()
+
+    assert response.json()["status"] == "duplicate"
+    assert rig.adds() == []
+    assert rig.fake.deleted == []  # somebody else's torrent is never touched
+
+
+async def test_a_409_from_add_is_a_duplicate(rig: Rig) -> None:
+    rig.cache()
+    rig.fake.register("POST", ADD, lambda request: httpx.Response(409, text="Conflict"))
+
+    response = await rig.post()
+
+    assert response.json()["status"] == "duplicate"
+    assert rig.fake.calls_to(START) == []
+
+
+async def test_any_other_refusal_from_add_is_a_failure(rig: Rig) -> None:
+    rig.cache()
+    rig.fake.register("POST", ADD, lambda request: httpx.Response(415, text="Unsupported"))
+
+    response = await rig.post()
+
+    assert response.json()["status"] == "failed"
+
+
+async def test_a_qbittorrent_error_midway_fails_the_job_and_keeps_the_pending_tag(
+    rig: Rig,
+) -> None:
+    rig.cache()
+    rig.fake.set_metadata(BTIH, SINTEL_FILES)
+    rig.fake.register("POST", START, lambda request: httpx.Response(500, text="boom"))
+
+    response = await rig.post()
+
+    assert response.json()["status"] == "failed"
+    # Not started, not deleted: the fx-pending tag lets the next start finish or clean it up.
+    assert "fx-pending" in rig.fake.torrents[BTIH].tags
+    assert rig.fake.torrents[BTIH].started is False
+
+
+async def test_a_url_with_a_line_break_fails_before_any_torrent_call(rig: Rig) -> None:
+    rig.cache(url=MAGNET + "\nmagnet:?xt=urn:btih:" + SERIE_BTIH)
+
+    response = await rig.post()
+
+    assert response.json()["status"] == "failed"
+    assert rig.adds() == []
+    assert rig.fake.calls_to("/api/v2/torrents/info") == []
+
+
+async def test_add_torrent_refuses_a_multi_line_url_before_any_request(
+    settings: Settings, fake_qbit: FakeQbit
+) -> None:
+    client = QbitClient(
+        settings.qbittorrent_url,
+        settings.qbittorrent_user,
+        settings.qbittorrent_pass,
+        transport=fake_qbit.transport,
+    )
+    for url in ("magnet:?a\nmagnet:?b", "magnet:?a\rmagnet:?b"):
+        with pytest.raises(ValueError):
+            await client.add_torrent(url, "Film", ["fx"])
+    assert fake_qbit.calls == []
+    await client.aclose()
+
+
+async def test_delete_always_sends_the_delete_files_flag(
+    settings: Settings, fake_qbit: FakeQbit
+) -> None:
+    client = QbitClient(
+        settings.qbittorrent_url,
+        settings.qbittorrent_user,
+        settings.qbittorrent_pass,
+        transport=fake_qbit.transport,
+    )
+    await client.delete(["abc"], False)
+    await client.delete(["abc"], True)
+    forms = [call.form for call in fake_qbit.calls_to(DELETE)]
+    assert [form["deleteFiles"] for form in forms] == ["false", "true"]
+    assert not hasattr(client, "set_category")
+    await client.aclose()
+
+
+# -- results that are not magnets (research Pitfall 5) -----------------------------------------
+
+PAGE_URL = "https://limetorrents.example/torrent/12345"
+
+
+async def test_a_non_magnet_result_is_added_with_its_downloader_and_found_by_tag(
+    rig: Rig,
+) -> None:
+    rig.cache(url=PAGE_URL, engine="limetorrents")
+    page_hash = FakeQbit.hash_for(PAGE_URL)
+    rig.fake.downloader_delay_calls = 2
+    rig.fake.set_metadata(page_hash, SINTEL_FILES)
+
+    response = await rig.post()
+
+    body = response.json()
+    assert body["status"] == "started"
+    (add,) = rig.adds()
+    assert add.form["downloader"] == "limetorrents"
+    assert add.form["category"] == "Film"
+    lookups = rig.fake.calls_to("/api/v2/torrents/info")
+    assert any(call.params.get("tag") == f"fx-job-{body['job_id']}" for call in lookups)
+    assert rig.fake.torrents[page_hash].started is True
+
+
+async def test_a_non_magnet_torrent_that_never_appears_is_unavailable(rig: Rig) -> None:
+    rig.cache(url=PAGE_URL, engine="limetorrents")
+    rig.fake.downloader_delay_calls = 10**6
+
+    response = await rig.post()
+
+    assert response.json()["status"] == "unavailable"
+    assert rig.fake.deleted == []  # there is nothing to delete
+
+
+# -- concurrency (SEC-03, DOWN-01) ---------------------------------------------------------------
+
+
+async def test_double_tap_adds_one_torrent_and_both_taps_get_the_same_job(rig: Rig) -> None:
+    rig.cache()
+    rig.fake.set_metadata(BTIH, SINTEL_FILES, delay_polls=3)
+
+    first, second = await asyncio.gather(rig.post(), rig.post())
+
+    assert len(rig.adds()) == 1
+    assert first.json()["job_id"] == second.json()["job_id"]
+    assert first.json()["status"] == second.json()["status"] == "started"
+
+
+async def test_a_tap_after_the_job_started_returns_that_job_without_a_new_add(rig: Rig) -> None:
+    rig.cache()
+    rig.fake.set_metadata(BTIH, SINTEL_FILES)
+    first = await rig.post()
+
+    again = await rig.post()
+
+    assert again.json() == first.json()
+    assert len(rig.adds()) == 1
+
+
+async def test_concurrent_film_and_serie_requests_each_use_their_own_category(rig: Rig) -> None:
+    rig.cache(RESULT_ID, MAGNET, "film")
+    rig.cache(SERIE_RESULT_ID, SERIE_MAGNET, "serie")
+    rig.fake.set_metadata(BTIH, SINTEL_FILES, delay_polls=2)
+    rig.fake.set_metadata(SERIE_BTIH, [("Show.S01E01.mkv", 700 * MB)], delay_polls=1)
+
+    film, serie = await asyncio.gather(
+        rig.post(RESULT_ID, "film"), rig.post(SERIE_RESULT_ID, "serie")
+    )
+
+    assert film.json()["status"] == serie.json()["status"] == "started"
+    categories = {call.form["urls"]: call.form["category"] for call in rig.adds()}
+    assert categories == {MAGNET: "Film", SERIE_MAGNET: "SerieTV"}
+
+
+# -- restart (D-12, FILT-02) ------------------------------------------------------------------
+
+PENDING_OLD = "2" * 40
+PENDING_NEW = "3" * 40
+JOB_NEW = "bbbbbbbbbbbbbbbb"
+
+
+async def finished(rig: Rig, job_id: str) -> None:
+    """Wait for the background job of a reconciled torrent."""
+    task = rig.app.state.jobs.task(job_id)
+    assert task is not None, "reconcile did not resume the torrent"
+    await asyncio.wait_for(task, 5)
+
+
+def stranded(rig: Rig, torrent_hash: str, category: str, job_id: str, age: float) -> None:
+    rig.fake.torrents[torrent_hash] = FakeTorrent(
+        torrent_hash,
+        f"magnet:?xt=urn:btih:{torrent_hash}",
+        category,
+        ["fx", "fx-pending", f"fx-job-{job_id}"],
+        rig.clock.now - age,
+    )
+
+
+async def test_reconcile_deletes_an_expired_pending_torrent_and_resumes_a_fresh_one(
+    rig: Rig,
+) -> None:
+    stranded(rig, PENDING_OLD, "Film", "aaaaaaaaaaaaaaaa", age=301)
+    stranded(rig, PENDING_NEW, "SerieTV", JOB_NEW, age=10)
+    rig.fake.set_metadata(PENDING_NEW, [("Show.S01E01.mkv", 700 * MB), ("Show.exe", 1000)])
+
+    await rig.app.state.pipeline.reconcile()
+    await finished(rig, JOB_NEW)
+
+    assert rig.fake.deleted == [(PENDING_OLD, True)]
+    resumed = rig.fake.torrents[PENDING_NEW]
+    assert resumed.started is True
+    assert resumed.category == "SerieTV"  # whatever qBittorrent held is kept
+    assert resumed.tags == ["fx"]
+    assert rig.app.state.jobs.get(JOB_NEW).state is JobState.STARTED
+    assert rig.fake.calls_to("/api/v2/torrents/setCategory") == []
+    assert rig.adds() == []
+
+
+async def test_reconcile_never_starts_a_pending_torrent_without_running_the_allowlist(
+    rig: Rig,
+) -> None:
+    stranded(rig, PENDING_NEW, "Film", JOB_NEW, age=10)
+    rig.fake.set_metadata(PENDING_NEW, [("Movie/setup.exe", 1000)])  # no video at all
+
+    await rig.app.state.pipeline.reconcile()
+    await finished(rig, JOB_NEW)
+
+    assert rig.app.state.jobs.get(JOB_NEW).state is JobState.REJECTED
+    assert rig.fake.deleted == [(PENDING_NEW, True)]
+    assert rig.fake.calls_to(START) == []
+
+
+async def test_reconcile_gives_up_on_a_resumed_torrent_that_never_gets_metadata(
+    rig: Rig,
+) -> None:
+    stranded(rig, PENDING_NEW, "Film", JOB_NEW, age=290)  # 10 s of the 300 s left
+
+    await rig.app.state.pipeline.reconcile()
+    await finished(rig, JOB_NEW)
+
+    assert rig.app.state.jobs.get(JOB_NEW).state is JobState.UNAVAILABLE
+    assert rig.fake.deleted == [(PENDING_NEW, True)]
+    assert rig.clock.now - 1_700_000_000 < 15
+
+
+async def test_reconcile_skips_a_torrent_a_running_job_owns(rig: Rig) -> None:
+    rig.app.state.settings = rig.app.state.settings.model_copy(
+        update={"download_wait_seconds": 0.02}
+    )
+
+    async def slow_sleep(seconds: float) -> None:
+        rig.clock.now += seconds
+        await asyncio.sleep(0.01)
+
+    rig.use_sleep(slow_sleep)
+    rig.cache()
+    rig.fake.set_metadata(BTIH, SINTEL_FILES, delay_polls=5)
+    first = await rig.post()
+    assert first.json()["status"] == "preparing"
+
+    await rig.app.state.pipeline.reconcile()  # the torrent is fx-pending but a job owns it
+    await asyncio.wait_for(rig.app.state.jobs.task(first.json()["job_id"]), 5)
+
+    assert len(rig.adds()) == 1
+    assert len(rig.fake.calls_to(START)) == 1
+
+
+async def test_the_startup_bootstrap_reconciles_torrents_stranded_by_a_restart(
+    settings: Settings, fake_qbit: FakeQbit
+) -> None:
+    import time
+
+    fake_qbit.torrents[PENDING_NEW] = FakeTorrent(
+        PENDING_NEW,
+        f"magnet:?xt=urn:btih:{PENDING_NEW}",
+        "Film",
+        ["fx", "fx-pending", f"fx-job-{JOB_NEW}"],
+        time.time() - 5,
+    )
+    fake_qbit.set_metadata(PENDING_NEW, [("Movie/Movie.mkv", 800 * MB)])
+    client = QbitClient(
+        settings.qbittorrent_url,
+        settings.qbittorrent_user,
+        settings.qbittorrent_pass,
+        transport=fake_qbit.transport,
+    )
+    app = create_app(settings, client)
+
+    async with app.router.lifespan_context(app):
+        await wait_for_bootstrap(app)
+        async with asyncio.timeout(5):
+            while app.state.jobs.get(JOB_NEW) is None:
+                await asyncio.sleep(0.01)
+            await app.state.jobs.task(JOB_NEW)
+
+    assert fake_qbit.torrents[PENDING_NEW].started is True
+    assert fake_qbit.torrents[PENDING_NEW].tags == ["fx"]

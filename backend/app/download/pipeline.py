@@ -141,3 +141,7 @@ class DownloadPipeline:
             if files:
                 return files
             await self._sleep(POLL_SECONDS)
+
+    async def reconcile(self) -> None:
+        """Finish the torrents a restart stranded (placeholder until the GREEN commit)."""
+        return
