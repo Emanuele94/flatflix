@@ -14,6 +14,7 @@ from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from enum import Enum
 
+from app import audit
 from app.content_type import ContentType
 
 logger = logging.getLogger(__name__)
@@ -148,12 +149,19 @@ class JobRegistry:
             logger.error("background task %s crashed: %s", name, type(exc).__name__)
 
     async def _guard(self, job: Job, coro: Coroutine[object, object, None]) -> None:
+        cancelled = False
         try:
             await self._run(job, coro)
+        except asyncio.CancelledError:
+            cancelled = True
+            raise
         finally:
             # Every ending is stamped exactly once: a job that sat Preparing for minutes ages
             # from here, not from its creation (D-29, research Pitfall 3).
             job.finished_at = self._clock()
+            # A cancelled task (cancel route or shutdown) is covered by the cancel audit line.
+            if not cancelled:
+                audit.download_finished(job.job_id, job.name, job.state.value)
 
     async def _run(self, job: Job, coro: Coroutine[object, object, None]) -> None:
         try:

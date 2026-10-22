@@ -8,6 +8,7 @@ import math
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 
+from app import audit
 from app.auth import SESSION_VALUE, protected_router, verify_credentials
 
 router = APIRouter(prefix="/api")
@@ -30,17 +31,21 @@ async def login(body: LoginRequest, request: Request) -> Response:
     # The slot is reserved before the (slow) password check so concurrent guesses are counted.
     retry_in = throttle.try_acquire(ip)
     if retry_in is not None:
+        audit.login(ip, "throttled")
         raise HTTPException(
             status_code=429,
             detail="too_many_attempts",
             headers={"Retry-After": str(max(1, math.ceil(retry_in)))},
         )
     if not await verify_credentials(settings, body.username, body.password):
+        # Never the attempted username: a password typed into that box would land in the log.
+        audit.login(ip, "fail")
         raise HTTPException(status_code=401, detail="bad_credentials")
     throttle.reset(ip)
     # Fresh session on login: nothing from a previous one survives.
     request.session.clear()
     request.session["auth"] = dict(SESSION_VALUE)
+    audit.login(ip, "ok")
     return Response(status_code=204)
 
 
@@ -52,4 +57,5 @@ async def session() -> dict[str, bool]:
 @protected.post("/logout", status_code=204)
 async def logout(request: Request) -> Response:
     request.session.clear()
+    audit.logout(request.client.host if request.client else "unknown")
     return Response(status_code=204)

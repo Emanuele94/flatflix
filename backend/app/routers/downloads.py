@@ -17,6 +17,7 @@ import time
 
 from fastapi import HTTPException, Path, Request, Response
 
+from app import audit
 from app.auth import protected_router
 from app.download.listing import build_items
 from app.qbit.client import QbitAuthError, QbitBanned, QbitError
@@ -27,9 +28,14 @@ logger = logging.getLogger(__name__)
 router = protected_router()
 
 
-def qbit_failure(exc: QbitError) -> HTTPException:
+def client_ip(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+def qbit_failure(exc: QbitError, where: str, ip: str) -> HTTPException:
     # Class name and status only: the qBittorrent answer body never reaches a log or the browser.
     logger.warning("downloads: qBittorrent failed: %s (HTTP %s)", type(exc).__name__, exc.status)
+    audit.error(where, type(exc).__name__, exc.status, ip)
     if isinstance(exc, QbitAuthError | QbitBanned):
         return HTTPException(status_code=502, detail="qbit_refused")
     return HTTPException(status_code=502, detail="qbit_unreachable")
@@ -43,7 +49,7 @@ async def list_downloads(request: Request) -> dict[str, list[dict]]:
         # One unfiltered call: qBittorrent's category filter also matches sub-categories.
         rows = await app.state.qbit.torrents_info()
     except QbitError as exc:
-        raise qbit_failure(exc) from None
+        raise qbit_failure(exc, "downloads", client_ip(request)) from None
     return {
         "items": build_items(
             rows,
@@ -60,10 +66,13 @@ async def cancel_download(
     request: Request, download_id: str = Path(pattern=RESULT_ID_PATTERN)
 ) -> Response:
     """Cancel an in-progress download or remove a finished one from the list (DOWN-05)."""
+    ip = client_ip(request)
     try:
         outcome = await request.app.state.pipeline.cancel(download_id)
     except QbitError as exc:
-        raise qbit_failure(exc) from None
+        raise qbit_failure(exc, "cancel", ip) from None
     if outcome is None:
+        audit.removed(ip, "cancel", None, "not_found")
         raise HTTPException(status_code=404, detail="download_not_found")
+    audit.removed(ip, outcome.action, outcome.name, "done")
     return Response(status_code=204)

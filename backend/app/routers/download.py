@@ -11,6 +11,7 @@ import math
 from fastapi import Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
+from app import audit
 from app.auth import protected_router
 from app.content_type import ContentType
 from app.download.jobs import Job
@@ -42,6 +43,7 @@ async def start_download(body: DownloadRequest, request: Request) -> dict[str, s
     ip = request.client.host if request.client else "unknown"
     retry_in = app.state.download_throttle.try_acquire(ip)
     if retry_in is not None:
+        audit.throttled(ip, "download")
         raise HTTPException(
             status_code=429,
             detail="too_many_requests",
@@ -53,6 +55,7 @@ async def start_download(body: DownloadRequest, request: Request) -> dict[str, s
         raise HTTPException(status_code=410, detail="search_expired") from None
     except TypeMismatch:
         raise HTTPException(status_code=422, detail="type_mismatch") from None
+    audit.download_requested(ip, body.type, job.job_id, job.name)
     task = app.state.jobs.task(job.job_id)
     if task is not None:
         # `wait` never cancels the task: on timeout the job simply keeps running (D-11).
