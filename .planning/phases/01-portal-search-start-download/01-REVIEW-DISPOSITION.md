@@ -5,35 +5,35 @@ titles: json
 findings:
   - id: CR-01
     severity: critical
-    disposition: open
+    disposition: fixed
     title: "`reconcile()` deletes a running download and its files when the pending tag was left behind"
   - id: WR-01
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "A job that fails after the add leaves a stopped torrent, and the next tap reports \"Already added\""
   - id: WR-02
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "`--forwarded-allow-ips \"*\"` lets any container on the `qbit` network spoof the throttle key"
   - id: WR-03
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "Untrusted plugin `fileUrl` is passed to qBittorrent/plugin downloader without a scheme check"
   - id: WR-04
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "The \"stop before any payload\" guarantee for non-magnet results is unproven"
   - id: WR-05
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "Rows can stay on \"Preparing\" forever (job gone after restart, 404/401, or give-up)"
   - id: WR-06
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "Readiness is checked once; later qBittorrent config drift is not detected"
   - id: WR-07
     severity: warning
-    disposition: open
+    disposition: fixed
     title: "Login lockout is per source address only, and the whole household can be locked out"
   - id: IN-01
     severity: info
@@ -63,23 +63,23 @@ findings:
     severity: info
     disposition: open
     title: "Config accepts identical or nested save paths, and the credentials init script can silently do nothing"
-open: 15
+open: 7
 total: 15
-recorded: 2026-10-22T11:45:53.372Z
+recorded: 2026-10-22T12:20:32.302Z
 ---
 
 # Phase 01: Code Review Disposition
 
 | Finding | Severity | Disposition | Source |
 |---------|----------|-------------|--------|
-| CR-01 | critical | open | - |
-| WR-01 | warning | open | - |
-| WR-02 | warning | open | - |
-| WR-03 | warning | open | - |
-| WR-04 | warning | open | - |
-| WR-05 | warning | open | - |
-| WR-06 | warning | open | - |
-| WR-07 | warning | open | - |
+| CR-01 | critical | fixed | 01-REVIEW-FIX.md |
+| WR-01 | warning | fixed | 01-REVIEW-FIX.md |
+| WR-02 | warning | fixed | 01-REVIEW-FIX.md |
+| WR-03 | warning | fixed | 01-REVIEW-FIX.md |
+| WR-04 | warning | fixed | 01-REVIEW-FIX.md |
+| WR-05 | warning | fixed | 01-REVIEW-FIX.md |
+| WR-06 | warning | fixed | 01-REVIEW-FIX.md |
+| WR-07 | warning | fixed | 01-REVIEW-FIX.md |
 | IN-01 | info | open | - |
 | IN-02 | info | open | - |
 | IN-03 | info | open | - |
