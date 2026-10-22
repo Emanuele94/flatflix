@@ -176,3 +176,49 @@ async def test_repr_shows_no_password_or_secretstr(fake_qbit: FakeQbit) -> None:
         assert QBIT_PASS not in text
         assert "SecretStr('" not in text
     await client.aclose()
+
+
+# --- configuration endpoints used by bootstrap (01-06) ---------------------------------------
+
+
+async def test_set_preferences_posts_one_json_form_field(fake_qbit: FakeQbit) -> None:
+    client = make_client(fake_qbit)
+
+    await client.set_preferences({"auto_tmm_enabled": True, "max_ratio": 1.0})
+
+    call = fake_qbit.calls_to("/api/v2/app/setPreferences")[0]
+    assert set(call.form) == {"json"}
+    assert fake_qbit.preferences["max_ratio"] == 1.0
+    await client.aclose()
+
+
+async def test_create_category_sends_name_and_save_path_and_reports_conflict(
+    fake_qbit: FakeQbit,
+) -> None:
+    client = make_client(fake_qbit)
+
+    first = await client.create_category("Film", "/media/Film")
+    second = await client.create_category("Film", "/media/Film")
+
+    forms = [c.form for c in fake_qbit.calls_to("/api/v2/torrents/createCategory")]
+    assert (first, second) == (True, False)
+    assert all(set(form) == {"category", "savePath"} for form in forms)
+    await client.aclose()
+
+
+async def test_configuration_error_carries_status_but_not_the_response_body(
+    fake_qbit: FakeQbit,
+) -> None:
+    from app.qbit.client import QbitError
+
+    fake_qbit.register(
+        "GET", "/api/v2/app/preferences", lambda r: httpx.Response(500, text="secret-body-text")
+    )
+    client = make_client(fake_qbit)
+
+    with pytest.raises(QbitError) as caught:
+        await client.get_preferences()
+
+    assert "500" in str(caught.value)
+    assert "secret-body-text" not in str(caught.value)
+    await client.aclose()

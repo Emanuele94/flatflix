@@ -3,6 +3,7 @@
 import json
 from urllib.parse import parse_qsl
 
+import httpx
 import pytest
 from pydantic import SecretStr
 
@@ -178,3 +179,342 @@ def test_settings_reject_bad_category_names_and_paths() -> None:
 def test_fake_wire_format_matches_the_documented_forms() -> None:
     # The fake decodes the `json` form field the same way the real WebAPI does.
     assert json.loads(dict(parse_qsl("json=%7B%22a%22%3A+1%7D"))["json"]) == {"a": 1}
+
+
+# --- Task 2: idempotence, ordering, failure handling, readiness gate -------------------------
+
+LOGIN = "/api/v2/auth/login"
+VERSION = "/api/v2/app/webapiVersion"
+PREFS = "/api/v2/app/preferences"
+SET_PREFS = "/api/v2/app/setPreferences"
+CATEGORIES = "/api/v2/torrents/categories"
+CREATE = "/api/v2/torrents/createCategory"
+EDIT = "/api/v2/torrents/editCategory"
+
+
+def wire_paths(fake: FakeQbit) -> list[str]:
+    return [call.path for call in fake.calls if call.path != LOGIN]
+
+
+class SleepLog:
+    def __init__(self) -> None:
+        self.delays: list[float] = []
+
+    async def __call__(self, delay: float) -> None:
+        self.delays.append(delay)
+
+
+def fail_first(fake: FakeQbit, method: str, path: str, times: int, error: Exception) -> None:
+    """Make the first `times` calls to a route fail the way a dead connection does."""
+    original = fake._routes[(method, path)]
+    remaining = {"n": times}
+
+    def route(request):
+        if remaining["n"] > 0:
+            remaining["n"] -= 1
+            raise error
+        return original(request)
+
+    fake.register(method, path, route)
+
+
+async def test_existing_category_with_same_path_gets_no_edit_with_or_without_trailing_slash(
+    fake_qbit: FakeQbit, settings: Settings
+) -> None:
+    fake_qbit.category_table = {
+        "Film": {"name": "Film", "savePath": "/media/Film/"},
+        "SerieTV": {"name": "SerieTV", "savePath": SERIES},
+    }
+    bootstrapper, readiness = make_bootstrapper(fake_qbit, settings)
+
+    await bootstrapper.run_once()
+
+    assert fake_qbit.calls_to(EDIT) == []
+    assert fake_qbit.calls_to(CREATE) == []
+    assert readiness.state == "ready"
+
+
+async def test_existing_category_with_other_path_gets_exactly_one_edit_to_the_configured_path(
+    fake_qbit: FakeQbit, settings: Settings
+) -> None:
+    fake_qbit.category_table = {"Film": {"name": "Film", "savePath": "/downloads"}}
+    bootstrapper, _ = make_bootstrapper(fake_qbit, settings)
+
+    await bootstrapper.run_once()
+
+    edits = fake_qbit.calls_to(EDIT)
+    assert [call.form for call in edits] == [{"category": "Film", "savePath": FILM}]
+    assert fake_qbit.category_table["Film"]["savePath"] == FILM
+
+
+async def test_lower_case_category_does_not_satisfy_film(
+    fake_qbit: FakeQbit, settings: Settings
+) -> None:
+    fake_qbit.category_table = {"film": {"name": "film", "savePath": FILM}}
+    bootstrapper, _ = make_bootstrapper(fake_qbit, settings)
+
+    await bootstrapper.run_once()
+
+    assert set(fake_qbit.category_table) == {"film", "Film", "SerieTV"}
+    created = [call.form["category"] for call in fake_qbit.calls_to(CREATE)]
+    assert created == ["Film", "SerieTV"]
+
+
+async def test_create_conflict_is_treated_as_already_existing(
+    fake_qbit: FakeQbit, settings: Settings
+) -> None:
+    # The category list is stale (empty) but the category exists: createCategory answers 409.
+    stale = {"first": True}
+
+    def serve_categories(request):
+        if stale["first"]:
+            stale["first"] = False
+            return httpx.Response(200, json={})
+        return httpx.Response(200, json=fake_qbit.category_table)
+
+    fake_qbit.category_table = {
+        "Film": {"name": "Film", "savePath": FILM},
+        "SerieTV": {"name": "SerieTV", "savePath": SERIES},
+    }
+    fake_qbit.register("GET", CATEGORIES, serve_categories)
+    bootstrapper, readiness = make_bootstrapper(fake_qbit, settings)
+
+    await bootstrapper.run_once()
+
+    assert fake_qbit.calls_to(EDIT) == []
+    assert readiness.state == "ready"
+
+
+async def test_bootstrap_is_idempotent_across_two_runs(
+    fake_qbit: FakeQbit, settings: Settings
+) -> None:
+    bootstrapper, _ = make_bootstrapper(fake_qbit, settings)
+    await bootstrapper.run_once()
+    first_payload = fake_qbit.preference_payloads[0]
+    fake_qbit.calls.clear()
+
+    await bootstrapper.run_once()
+
+    assert fake_qbit.calls_to(CREATE) == []
+    assert fake_qbit.calls_to(EDIT) == []
+    assert fake_qbit.preference_payloads[1] == first_payload
+
+
+async def test_bootstrap_call_order_is_version_preferences_set_preferences_categories(
+    fake_qbit: FakeQbit, settings: Settings
+) -> None:
+    bootstrapper, _ = make_bootstrapper(fake_qbit, settings)
+
+    await bootstrapper.run_once()
+
+    assert wire_paths(fake_qbit)[:4] == [VERSION, PREFS, SET_PREFS, CATEGORIES]
+    assert wire_paths(fake_qbit)[4:6] == [CREATE, CREATE]
+
+
+async def test_admin_patterns_are_kept_after_the_fixed_list_without_duplicates(
+    fake_qbit: FakeQbit, settings: Settings
+) -> None:
+    fake_qbit.preferences["excluded_file_names"] = "*.txt\n*.EXE"
+    bootstrapper, _ = make_bootstrapper(fake_qbit, settings)
+
+    await bootstrapper.run_once()
+
+    sent = json.loads(fake_qbit.preference_payloads[0])["excluded_file_names"].split("\n")
+    assert sent == [*EXCLUDED_FILE_PATTERNS, "*.txt"]
+
+
+async def test_readiness_flips_only_after_preferences_and_categories(
+    fake_qbit: FakeQbit, settings: Settings
+) -> None:
+    readiness = Readiness()
+    seen: list[str] = []
+
+    def spying_create(request):
+        seen.append(readiness.state)
+        return httpx.Response(200)
+
+    fake_qbit.register("POST", CREATE, spying_create)
+    bootstrapper, _ = make_bootstrapper(fake_qbit, settings, readiness)
+
+    await bootstrapper.run_once()
+
+    assert seen == ["starting", "starting"]
+    assert fake_qbit.preference_payloads  # setPreferences happened before ready
+    assert readiness.state == "ready"
+
+
+@pytest.mark.parametrize(
+    ("version", "compatible"), [("2.15.0", False), ("2.15.1", True), ("2.17.0", True)]
+)
+async def test_webapi_version_gate_incompatible_below_2_15_1(
+    fake_qbit: FakeQbit, settings: Settings, version: str, compatible: bool
+) -> None:
+    fake_qbit.webapi_version = version
+    bootstrapper, readiness = make_bootstrapper(fake_qbit, settings)
+
+    await bootstrapper.run_forever()
+
+    assert (readiness.state == "ready") is compatible
+    if not compatible:
+        assert readiness.state == "failed"
+        assert readiness.reason == "QbitIncompatible"
+        assert fake_qbit.calls_to(SET_PREFS) == []
+
+
+@pytest.mark.parametrize("mode", ["wrong_password", "banned"])
+async def test_auth_failure_stops_after_one_attempt_with_one_error_log(
+    fake_qbit: FakeQbit,
+    settings: Settings,
+    caplog: pytest.LogCaptureFixture,
+    mode: str,
+) -> None:
+    if mode == "wrong_password":
+        settings = settings.model_copy(update={"qbittorrent_pass": SecretStr("not-the-password")})
+    else:
+        fake_qbit.ban_after = 0
+    sleeps = SleepLog()
+    bootstrapper, readiness = make_bootstrapper(fake_qbit, settings, sleep=sleeps)
+
+    with caplog.at_level("INFO"):
+        await bootstrapper.run_forever()
+
+    errors = [r for r in caplog.records if r.levelname == "ERROR"]
+    assert len(errors) == 1
+    assert "qBittorrent bootstrap stopped" in errors[0].getMessage()
+    assert "not-the-password" not in caplog.text
+    assert fake_qbit.login_attempts == 1
+    assert sleeps.delays == []
+    assert readiness.state == "failed"
+    assert readiness.reason in {"QbitAuthError", "QbitBanned"}
+
+
+async def test_unreachable_qbittorrent_retries_with_backoff_one_two_four_then_succeeds(
+    fake_qbit: FakeQbit, settings: Settings
+) -> None:
+
+    fail_first(fake_qbit, "GET", VERSION, 3, httpx.ConnectError("refused"))
+    sleeps = SleepLog()
+    bootstrapper, readiness = make_bootstrapper(fake_qbit, settings, sleep=sleeps)
+
+    await bootstrapper.run_forever()
+
+    assert sleeps.delays == [1, 2, 4]
+    assert readiness.state == "ready"
+
+
+async def test_backoff_is_capped_at_thirty_seconds(fake_qbit: FakeQbit, settings: Settings) -> None:
+
+    fail_first(fake_qbit, "GET", VERSION, 8, httpx.ConnectError("refused"))
+    sleeps = SleepLog()
+    bootstrapper, _ = make_bootstrapper(fake_qbit, settings, sleep=sleeps)
+
+    await bootstrapper.run_forever()
+
+    assert sleeps.delays == [1, 2, 4, 8, 16, 30, 30, 30]
+
+
+async def test_server_error_during_bootstrap_is_retried_with_backoff(
+    fake_qbit: FakeQbit, settings: Settings
+) -> None:
+
+    original = fake_qbit._routes[("POST", SET_PREFS)]
+    failures = {"n": 2}
+
+    def flaky(request):
+        if failures["n"]:
+            failures["n"] -= 1
+            return httpx.Response(500, text="boom secret body")
+        return original(request)
+
+    fake_qbit.register("POST", SET_PREFS, flaky)
+    sleeps = SleepLog()
+    bootstrapper, readiness = make_bootstrapper(fake_qbit, settings, sleep=sleeps)
+
+    await bootstrapper.run_forever()
+
+    assert sleeps.delays == [1, 2]
+    assert readiness.state == "ready"
+
+
+async def test_route_guarded_by_require_ready_is_503_not_ready_until_bootstrap_succeeds(
+    settings: Settings, fake_qbit: FakeQbit
+) -> None:
+    from fastapi import APIRouter, Depends
+
+    from app.main import create_app
+
+    # qBittorrent never answers, so bootstrap stays in its retry loop.
+    fail_first(fake_qbit, "GET", VERSION, 10_000, httpx.ConnectError("refused"))
+    client = QbitClient(
+        settings.qbittorrent_url,
+        settings.qbittorrent_user,
+        settings.qbittorrent_pass,
+        transport=fake_qbit.transport,
+    )
+    app = create_app(settings, client)
+    router = APIRouter()
+
+    @router.get("/api/guarded", dependencies=[Depends(require_ready)])
+    async def guarded() -> dict[str, bool]:
+        return {"ok": True}
+
+    app.include_router(router)
+    async with app.router.lifespan_context(app):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://portal.test") as web:
+            before = await web.get("/api/guarded")
+            app.state.readiness.mark_ready()
+            after = await web.get("/api/guarded")
+
+    assert before.status_code == 503
+    assert before.json() == {"detail": "not_ready"}
+    assert after.status_code == 200
+
+
+async def test_health_is_degraded_while_starting_and_after_failure(
+    settings: Settings, fake_qbit: FakeQbit
+) -> None:
+
+    from app.main import create_app
+
+    fake_qbit.webapi_version = "2.15.0"  # reachable, but incompatible -> failed
+    client = QbitClient(
+        settings.qbittorrent_url,
+        settings.qbittorrent_user,
+        settings.qbittorrent_pass,
+        transport=fake_qbit.transport,
+    )
+    app = create_app(settings, client)
+    async with app.router.lifespan_context(app):
+        await app.state.bootstrap_task
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://portal.test") as web:
+            failed = await web.get("/api/health")
+            app.state.readiness.state = "starting"
+            starting = await web.get("/api/health")
+
+    assert failed.json()["status"] == "degraded"
+    assert starting.json()["status"] == "degraded"
+
+
+async def test_one_bootstrap_task_runs_per_process(api, app, fake_qbit: FakeQbit) -> None:
+    assert app.state.bootstrap_task.done()
+    assert len(fake_qbit.calls_to(SET_PREFS)) == 1
+    assert len(fake_qbit.calls_to(VERSION)) == 1
+
+
+async def test_conflict_on_create_without_the_category_appearing_is_an_error_not_ready(
+    fake_qbit: FakeQbit, settings: Settings
+) -> None:
+    from app.qbit.client import QbitError
+
+    fake_qbit.register(
+        "POST", CREATE, lambda r: httpx.Response(409, text="Unable to create category")
+    )
+    bootstrapper, readiness = make_bootstrapper(fake_qbit, settings)
+
+    with pytest.raises(QbitError):
+        await bootstrapper.run_once()
+
+    assert readiness.state == "starting"
+    assert fake_qbit.calls_to(EDIT) == []
