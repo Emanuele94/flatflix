@@ -35,7 +35,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   5. One documented laptop port map (Caddy, portal frontend, qBittorrent WebUI if published, Jellyfin 8096) and one media-folder contract (host paths, owner IDs, separate incomplete-downloads folder) exist, and no two services collide on a port.
   6. A torrent whose file list has no allowed video file is rejected before any data is downloaded, with a plain message to the user; in an accepted torrent, executables, scripts, shortcuts, archives and every other non-video, non-subtitle file are never downloaded (qBittorrent exclusion list plus per-file priority 0).
 
-**Plans**: 12/13 plans executed (12 waves; listed in execution order, so plan numbers are not sequential)
+**Plans**: 13/13 plans executed (12 waves; listed in execution order, so plan numbers are not sequential)
 
 Plans:
 **Wave 1**
@@ -73,7 +73,7 @@ Plans:
 - [x] 01-13-PLAN.md — Tracer: Scarica button and row states (Avviato ✓, In preparazione, rejection) (wave 11)
 
 **Wave 12** *(blocked on Wave 11 completion)*
-- [ ] 01-09-PLAN.md — Tracer: household flow end to end with leak scan; setup guide; CLAUDE.md/REQUIREMENTS.md aligned; phone check (wave 12)
+- [x] 01-09-PLAN.md — Tracer: household flow end to end with leak scan; setup guide; CLAUDE.md/REQUIREMENTS.md aligned; phone check (wave 12)
 
 **UI hint**: yes
 
@@ -169,7 +169,7 @@ Phases execute in numeric order: 1 → 2 → 2.1 → 3 → 4 → 5 → 6 (Phases
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Portal Search & Start Download | 12/13 | In Progress | - |
+| 1. Portal Search & Start Download | 13/13 | In Progress | - |
 | 2. Portal Download Management & Hardening | 0/TBD | Not started | - |
 | 2.1 Download Quarantine & Firecracker Validation | 0/TBD | Not started | - |
 | 3. Jellyfin Server & TV Playback Gate | 0/TBD | Not started | - |

@@ -14,7 +14,7 @@ Requirements for the initial release. Each maps to exactly one roadmap phase.
 ### Portal Access & Security
 
 - [x] **AUTH-01**: User must log in with the portal's own username and password (separate from qBittorrent) before any search, download or status page or API endpoint is reachable; unauthenticated visits go to the login page. (qbit F8, section 10)
-- [ ] **SEC-01**: qBittorrent credentials and session cookie live only in the backend; they never appear in any page, script or response the browser receives. (qbit NF3)
+- [x] **SEC-01**: qBittorrent credentials and session cookie live only in the backend; they never appear in any page, script or response the browser receives. (qbit NF3)
 - [x] **SEC-02**: qBittorrent's WebUI is reachable only from the backend over the internal container network; if published at all for admin setup it is bound to the laptop's loopback only, never to the LAN or Internet. (qbit NF4, section 10)
 - [x] **SEC-03**: The backend accepts only `type` = `film` or `serie` (strict validation) and never accepts a file path or category name from the browser. (qbit sections 6, 10)
 - [x] **SEC-04**: All configuration (qBittorrent URL/user/password, categories, portal user/password, session key) comes from environment variables, with a committed `.env.example` holding placeholders only; the repo contains no secrets, LAN IPs or real credentials. (qbit NF5, section 12; user constraint)
@@ -31,7 +31,7 @@ Requirements for the initial release. Each maps to exactly one roadmap phase.
 
 - [x] **DOWN-01**: User can start the download of a search result with one tap on Download. (qbit F3)
 - [x] **DOWN-02**: The download is automatically assigned to category `Film` (film) or `SerieTV` (serie) by the backend; the user never picks a category. (qbit F4)
-- [ ] **DOWN-03**: Each category saves to its predefined path (`Film` -> `/media/Film`, `SerieTV` -> `/media/SerieTV`): categories are created through the API at startup if missing, "Append category name to save path" is disabled, and the browser sends no path. (qbit F5, section 6)
+- [x] **DOWN-03**: Each category saves to its predefined path (`Film` -> `/media/Film`, `SerieTV` -> `/media/SerieTV`): categories are created through the API at startup if missing, "Append category name to save path" is disabled, and the browser sends no path. (qbit F5, section 6)
 - [ ] **DOWN-04**: User can see downloads in progress and completed (Film and SerieTV only) with their state and progress, refreshed about every 5 seconds. (qbit F6, section 5.3)
 - [ ] **DOWN-05**: User can cancel a download from the list and it is removed from qBittorrent. (qbit F7)
 - [ ] **DOWN-06**: Failures show plain messages to the user: invalid torrent (415), qBittorrent unreachable (502, with automatic retry), invalid category path (409); wrong qBittorrent credentials (401) are logged and shown only as a generic message. (qbit section 13)
@@ -53,7 +53,7 @@ Requirements for the initial release. Each maps to exactly one roadmap phase.
 
 ### Shared Infrastructure
 
-- [ ] **INFRA-01**: The portal stack (frontend, backend, qBittorrent) starts with a single `docker compose up` on the laptop and `GET /api/health` reports service status. (qbit section 7, 11)
+- [x] **INFRA-01**: The portal stack (frontend, backend, qBittorrent) starts with a single `docker compose up` on the laptop and `GET /api/health` reports service status. (qbit section 7, 11)
 - [x] **INFRA-02**: One laptop-wide port map, documented in one place, assigns host ports for Caddy, the portal frontend, the qBittorrent WebUI (only if published) and Jellyfin 8096 without collisions; qBittorrent's WebUI port differs from the portal frontend's and `QBITTORRENT_URL` matches. (W3)
 - [ ] **INFRA-03**: Caddy and Jellyfin run according to the port map; the portal and Jellyfin/Caddy stacks share a Docker network or one compose project; whether Caddy also fronts the portal is decided and recorded; the TV reaches Jellyfin only through Caddy's single address. (W3, ht architecture)
 - [ ] **INFRA-04**: A DHCP reservation keeps the laptop on the same LAN IP, so the TV address does not change after reboots. (ht setup)
@@ -142,7 +142,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | AUTH-01 | Phase 1 | Complete |
-| SEC-01 | Phase 1 | Pending |
+| SEC-01 | Phase 1 | Complete |
 | SEC-02 | Phase 1 | Complete |
 | SEC-03 | Phase 1 | Complete |
 | SEC-04 | Phase 1 | Complete |
@@ -153,13 +153,13 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SRCH-03 | Phase 1 | Complete |
 | DOWN-01 | Phase 1 | Complete |
 | DOWN-02 | Phase 1 | Complete |
-| DOWN-03 | Phase 1 | Pending |
+| DOWN-03 | Phase 1 | Complete |
 | DOWN-04 | Phase 2 | Pending |
 | DOWN-05 | Phase 2 | Pending |
 | DOWN-06 | Phase 2 | Pending |
 | PUI-01 | Phase 1 | Complete |
 | PUI-02 | Phase 1 | Complete |
-| INFRA-01 | Phase 1 | Pending |
+| INFRA-01 | Phase 1 | Complete |
 | INFRA-02 | Phase 1 | Complete |
 | INFRA-03 | Phase 3 | Pending |
 | INFRA-04 | Phase 3 | Pending |

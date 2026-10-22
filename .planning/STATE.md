@@ -2,17 +2,17 @@
 gsd_state_version: "1.0"
 current_phase: 01
 current_phase_name: Portal Search & Start Download
-status: executing
-stopped_at: Completed 01-13-PLAN.md
-last_updated: "2026-10-22T11:21:15.267Z"
+status: verifying
+stopped_at: Completed 01-09-PLAN.md
+last_updated: "2026-10-22T11:29:35.500Z"
 last_activity: 2026-10-22
 last_activity_desc: Phase 01 execution started
-state_head: 08c88e1b1e64aad16e5b96994b8d26d6797a8cfe
+state_head: 638ef84b7d6b4b0a4d14ad52ee1f5f257992b2fa
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 13
-  completed_plans: 12
+  completed_plans: 13
   percent: 0
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-10-21)
 
 Phase: 01 (Portal Search & Start Download) — EXECUTING
 Plan: 13 of 13
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-10-22 — Phase 01 execution started
 
 Progress: [░░░░░░░░░░] 0%
@@ -68,6 +68,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P12 | 15min | 2 tasks | 8 files |
 | Phase 01 P08 | 18 min | 2 tasks | 14 files |
 | Phase 01 P13 | 25 min | 2 tasks | 6 files |
+| Phase 01 P09 | 40 min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -102,6 +103,7 @@ Recent decisions affecting current work:
 - [Phase 01]: A non-magnet torrent that never appears becomes unavailable; a late arrival keeps fx-pending and the next reconcile removes it
 - [Phase 01]: 01-13: download POST and job polling live in Search (row state map keyed by result_id); ResultRow is a pure view
 - [Phase 01]: 01-13: rows send the type of the search that produced them, captured at submit, not the live toggle
+- [Phase 01]: 01-09: doctor --torrents is a separate list mode; every smoke subcommand ends with the leak scan; smoke downloads only Blender open movies
 
 ### Pending Todos
 
@@ -131,6 +133,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-22T11:21:15.205Z
-Stopped at: Completed 01-13-PLAN.md
+Last session: 2026-10-22T11:29:35.352Z
+Stopped at: Completed 01-09-PLAN.md
 Resume file: None
