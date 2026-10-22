@@ -149,3 +149,144 @@ describe('Search flow', () => {
     expect(calls.length).toBe(before);
   });
 });
+
+const FOREIGN = /not_ready|search_unavailable|search_not_found|\b50\d\b|\b422\b|\{|undefined|Error/;
+
+function snapshot(results, { done = true, timed_out = false } = {}) {
+  return jsonResponse({ search_id: 's1', done, timed_out, results });
+}
+
+async function runSearch(stub, q = 'Sintel') {
+  stubSearch(stub);
+  const view = render(<Search />);
+  submitSearch(q);
+  await tick(0);
+  await tick(700);
+  return view;
+}
+
+describe('Search states (D-06, PUI-02)', () => {
+  it('shows "Ricerca in corso…" with the rows received while the search runs, and hides it when done', async () => {
+    const stub = {
+      snapshots: [snapshot([row('a', 'Alpha', 50)], { done: false }), snapshot([row('a', 'Alpha', 50)])],
+    };
+    stubSearch(stub);
+    const { container } = render(<Search />);
+    submitSearch('Sintel');
+    await tick(0);
+    expect(screen.getByText('Ricerca in corso…')).toBeTruthy();
+    await tick(700);
+    expect(screen.getByText('Ricerca in corso…')).toBeTruthy();
+    expect(container.querySelector('.spinner')).toBeTruthy();
+    expect(container.querySelectorAll('li.result').length).toBe(1);
+    await tick(700);
+    expect(screen.queryByText('Ricerca in corso…')).toBeNull();
+    expect(container.querySelectorAll('li.result').length).toBe(1);
+  });
+
+  it('says there is nothing found when done with zero rows', async () => {
+    await runSearch({ snapshots: [snapshot([])] });
+    expect(screen.getByText('Nessun risultato. Prova con altre parole.')).toBeTruthy();
+    expect(screen.queryByText('La ricerca ha impiegato troppo tempo. Riprova.')).toBeNull();
+  });
+
+  it('says the search took too long when it timed out with zero rows', async () => {
+    await runSearch({ snapshots: [snapshot([], { timed_out: true })] });
+    expect(screen.getByText('La ricerca ha impiegato troppo tempo. Riprova.')).toBeTruthy();
+    expect(screen.queryByText('Nessun risultato. Prova con altre parole.')).toBeNull();
+  });
+
+  it('shows the rows with no message and no indicator when it timed out with some results', async () => {
+    const { container } = await runSearch({
+      snapshots: [snapshot([row('a', 'Alpha', 50)], { timed_out: true })],
+    });
+    expect(container.querySelectorAll('li.result').length).toBe(1);
+    expect(screen.queryByText('La ricerca ha impiegato troppo tempo. Riprova.')).toBeNull();
+    expect(screen.queryByText('Nessun risultato. Prova con altre parole.')).toBeNull();
+    expect(screen.queryByText('Ricerca in corso…')).toBeNull();
+  });
+
+  it('shows no empty message before any search', () => {
+    stubSearch({ snapshots: [snapshot([])] });
+    render(<Search />);
+    expect(screen.queryByText('Nessun risultato. Prova con altre parole.')).toBeNull();
+  });
+
+  it('shows the starting message on a 503 and nothing technical', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: 'not_ready' }, 503)));
+    const { container } = render(<Search />);
+    submitSearch('Sintel');
+    await tick(0);
+    expect(screen.getByText('Il servizio si sta avviando. Riprova tra poco.')).toBeTruthy();
+    expect(screen.queryByText('Ricerca in corso…')).toBeNull();
+    expect(container.textContent).not.toMatch(FOREIGN);
+  });
+
+  it('asks for at least 2 characters on a 422 and nothing technical', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: 'validation_error' }, 422)));
+    const { container } = render(<Search />);
+    submitSearch('a');
+    await tick(0);
+    expect(screen.getByText('Scrivi almeno 2 caratteri.')).toBeTruthy();
+    expect(container.textContent).not.toMatch(FOREIGN);
+  });
+
+  it('shows the unreachable message on a network error', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => Promise.reject(new TypeError('Failed to fetch'))));
+    const { container } = render(<Search />);
+    submitSearch('Sintel');
+    await tick(0);
+    expect(
+      screen.getByText('Server non raggiungibile. Controlla che il computer sia acceso.'),
+    ).toBeTruthy();
+    expect(container.textContent).not.toMatch(FOREIGN);
+  });
+
+  it('shows a plain Italian message when a poll fails with search_not_found', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (path) =>
+        path === '/api/search'
+          ? jsonResponse({ search_id: 's1' })
+          : jsonResponse({ detail: 'search_not_found' }, 404),
+      ),
+    );
+    const { container } = render(<Search />);
+    submitSearch('Sintel');
+    await tick(0);
+    await tick(700);
+    expect(container.querySelector('.form-error').textContent).toBe('Qualcosa è andato storto. Riprova.');
+    expect(container.textContent).not.toMatch(FOREIGN);
+    expect(screen.queryByText('Ricerca in corso…')).toBeNull();
+  });
+
+  it('clears the previous message when a new search starts', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: 'not_ready' }, 503)));
+    render(<Search />);
+    submitSearch('Sintel');
+    await tick(0);
+    expect(screen.getByText('Il servizio si sta avviando. Riprova tra poco.')).toBeTruthy();
+    stubSearch({ snapshots: [snapshot([], { done: false })] });
+    submitSearch('Sintel');
+    await tick(0);
+    expect(screen.queryByText('Il servizio si sta avviando. Riprova tra poco.')).toBeNull();
+  });
+
+  it('keeps each row DOM node when a snapshot re-sorts the rows (key = result_id)', async () => {
+    stubSearch({
+      snapshots: [
+        snapshot([row('a', 'Alpha', 50), row('b', 'Beta', 40)], { done: false }),
+        snapshot([row('b', 'Beta', 90), row('a', 'Alpha', 50)]),
+      ],
+    });
+    const { container } = render(<Search />);
+    submitSearch('Sintel');
+    await tick(0);
+    await tick(700);
+    const [alphaBefore, betaBefore] = container.querySelectorAll('li.result');
+    await tick(700);
+    const after = container.querySelectorAll('li.result');
+    expect(after[0]).toBe(betaBefore);
+    expect(after[1]).toBe(alphaBefore);
+  });
+});
