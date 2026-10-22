@@ -1,143 +1,143 @@
-# Architettura – Portale Self-Service Film e Serie TV su qBittorrent
+# Architecture – Self-Service Portal for Films and TV Series on qBittorrent
 
-## 1. Contesto
+## 1. Context
 
-Realizzare un frontend personalizzato, semplice e sicuro, che permetta a un utente non tecnico (es. tua moglie) di:
+Build a custom, simple and secure frontend that lets a non-technical user (e.g. your wife) do the following:
 
-- cercare film e serie TV;
-- selezionare un risultato;
-- avviare il download su qBittorrent;
-- salvare automaticamente il contenuto in cartelle predefinite e separate.
+- search for films and TV series;
+- select a result;
+- start the download on qBittorrent;
+- automatically save the content in predefined, separate folders.
 
-Il frontend si appoggia a qBittorrent e alle sue **estensioni di ricerca** (search plugins) tramite la Web API ufficiale. L’utente non deve mai vedere qBittorrent, i percorsi di salvataggio o le credenziali.
-
----
-
-## 2. Obiettivi e non obiettivi
-
-### Obiettivi
-
-- Interfaccia web minimale per ricerca e download di film e serie TV.
-- Associazione automatica tra tipo di contenuto e cartella di destinazione.
-- Nessuna configurazione manuale del percorso da parte dell’utente finale.
-- Utilizzo delle estensioni di ricerca già installate in qBittorrent.
-- Monitoraggio semplice dello stato dei download.
-- Isolamento delle credenziali di qBittorrent dal browser.
-
-### Non obiettivi
-
-- Sostituire Sonarr/Radarr o altri gestori di libreria.
-- Gestire musica, libri, giochi o software.
-- Esporre direttamente la WebUI di qBittorrent a Internet.
-- Consentire all’utente finale di modificare categorie, percorsi o impostazioni di qBittorrent.
+The frontend relies on qBittorrent and its **search plugins** through the official Web API. The user must never see qBittorrent, the save paths or the credentials.
 
 ---
 
-## 3. Requisiti
+## 2. Goals and non-goals
 
-### Funzionali
+### Goals
 
-| ID | Requisito |
+- Minimal web interface for searching and downloading films and TV series.
+- Automatic mapping between content type and destination folder.
+- No manual path configuration by the end user.
+- Use of the search plugins already installed in qBittorrent.
+- Simple monitoring of download status.
+- Isolation of the qBittorrent credentials from the browser.
+
+### Non-goals
+
+- Replacing Sonarr/Radarr or other library managers.
+- Handling music, books, games or software.
+- Exposing the qBittorrent WebUI directly to the Internet.
+- Allowing the end user to change qBittorrent categories, paths or settings.
+
+---
+
+## 3. Requirements
+
+### Functional
+
+| ID | Requirement |
 |----|-----------|
-| F1 | L’utente può cercare film e serie TV per parola chiave. |
-| F2 | I risultati mostrano nome, dimensione, seeders, leechers e fonte. |
-| F3 | L’utente può avviare il download di un risultato. |
-| F4 | Il download viene associato automaticamente alla categoria `Film` o `SerieTV`. |
-| F5 | Ogni categoria salva in un percorso predefinito. |
-| F6 | L’utente può vedere i download in corso e completati. |
-| F7 | L’utente può annullare un download. |
-| F8 | L’accesso è protetto da login. |
+| F1 | The user can search for films and TV series by keyword. |
+| F2 | Results show name, size, seeders, leechers and source. |
+| F3 | The user can start the download of a result. |
+| F4 | The download is automatically assigned to the `Film` or `SerieTV` category. |
+| F5 | Each category saves to a predefined path. |
+| F6 | The user can see in-progress and completed downloads. |
+| F7 | The user can cancel a download. |
+| F8 | Access is protected by login. |
 
-### Non funzionali
+### Non-functional
 
-| ID | Requisito |
+| ID | Requirement |
 |----|-----------|
-| NF1 | Interfaccia responsive, utilizzabile da smartphone. |
-| NF2 | Tempo di risposta percezione < 2 s per la ricerca. |
-| NF3 | Credenziali qBittorrent mai esposte al frontend. |
-| NF4 | Comunicazione con qBittorrent solo da rete interna o container. |
-| NF5 | Configurazione tramite variabili d’ambiente. |
-| NF6 | Log essenziali per debug e audit. |
+| NF1 | Responsive interface, usable from a smartphone. |
+| NF2 | Perceived response time < 2 s for search. |
+| NF3 | qBittorrent credentials never exposed to the frontend. |
+| NF4 | Communication with qBittorrent only from the internal network or containers. |
+| NF5 | Configuration through environment variables. |
+| NF6 | Essential logs for debugging and audit. |
 
 ---
 
-## 4. Architettura generale
+## 4. Overall architecture
 
 ```mermaid
 flowchart LR
-    U[Utente: Moglie] -->|HTTPS| RP[Reverse Proxy / HTTPS]
-    RP --> FE[Frontend Web]
-    FE -->|API REST| BE[Backend FastAPI/Node]
+    U[User: Wife] -->|HTTPS| RP[Reverse Proxy / HTTPS]
+    RP --> FE[Web Frontend]
+    FE -->|REST API| BE[Backend FastAPI/Node]
     BE -->|Web API v2| QB[qBittorrent]
     QB --> SP[Search Plugins]
     QB --> DL[Download Engine]
     DL --> FS[(File System)]
-    BE -.->|Opzionale| TMDB[TMDB API]
+    BE -.->|Optional| TMDB[TMDB API]
 ```
 
-### Componenti principali
+### Main components
 
-| Componente | Ruolo |
+| Component | Role |
 |------------|-------|
-| Frontend | Interfaccia utente: ricerca, risultati, download, stato. |
-| Backend | Autenticazione, proxy verso qBittorrent, logica categorie. |
-| qBittorrent | Motore di download e host delle estensioni di ricerca. |
-| Search Plugins | Plugin di ricerca installati in qBittorrent. |
-| File System | Cartelle finali per Film e Serie TV. |
-| Reverse Proxy | HTTPS, accesso esterno sicuro. |
-| TMDB (opzionale) | Metadati, copertine, titoli normalizzati. |
+| Frontend | User interface: search, results, downloads, status. |
+| Backend | Authentication, proxy to qBittorrent, category logic. |
+| qBittorrent | Download engine and host of the search plugins. |
+| Search Plugins | Search plugins installed in qBittorrent. |
+| File System | Final folders for Films and TV Series. |
+| Reverse Proxy | HTTPS, secure external access. |
+| TMDB (optional) | Metadata, cover images, normalized titles. |
 
 ---
 
-## 5. Flussi principali
+## 5. Main flows
 
-### 5.1 Ricerca
+### 5.1 Search
 
 ```mermaid
 sequenceDiagram
-    participant U as Utente
+    participant U as User
     participant FE as Frontend
     participant BE as Backend
     participant QB as qBittorrent
     participant SP as Search Plugins
 
-    U->>FE: Inserisce "Inception"
+    U->>FE: Enters "Inception"
     FE->>BE: GET /api/search?q=Inception&type=film
     BE->>QB: POST /api/v2/search/start
-    QB->>SP: Interroga plugin categoria movies
-    SP-->>QB: Risultati
+    QB->>SP: Queries plugins in the movies category
+    SP-->>QB: Results
     loop Polling
         BE->>QB: GET /api/v2/search/status?id=...
-        QB-->>BE: Stato
+        QB-->>BE: Status
     end
     BE->>QB: GET /api/v2/search/results?id=...
-    QB-->>BE: Lista torrent
-    BE-->>FE: Risultati filtrati e ordinati
-    FE-->>U: Mostra risultati
+    QB-->>BE: Torrent list
+    BE-->>FE: Filtered and sorted results
+    FE-->>U: Shows results
 ```
 
 ### 5.2 Download
 
 ```mermaid
 sequenceDiagram
-    participant U as Utente
+    participant U as User
     participant FE as Frontend
     participant BE as Backend
     participant QB as qBittorrent
     participant FS as File System
 
-    U->>FE: Clicca "Scarica"
+    U->>FE: Clicks "Download"
     FE->>BE: POST /api/download
-    BE->>BE: Determina categoria (Film/SerieTV)
+    BE->>BE: Determines category (Film/SerieTV)
     BE->>QB: POST /api/v2/torrents/add
     Note over BE,QB: urls=magnet, category=Film
-    QB->>FS: Salva in /media/Film
+    QB->>FS: Saves to /media/Film
     QB-->>BE: OK
-    BE-->>FE: Download avviato
-    FE-->>U: Conferma
+    BE-->>FE: Download started
+    FE-->>U: Confirmation
 ```
 
-### 5.3 Monitoraggio
+### 5.3 Monitoring
 
 ```mermaid
 sequenceDiagram
@@ -145,33 +145,33 @@ sequenceDiagram
     participant BE as Backend
     participant QB as qBittorrent
 
-    loop ogni 5 secondi
+    loop every 5 seconds
         FE->>BE: GET /api/torrents
         BE->>QB: GET /api/v2/torrents/info?category=Film,SerieTV
-        QB-->>BE: Lista torrent
-        BE-->>FE: Dati semplificati
+        QB-->>BE: Torrent list
+        BE-->>FE: Simplified data
     end
 ```
 
 ---
 
-## 6. Categorie e percorsi
+## 6. Categories and paths
 
-In qBittorrent vengono create due categorie con percorsi fissi.
+Two categories with fixed paths are created in qBittorrent.
 
-| Categoria | Percorso di salvataggio | Contenuto |
+| Category | Save path | Content |
 |-----------|------------------------|-----------|
-| `Film` | `/media/Film` | Film |
-| `SerieTV` | `/media/SerieTV` | Serie TV |
+| `Film` | `/media/Film` | Films |
+| `SerieTV` | `/media/SerieTV` | TV Series |
 
-### Regole
+### Rules
 
-- Creare le categorie via API o manualmente nella WebUI.
-- Disabilitare l’opzione **“Append category name to save path”**.
-- Il backend non accetta percorsi dal frontend: la categoria è l’unico parametro.
-- I percorsi devono essere volumi montati e scrivibili dal container qBittorrent.
+- Create the categories via API or manually in the WebUI.
+- Disable the **"Append category name to save path"** option.
+- The backend does not accept paths from the frontend: the category is the only parameter.
+- The paths must be mounted volumes writable by the qBittorrent container.
 
-### Creazione categorie via API
+### Creating categories via API
 
 ```http
 POST /api/v2/torrents/createCategory
@@ -189,18 +189,18 @@ category=SerieTV&savePath=/media/SerieTV
 
 ---
 
-## 7. API Backend proposta
+## 7. Proposed backend API
 
-| Metodo | Endpoint | Descrizione |
+| Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/login` | Login utente applicativo. |
-| GET | `/api/search` | Avvia e recupera risultati ricerca. |
-| POST | `/api/download` | Aggiunge torrent a qBittorrent. |
-| GET | `/api/torrents` | Lista download Film/SerieTV. |
-| DELETE | `/api/torrents/{hash}` | Annulla o rimuove un torrent. |
-| GET | `/api/health` | Stato servizio. |
+| POST | `/api/login` | Application user login. |
+| GET | `/api/search` | Starts a search and retrieves results. |
+| POST | `/api/download` | Adds a torrent to qBittorrent. |
+| GET | `/api/torrents` | Lists Film/SerieTV downloads. |
+| DELETE | `/api/torrents/{hash}` | Cancels or removes a torrent. |
+| GET | `/api/health` | Service status. |
 
-### Esempio richiesta download
+### Example download request
 
 ```json
 POST /api/download
@@ -210,18 +210,18 @@ POST /api/download
 }
 ```
 
-Il backend traduce `type` in categoria:
+The backend translates `type` into a category:
 
 - `film` → `Film`
 - `serie` → `SerieTV`
 
 ---
 
-## 8. Integrazione qBittorrent
+## 8. qBittorrent integration
 
-### Autenticazione
+### Authentication
 
-Il backend effettua login e mantiene il cookie di sessione.
+The backend logs in and keeps the session cookie.
 
 ```http
 POST /api/v2/auth/login
@@ -230,64 +230,64 @@ Content-Type: application/x-www-form-urlencoded
 username=admin&password=***
 ```
 
-### Endpoint principali utilizzati
+### Main endpoints used
 
-| Funzione | Endpoint |
+| Function | Endpoint |
 |----------|----------|
 | Login | `POST /api/v2/auth/login` |
-| Ricerca start | `POST /api/v2/search/start` |
-| Ricerca status | `GET /api/v2/search/status` |
-| Ricerca risultati | `GET /api/v2/search/results` |
-| Plugin disponibili | `GET /api/v2/search/plugins` |
-| Aggiungi torrent | `POST /api/v2/torrents/add` |
-| Lista torrent | `GET /api/v2/torrents/info` |
-| Crea categoria | `POST /api/v2/torrents/createCategory` |
-| Lista categorie | `GET /api/v2/torrents/categories` |
-| Versione WebAPI | `GET /api/v2/app/webapiVersion` |
+| Search start | `POST /api/v2/search/start` |
+| Search status | `GET /api/v2/search/status` |
+| Search results | `GET /api/v2/search/results` |
+| Available plugins | `GET /api/v2/search/plugins` |
+| Add torrent | `POST /api/v2/torrents/add` |
+| List torrents | `GET /api/v2/torrents/info` |
+| Create category | `POST /api/v2/torrents/createCategory` |
+| List categories | `GET /api/v2/torrents/categories` |
+| WebAPI version | `GET /api/v2/app/webapiVersion` |
 
-### Note versione
+### Version notes
 
-- `category` in `torrents/add` è supportato dalle versioni recenti.
-- `savePath` a livello di categoria è la soluzione consigliata.
-- Verificare che la WebAPI sia ≥ 2.1.0 per le funzionalità avanzate.
+- `category` in `torrents/add` is supported by recent versions.
+- A category-level `savePath` is the recommended solution.
+- Check that the WebAPI is ≥ 2.1.0 for the advanced features.
 
 ---
 
-## 9. Ricerca tramite estensioni qBittorrent
+## 9. Search through qBittorrent plugins
 
-Il backend usa l’API Search di qBittorrent.
+The backend uses qBittorrent's Search API.
 
-Parametri tipici di `search/start`:
+Typical `search/start` parameters:
 
-- `pattern`: testo cercato
-- `plugins`: lista plugin separati da `|`
-- `category`: `movies` o `tv`
+- `pattern`: the searched text
+- `plugins`: list of plugins separated by `|`
+- `category`: `movies` or `tv`
 
-Il backend filtra i plugin in base al tipo richiesto:
+The backend filters the plugins according to the requested type:
 
-| Tipo utente | Categoria plugin |
+| User type | Plugin category |
 |-------------|------------------|
 | Film | `movies` |
-| Serie TV | `tv` |
+| TV Series | `tv` |
 
-I risultati vengono normalizzati e ordinati per seeders decrescenti.
-
----
-
-## 10. Sicurezza
-
-- Login applicativo separato da qBittorrent.
-- Credenziali qBittorrent solo nel backend, mai nel browser.
-- HTTPS obbligatorio se accessibile da fuori casa.
-- Rate limiting sugli endpoint di ricerca e download.
-- Validazione rigida del parametro `type`: solo `film` o `serie`.
-- Nessun percorso file inserito dall’utente.
-- Log senza credenziali.
-- qBittorrent non esposto direttamente su Internet.
+Results are normalized and sorted by descending seeders.
 
 ---
 
-## 11. Deployment suggerito
+## 10. Security
+
+- Application login separate from qBittorrent.
+- qBittorrent credentials only in the backend, never in the browser.
+- HTTPS mandatory if reachable from outside the home.
+- Rate limiting on the search and download endpoints.
+- Strict validation of the `type` parameter: only `film` or `serie`.
+- No file paths entered by the user.
+- Logs without credentials.
+- qBittorrent not directly exposed to the Internet.
+
+---
+
+## 11. Suggested deployment
 
 ```yaml
 version: "3.8"
@@ -308,7 +308,7 @@ services:
       QBITTORRENT_PASS: ${QB_PASS}
       CATEGORY_FILM: Film
       CATEGORY_TV: SerieTV
-      APP_USER: moglie
+      APP_USER: wife
       APP_PASS: ${APP_PASS}
       SECRET_KEY: ${SECRET_KEY}
     depends_on:
@@ -326,58 +326,58 @@ services:
 
 ---
 
-## 12. Configurazione
+## 12. Configuration
 
-Variabili d’ambiente backend:
+Backend environment variables:
 
-| Variabile | Descrizione |
+| Variable | Description |
 |-----------|-------------|
-| `QBITTORRENT_URL` | URL WebUI qBittorrent |
-| `QBITTORRENT_USER` | Utente qBittorrent |
-| `QBITTORRENT_PASS` | Password qBittorrent |
-| `CATEGORY_FILM` | Nome categoria film, default `Film` |
-| `CATEGORY_TV` | Nome categoria serie, default `SerieTV` |
-| `APP_USER` | Utente portale |
-| `APP_PASS` | Password portale |
-| `SECRET_KEY` | Chiave sessioni |
+| `QBITTORRENT_URL` | qBittorrent WebUI URL |
+| `QBITTORRENT_USER` | qBittorrent user |
+| `QBITTORRENT_PASS` | qBittorrent password |
+| `CATEGORY_FILM` | Film category name, default `Film` |
+| `CATEGORY_TV` | Series category name, default `SerieTV` |
+| `APP_USER` | Portal user |
+| `APP_PASS` | Portal password |
+| `SECRET_KEY` | Session key |
 
 ---
 
-## 13. Gestione errori
+## 13. Error handling
 
-| Codice | Causa | Azione |
+| Code | Cause | Action |
 |--------|-------|--------|
-| 401 | Credenziali qBittorrent errate | Log, messaggio generico |
-| 403 | Utente non autenticato | Redirect login |
-| 409 | Percorso categoria non valido | Verificare volumi |
-| 415 | Torrent non valido | Messaggio all’utente |
-| 502 | qBittorrent non raggiungibile | Retry e messaggio |
-| 504 | Timeout ricerca | Ridurre plugin o timeout |
+| 401 | Wrong qBittorrent credentials | Log, generic message |
+| 403 | User not authenticated | Redirect to login |
+| 409 | Invalid category path | Check volumes |
+| 415 | Invalid torrent | Message to the user |
+| 502 | qBittorrent unreachable | Retry and message |
+| 504 | Search timeout | Reduce plugins or timeout |
 
 ---
 
-## 14. Estensioni future
+## 14. Future extensions
 
-- Integrazione TMDB per copertine e titoli normalizzati.
-- Ricerca automatica della stagione/episodio per le serie.
-- Notifiche push al completamento.
-- Supporto a più utenti con categorie separate.
-- Integrazione con Jellyfin/Plex per la libreria.
-- Filtro qualità (1080p, 4K) e lingua.
-- Download automatico di sottotitoli.
+- TMDB integration for cover images and normalized titles.
+- Automatic search for season/episode for series.
+- Push notifications on completion.
+- Support for multiple users with separate categories.
+- Integration with Jellyfin/Plex for the library.
+- Quality filter (1080p, 4K) and language.
+- Automatic subtitle download.
 
 ---
 
-## 15. Glossario
+## 15. Glossary
 
-| Termine | Significato |
+| Term | Meaning |
 |---------|-------------|
-| Web API v2 | API HTTP di qBittorrent |
-| Search Plugin | Estensione di ricerca installata in qBittorrent |
-| Categoria | Raggruppamento logico che associa un percorso |
-| Magnet | Link per il download BitTorrent |
-| Seeders | Peer che possiedono il file completo |
+| Web API v2 | qBittorrent's HTTP API |
+| Search Plugin | Search extension installed in qBittorrent |
+| Category | Logical grouping that maps to a path |
+| Magnet | Link for a BitTorrent download |
+| Seeders | Peers that hold the complete file |
 
 ---
 
-**Nota finale:** questa architettura mantiene il frontend volutamente semplice. Tutta la complessità di qBittorrent, categorie e percorsi resta nel backend. L’utente finale vede solo una ricerca e un pulsante “Scarica”.
+**Final note:** this architecture deliberately keeps the frontend simple. All the complexity of qBittorrent, categories and paths stays in the backend. The end user sees only a search box and a "Download" button.

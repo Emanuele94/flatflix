@@ -1,159 +1,159 @@
-# Home Theater App — Piano di progetto
+# Home Theater App — Project Plan
 
 Oct 16, 2026 · @Ema
 
-## Obiettivo e requisiti
+## Goal and requirements
 
-Un'app home theater personale per la TV Hisense di casa (VIDAA OS), con cui sfogliare e guardare film e serie della propria libreria in almeno Full HD. Deve sembrare un'app vera, avviata da un'icona nella home della TV, e usabile da chi in casa non è tecnico.
+A personal home theater app for the household Hisense TV (VIDAA OS), used to browse and watch the films and series in our own library in at least Full HD. It must feel like a real app, launched from an icon on the TV home screen, and be usable by household members who are not technical.
 
-**Requisiti**
+**Requirements**
 
-- Riproduzione fluida almeno a 1080p, senza perdita di qualità rispetto al file originale
-- Avvio da icona nella home VIDAA, a schermo intero, senza passare dal browser
-- Uso completo con il solo telecomando: frecce, OK, Back, Play/Pausa
-- Libreria con locandine, trame, stagioni ed episodi
-- "Continua a guardare" e stato visto/non visto
-- Frontend il più leggero possibile, adatto al browser datato della TV
+- Smooth playback at 1080p or better, with no quality loss compared to the original file
+- Launch from an icon on the VIDAA home screen, full screen, without going through the browser
+- Full use with the remote control alone: arrows, OK, Back, Play/Pause
+- Library with posters, plot summaries, seasons and episodes
+- "Continue watching" and watched/unwatched state
+- Frontend as light as possible, suited to the TV's dated browser
 
-**Fuori scopo per ora**: accesso da fuori casa, più utenti con profili separati, pubblicazione sullo store VIDAA.
+**Out of scope for now**: access from outside the home, multiple users with separate profiles, publishing on the VIDAA store.
 
-## Architettura generale
+## Overall architecture
 
-In casa ci sono solo due pezzi: la TV, che mostra il frontend, e il laptop, dove gira tutto il resto in Docker. L'unico codice da scrivere è il frontend.
+At home there are only two pieces: the TV, which shows the frontend, and the laptop, where everything else runs in Docker. The only code to write is the frontend.
 
-&#91;embedded content: architettura · TV, laptop e metadati online\]
+&#91;embedded content: architecture · TV, laptop and online metadata\]
 
-La TV chiama un solo indirizzo, quello di Caddy, che serve i file del frontend e inoltra API e video a Jellyfin. Così non ci sono problemi di CORS e, quando il server passerà a un'altra macchina, cambierà solo l'IP.
+The TV calls a single address, the Caddy one, which serves the frontend files and forwards API calls and video to Jellyfin. This avoids CORS problems and, when the server moves to another machine, only the IP changes.
 
 ## Backend: Jellyfin
 
-Il backend è Jellyfin, media server open source: non scriviamo codice server, lo configuriamo e lo usiamo via API REST. Nella fase di prova gira in Docker sul laptop.
+The backend is Jellyfin, an open source media server: we do not write server code, we configure it and use it through its REST API. During the trial phase it runs in Docker on the laptop.
 
-**Cosa ci dà già pronto**
+**What it gives us out of the box**
 
-- Scansione delle cartelle e riconoscimento di film, serie, stagioni ed episodi
-- Metadati e immagini (locandine, trame, cast) da fonti come TMDB, salvati in locale
-- Utenti, avanzamento della visione, "continua a guardare"
-- Motore di streaming che sceglie tra direct play, remux e transcodifica in base al profilo del client
+- Folder scanning and recognition of films, series, seasons and episodes
+- Metadata and images (posters, plot summaries, cast) from sources such as TMDB, stored locally
+- Users, watch progress, "continue watching"
+- Streaming engine that chooses between direct play, remux and transcoding based on the client profile
 
-**API che userà il frontend**
+**APIs the frontend will use**
 
-| Scopo | Cosa chiamiamo |
+| Purpose | What we call |
 | --- | --- |
-| Autenticazione | Login utente o API key creata dal pannello admin |
-| Liste di film e serie | Endpoint `Items`, filtrati per tipo e libreria |
-| Locandine | Endpoint immagini, chiedendo la dimensione già ridotta per la TV |
-| Avvio riproduzione | `PlaybackInfo` con il device profile della TV, restituisce l'URL di streaming |
-| Avanzamento | Report di inizio, progresso e stop della riproduzione |
+| Authentication | User login or API key created from the admin panel |
+| Film and series lists | `Items` endpoint, filtered by type and library |
+| Posters | Image endpoints, requesting the already reduced size for the TV |
+| Start playback | `PlaybackInfo` with the TV's device profile, returns the streaming URL |
+| Progress | Reports for playback start, progress and stop |
 
-**Setup sul laptop**
+**Setup on the laptop**
 
-- Container `jellyfin/jellyfin` con volumi per configurazione, cache e cartella media, più un container Caddy davanti che serve il frontend e fa da reverse proxy
-- Interfaccia admin sulla porta 8096, da cui si crea la libreria
-- Prenotazione DHCP sul router, così il laptop ha sempre lo stesso IP in LAN
+- `jellyfin/jellyfin` container with volumes for configuration, cache and the media folder, plus a Caddy container in front that serves the frontend and acts as a reverse proxy
+- Admin interface on port 8096, from which the library is created
+- DHCP reservation on the router, so the laptop always has the same LAN IP
 
-**Naming dei file**, da rispettare perché la scansione funzioni:
+**File naming**, to be followed so that scanning works:
 
-- Film: `Titolo (Anno)/Titolo (Anno).mkv`
-- Serie: `Serie/Season 01/Serie S01E01.mkv`
+- Films: `Title (Year)/Title (Year).mkv`
+- Series: `Series/Season 01/Series S01E01.mkv`
 
-## Frontend: scelta del framework
+## Frontend: framework choice
 
-Scelta proposta: **Preact + Vite**, con una libreria di navigazione spaziale e build transpilata per browser datati. È leggerissimo (Preact pesa circa 3 KB), usa il modello React che già conosco, e resta una web app pura riutilizzabile anche sul piano B.
+Proposed choice: **Preact + Vite**, with a spatial navigation library and a transpiled build for dated browsers. It is very light (Preact weighs about 3 KB), uses the React model I already know, and remains a pure web app that can also be reused for plan B.
 
-**Vincoli della TV**
+**TV constraints**
 
-- CPU e memoria molto inferiori a un telefono: niente animazioni pesanti, poche immagini grandi alla volta
-- Browser VIDAA datato: build transpilata (es. plugin legacy di Vite) e test reali sulla TV
-- Solo telecomando: serve una navigazione spaziale (frecce che spostano il focus tra elementi vicini)
+- CPU and memory far below a phone: no heavy animations, few large images at a time
+- Dated VIDAA browser: transpiled build (e.g. the Vite legacy plugin) and real tests on the TV
+- Remote control only: spatial navigation is needed (arrows that move focus between nearby elements)
 
-**Opzioni valutate**
+**Options evaluated**
 
-| Opzione | Peso | Navigazione col telecomando | Pro | Contro |
+| Option | Weight | Remote control navigation | Pros | Cons |
 | --- | --- | --- | --- | --- |
-| Preact + Vite | Molto basso | Libreria [preact-spatial-navigation](https://app.unpkg.com/preact-spatial-navigation@1.3.1/files/README.md) o il core di [Norigin](https://github.com/noriginmedia/norigin-spatial-navigation) | Sintassi React, ecosistema ampio, DOM normale per il player | La navigazione va integrata a mano |
-| SolidJS | Molto basso | [solidjs-spatial-navigation](https://github.com/LampaWebDev/solidjs-spatial-navigation), dichiarata testata su VIDAA | Reattività fine, ottime prestazioni | Ecosistema più piccolo, sintassi da imparare |
-| Lightning 3 + Blits | Basso, ma render WebGL | Gestione del focus integrata | Il più veloce sulle TV economiche, [pensato per hardware limitato](https://lightningjs.io/blogs/roadToPerformance.html) | Sintassi propria, il supporto WebGL su VIDAA va verificato, curva di apprendimento alta |
-| Vanilla TypeScript | Minimo | Da scrivere da zero | Zero dipendenze | Tutto (routing, stato, componenti) va riscritto |
+| Preact + Vite | Very low | [preact-spatial-navigation](https://app.unpkg.com/preact-spatial-navigation@1.3.1/files/README.md) library or the [Norigin](https://github.com/noriginmedia/norigin-spatial-navigation) core | React syntax, large ecosystem, normal DOM for the player | Navigation has to be integrated by hand |
+| SolidJS | Very low | [solidjs-spatial-navigation](https://github.com/LampaWebDev/solidjs-spatial-navigation), stated as tested on VIDAA | Fine-grained reactivity, excellent performance | Smaller ecosystem, syntax to learn |
+| Lightning 3 + Blits | Low, but WebGL rendering | Built-in focus handling | The fastest on cheap TVs, [designed for limited hardware](https://lightningjs.io/blogs/roadToPerformance.html) | Own syntax, WebGL support on VIDAA still to be verified, steep learning curve |
+| Vanilla TypeScript | Minimal | To be written from scratch | Zero dependencies | Everything (routing, state, components) has to be rewritten |
 
-**Struttura dell'app**: quattro schermate (Home, Libreria, Dettaglio, Player), un client API sottile verso Jellyfin, un router minimale e la gestione del tasto Back su ogni schermata.
+**App structure**: four screens (Home, Library, Detail, Player), a thin API client for Jellyfin, a minimal router, and handling of the Back key on every screen.
 
-Se i test sulla TV mostrano lag nello scorrimento delle griglie, il ripiego è SolidJS; Lightning solo se anche quello non basta.
+If tests on the TV show lag when scrolling grids, the fallback is SolidJS; Lightning only if that is not enough either.
 
-## Riproduzione video e codec
+## Video playback and codecs
 
-Il Full HD si ottiene evitando la transcodifica video: la TV decodifica in hardware H.264 e HEVC, quindi il server deve al massimo cambiare contenitore o audio.
+Full HD is achieved by avoiding video transcoding: the TV decodes H.264 and HEVC in hardware, so the server should at most change the container or the audio.
 
-| Caso | Cosa fa Jellyfin | Costo sul server | Qualità |
+| Case | What Jellyfin does | Server cost | Quality |
 | --- | --- | --- | --- |
-| File già compatibile | Direct play, invia il file com'è | Nullo | Originale |
-| Contenitore non supportato (tipico: MKV) | Remux in HLS senza ricodificare | Molto basso | Originale |
-| Audio non supportato (DTS, TrueHD) | Transcodifica solo l'audio | Basso | Video originale |
-| Codec video non supportato | Transcodifica completa con ffmpeg | Alto | Ridotta |
+| File already compatible | Direct play, sends the file as is | None | Original |
+| Unsupported container (typically MKV) | Remux into HLS without re-encoding | Very low | Original |
+| Unsupported audio (DTS, TrueHD) | Transcodes only the audio | Low | Original video |
+| Unsupported video codec | Full transcoding with ffmpeg | High | Reduced |
 
-**Player nel frontend**: elemento `<video>` nativo con HLS se la TV lo supporta, altrimenti hls.js sopra le Media Source Extensions. Il device profile inviato a `PlaybackInfo` dichiara a Jellyfin cosa sa fare la TV.
+**Player in the frontend**: native `<video>` element with HLS if the TV supports it, otherwise hls.js on top of Media Source Extensions. The device profile sent to `PlaybackInfo` tells Jellyfin what the TV is capable of.
 
-**Rete**: un 1080p richiede circa 8–20 Mbps; Ethernet sulla TV dove possibile, altrimenti Wi-Fi a 5 GHz.
+**Network**: a 1080p stream needs about 8–20 Mbps; Ethernet on the TV where possible, otherwise 5 GHz Wi-Fi.
 
-**Test di compatibilità (da fare prima del frontend)**
+**Compatibility tests (to do before the frontend)**
 
-- [ ] Aprire dalla TV l'interfaccia web di Jellyfin e provare alcuni film
-- [ ] Verificare video H.264 e HEVC, anche a 10 bit
-- [ ] Verificare audio AAC, AC3, EAC3, DTS
-- [ ] Verificare sottotitoli SRT e quelli incorporati
-- [ ] Controllare dal pannello admin quali riproduzioni finiscono in transcodifica
+- [ ] Open the Jellyfin web interface from the TV and try a few films
+- [ ] Check H.264 and HEVC video, including 10-bit
+- [ ] Check AAC, AC3, EAC3, DTS audio
+- [ ] Check SRT and embedded subtitles
+- [ ] Check in the admin panel which playbacks end up being transcoded
 
-## Distribuzione sulla TV
+## Distribution on the TV
 
-L'app arriva sulla TV come hosted app: sulla TV c'è solo un'icona che apre a schermo intero l'URL del nostro frontend. Il codice vive sul server, quindi ogni aggiornamento è visibile subito senza reinstallare.
+The app reaches the TV as a hosted app: on the TV there is only an icon that opens the URL of our frontend in full screen. The code lives on the server, so every update is visible immediately without reinstalling.
 
-**Piano A: icona VIDAA tramite tool della community**
+**Plan A: VIDAA icon via a community tool**
 
-- Tool open source che, con un redirect DNS temporaneo, aggiunge alla home VIDAA un'app che punta a un URL scelto da noi
-- Installazione una tantum, puntando a `http://<ip-laptop>:<porta>`
-- Non ufficiale: un aggiornamento firmware può romperlo, e il codice del tool va letto prima di usarlo
-- La pubblicazione ufficiale (developer account, NDA, certificazione) non ha senso per un uso domestico
+- Open source tool that, with a temporary DNS redirect, adds to the VIDAA home screen an app pointing to a URL of our choice
+- One-time installation, pointing to `http://<laptop-ip>:<port>`
+- Unofficial: a firmware update can break it, and the tool's code must be read before using it
+- Official publication (developer account, NDA, certification) makes no sense for home use
 
-**Piano B: chiavetta HDMI Google TV o Fire TV (30–70 €)**
+**Plan B: Google TV or Fire TV HDMI stick (€30–70)**
 
-- Lo stesso frontend impacchettato in una WebView (es. Capacitor) e installato come APK
-- Installazione ufficiale e stabile, compatibilità codec di solito migliore
-- Con HDMI-CEC si usa comunque un solo telecomando
+- The same frontend packaged in a WebView (e.g. Capacitor) and installed as an APK
+- Official, stable installation, codec compatibility usually better
+- With HDMI-CEC a single remote control is still enough
 
-Il frontend resta una web app pura, senza API specifiche di VIDAA, così il passaggio dal piano A al B non richiede riscritture.
+The frontend stays a pure web app, with no VIDAA-specific APIs, so moving from plan A to plan B requires no rewrites.
 
-## Rischi e mitigazioni
+## Risks and mitigations
 
-| Rischio | Impatto | Mitigazione |
+| Risk | Impact | Mitigation |
 | --- | --- | --- |
-| Il tool community smette di funzionare dopo un aggiornamento VIDAA | L'icona sparisce o non si apre | Disattivare gli aggiornamenti automatici se possibile; piano B con chiavetta HDMI |
-| Il laptop è spento o cambia IP | L'app non si apre | Prenotazione DHCP; schermata "server non raggiungibile" curata; in seguito server sempre acceso |
-| Codec o sottotitoli non supportati dal player della TV | Transcodifica pesante o video che non parte | Test di compatibilità prima di scrivere il frontend; remux e transcodifica solo audio |
-| Browser VIDAA troppo datato per il JS moderno | Pagina bianca o errori | Build transpilata, test sulla TV fin dalla prima schermata |
-| Prestazioni scarse nelle griglie di locandine | Navigazione a scatti | Immagini ridotte lato server, liste virtualizzate, ripiego su SolidJS |
-| Rete Wi-Fi instabile | Buffering | Ethernet sulla TV, bitrate massimo configurato su Jellyfin |
+| The community tool stops working after a VIDAA update | The icon disappears or does not open | Disable automatic updates if possible; plan B with an HDMI stick |
+| The laptop is off or changes IP | The app does not open | DHCP reservation; a well-designed "server unreachable" screen; later an always-on server |
+| Codecs or subtitles not supported by the TV's player | Heavy transcoding or video that does not start | Compatibility tests before writing the frontend; remux and audio-only transcoding |
+| VIDAA browser too dated for modern JS | Blank page or errors | Transpiled build, tests on the TV from the first screen |
+| Poor performance in poster grids | Choppy navigation | Images reduced server-side, virtualized lists, fallback to SolidJS |
+| Unstable Wi-Fi | Buffering | Ethernet on the TV, maximum bitrate configured in Jellyfin |
 
-## Fasi e milestone
+## Phases and milestones
 
-Il progetto procede in cinque fasi, e il frontend si scrive solo dopo aver verificato che la TV riproduce i file senza transcodifica video.
+The project proceeds in five phases, and the frontend is written only after verifying that the TV plays the files without video transcoding.
 
-&#91;embedded content: fasi del progetto · 5 fasi, 4 gate\]
+&#91;embedded content: project phases · 5 phases, 4 gates\]
 
-Le fasi 1 e 2 non richiedono codice: servono a togliere i dubbi tecnici prima di investire tempo sull'interfaccia.
+Phases 1 and 2 require no code: they exist to remove technical doubts before investing time in the interface.
 
-## Decisioni aperte
+## Open decisions
 
-- [ ] Framework definitivo: Preact o SolidJS, da decidere dopo un prototipo di griglia sulla TV
-- [ ] Hardware del server definitivo dopo la prova sul laptop (mini PC Intel N100/N150 se serve transcodifica, altrimenti anche un Raspberry Pi 5)
-- [ ] Un solo utente Jellyfin per la casa o profili separati
-- [ ] Lingua di default di audio e sottotitoli
-- [ ] Se e quando aprire l'accesso da fuori casa (VPN tipo Tailscale o WireGuard)
+- [ ] Final framework: Preact or SolidJS, to be decided after a grid prototype on the TV
+- [ ] Final server hardware after the laptop trial (Intel N100/N150 mini PC if transcoding is needed, otherwise even a Raspberry Pi 5)
+- [ ] A single Jellyfin user for the household or separate profiles
+- [ ] Default audio and subtitle language
+- [ ] If and when to open access from outside the home (VPN such as Tailscale or WireGuard)
 
-## Fonti
+## Sources
 
-- [VIDAA: partner e supporto HTML5](https://www.vidaa.com/?p=20)
-- [VIDAA: guida tecnica alle web app](https://www.vidaa.com/wp-content/uploads/2020/12/WebApp_Development_Guide_for_VIDAA.pdf)
-- [Lightning 3 e Blits: prestazioni su TV](https://lightningjs.io/blogs/roadToPerformance.html)
+- [VIDAA: partners and HTML5 support](https://www.vidaa.com/?p=20)
+- [VIDAA: technical guide to web apps](https://www.vidaa.com/wp-content/uploads/2020/12/WebApp_Development_Guide_for_VIDAA.pdf)
+- [Lightning 3 and Blits: performance on TVs](https://lightningjs.io/blogs/roadToPerformance.html)
 - [Norigin Spatial Navigation](https://github.com/noriginmedia/norigin-spatial-navigation)
 - [preact-spatial-navigation](https://app.unpkg.com/preact-spatial-navigation@1.3.1/files/README.md)
 - [solidjs-spatial-navigation](https://github.com/LampaWebDev/solidjs-spatial-navigation)
