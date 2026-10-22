@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/preact';
-import { Search } from '../Search.jsx';
+import { Search, SAVED_SEARCH_KEY } from '../Search.jsx';
 
 function jsonResponse(body, status = 200) {
   return { ok: status >= 200 && status < 300, status, json: async () => body };
@@ -55,6 +55,7 @@ afterEach(() => {
   cleanup();
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe('Search flow', () => {
@@ -778,5 +779,191 @@ describe('Survives a page reload (G-01-3)', () => {
     await tick(5000);
     expect(setItem).not.toHaveBeenCalled();
     setItem.mockRestore();
+  });
+
+  // ---- Restore edge cases (Task 2): what a saved record may and may not bring back ----------
+  const LOST = 'We lost track of this download. Tap Download to check it again.';
+
+  function seed(over = {}) {
+    sessionStorage.setItem(
+      SAVED_SEARCH_KEY,
+      JSON.stringify({
+        v: 1,
+        type: 'film',
+        q: 'Sintel',
+        search_id: SID,
+        done: true,
+        outcome: null,
+        rows: [row(RA, 'Alpha', 50), row(RB, 'Beta', 40)],
+        jobs: {},
+        ...over,
+      }),
+    );
+  }
+
+  async function mountSeeded(stub = {}) {
+    const calls = stubReload({ searches: { [SID]: [reloadSnapshot(SID, [row(RA, 'Alpha', 50)])] }, ...stub });
+    const view = render(<Search />);
+    await tick(0);
+    return { ...view, calls };
+  }
+
+  it('a pending row (POST in flight at reload) comes back as lost and retryable, with no request', async () => {
+    seed({ jobs: { [RA]: { state: 'pending' } } });
+    const { container, calls } = await mountSeeded();
+    const li = rowOf(container, 'Alpha');
+    expect(li.textContent).toContain(LOST);
+    expect(li.querySelector('button').disabled).toBe(false);
+    await tick(10000);
+    expect(calls.length).toBe(0);
+  });
+
+  it('a preparing row whose job is 331 s old comes back as lost and is never polled', async () => {
+    seed({ jobs: { [RA]: { state: 'preparing', jobId: JOB, startedAt: Date.now() - 331000 } } });
+    const { container, calls } = await mountSeeded();
+    expect(rowOf(container, 'Alpha').textContent).toContain(LOST);
+    expect(rowOf(container, 'Alpha').textContent).not.toContain('Preparing');
+    await tick(20000);
+    expect(calls.length).toBe(0);
+  });
+
+  it('a 10 s old preparing job is polled and gives up at the original 330 s mark', async () => {
+    seed({ jobs: { [RA]: { state: 'preparing', jobId: JOB, startedAt: Date.now() - 10000 } } });
+    const { container, calls } = await mountSeeded();
+    expect(rowOf(container, 'Alpha').textContent).toContain('Preparing');
+    await tick(310000);
+    expect(rowOf(container, 'Alpha').textContent).toContain('Preparing');
+    await tick(10000);
+    expect(rowOf(container, 'Alpha').textContent).toContain(LOST);
+    const after = jobGets(calls);
+    await tick(20000);
+    expect(jobGets(calls)).toBe(after);
+  });
+
+  it('a search saved while running resumes polling every 700 ms, shows Searching, and stops at done', async () => {
+    seed({ done: false, rows: [row(RA, 'Alpha', 50)] });
+    const { container, calls } = await mountSeeded({
+      searches: {
+        [SID]: [
+          reloadSnapshot(SID, [row(RA, 'Alpha', 50), row(RB, 'Beta', 40)], { done: false }),
+          reloadSnapshot(SID, [row(RB, 'Beta', 90), row(RA, 'Alpha', 50)]),
+        ],
+      },
+    });
+    expect(screen.getByText('Searching…')).toBeTruthy();
+    await tick(700);
+    expect(container.querySelectorAll('li.result').length).toBe(2);
+    expect(screen.getByText('Searching…')).toBeTruthy();
+    await tick(700);
+    expect(screen.queryByText('Searching…')).toBeNull();
+    const gets = () => calls.filter((c) => c.path === `/api/search/${SID}`).length;
+    expect(gets()).toBe(2);
+    await tick(5000);
+    expect(gets()).toBe(2);
+  });
+
+  it('a search saved done with zero rows brings back the no-results message', async () => {
+    seed({ rows: [], outcome: 'empty' });
+    await mountSeeded();
+    expect(screen.getByText('No results. Try different words.')).toBeTruthy();
+  });
+
+  it('a search saved done with zero rows brings back the timeout message', async () => {
+    seed({ rows: [], outcome: 'timeout' });
+    await mountSeeded();
+    expect(screen.getByText('The search took too long. Try again.')).toBeTruthy();
+  });
+
+  it.each([
+    ['invalid JSON', () => sessionStorage.setItem(SAVED_SEARCH_KEY, '{not json')],
+    ['version 2', () => seed({ v: 2 })],
+    ['type music', () => seed({ type: 'music' })],
+    ['search_id ../logout', () => seed({ search_id: '../logout' })],
+    ['rows not an array', () => seed({ rows: { length: 2 } })],
+  ])('tampered data (%s) shows the empty start screen, sends no request and removes the key', async (_n, plant) => {
+    plant();
+    const { container, calls } = await mountSeeded();
+    expect(container.querySelectorAll('li.result').length).toBe(0);
+    expect(screen.getByLabelText('Movie or series title').value).toBe('');
+    expect(container.querySelector('.form-error')).toBeNull();
+    expect(container.textContent).not.toMatch(FOREIGN);
+    await tick(5000);
+    expect(calls.length).toBe(0);
+    expect(sessionStorage.getItem(SAVED_SEARCH_KEY)).toBeNull();
+  });
+
+  it('tampered rows: a bad row is dropped, the valid rows stay', async () => {
+    seed({ rows: [row('x', 'Bad id', 1), { ...row(RB, 'x', 1), name: 42 }, row(RA, 'Alpha', 50)] });
+    const { container } = await mountSeeded();
+    const names = [...container.querySelectorAll('li.result .result-name')].map((n) => n.textContent);
+    expect(names).toEqual(['Alpha']);
+  });
+
+  it('tampered jobs: an unknown state or a path-like job id is dropped and never requested', async () => {
+    seed({
+      jobs: {
+        [RA]: { state: 'hacked' },
+        [RB]: { state: 'preparing', jobId: '../../api/logout', startedAt: Date.now() },
+      },
+    });
+    const { container, calls } = await mountSeeded();
+    for (const name of ['Alpha', 'Beta']) {
+      const li = rowOf(container, name);
+      expect(li.textContent).not.toContain('Preparing');
+      expect(li.textContent).not.toContain(LOST);
+      expect(li.querySelector('button').disabled).toBe(false);
+    }
+    await tick(10000);
+    expect(calls.length).toBe(0);
+    expect(calls.some((c) => c.path.includes('..'))).toBe(false);
+  });
+
+  it('saves exactly v, type, q, search_id, done, outcome, rows, jobs and only the seven API row fields', async () => {
+    const leaky = { ...row(RA, 'Alpha', 50), url: 'http://x', hash: 'h', save_path: '/media/Film', category: 'Film' };
+    stubReload({ searches: { [SID]: [reloadSnapshot(SID, [leaky])] } });
+    const { container } = render(<Search />);
+    submitSearch('Sintel');
+    await tick(0);
+    await tick(700);
+    await tap(container, 'Alpha');
+    const rec = JSON.parse(sessionStorage.getItem(SAVED_SEARCH_KEY));
+    expect(Object.keys(rec).sort()).toEqual(['done', 'jobs', 'outcome', 'q', 'rows', 'search_id', 'type', 'v']);
+    expect(Object.keys(rec.rows[0]).sort()).toEqual(
+      ['leechers', 'name', 'quality', 'result_id', 'seeders', 'size_human', 'source'],
+    );
+    expect(JSON.stringify(rec)).not.toMatch(/http|hash|\/media|Film"/);
+  });
+
+  it('restored rows are copied with only the seven API fields', async () => {
+    seed({ rows: [{ ...row(RA, 'Alpha', 50), url: 'http://x', save_path: '/media/Film' }] });
+    await mountSeeded();
+    const rec = JSON.parse(sessionStorage.getItem(SAVED_SEARCH_KEY));
+    expect(Object.keys(rec.rows[0]).sort()).toEqual(
+      ['leechers', 'name', 'quality', 'result_id', 'seeders', 'size_human', 'source'],
+    );
+  });
+
+  it('a browser whose sessionStorage throws still searches and downloads', async () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('denied');
+    });
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('denied');
+    });
+    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => {
+      throw new Error('denied');
+    });
+    stubReload({
+      searches: { [SID]: [reloadSnapshot(SID, [row(RA, 'Alpha', 50)])] },
+      download: () => jsonResponse({ status: 'started', job_id: JOB }),
+    });
+    const { container } = render(<Search />);
+    submitSearch('Sintel');
+    await tick(0);
+    await tick(700);
+    await tap(container, 'Alpha');
+    expect(rowOf(container, 'Alpha').textContent).toContain('Started ✓');
+    expect(container.querySelector('.form-error')).toBeNull();
+    expect(container.textContent).not.toMatch(/denied|storage/i);
   });
 });
