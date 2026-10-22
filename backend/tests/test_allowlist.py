@@ -196,6 +196,38 @@ def test_the_other_video_formats_only_name_a_rejection_and_overlap_no_allowed_li
     assert OTHER_VIDEO_EXTENSIONS.isdisjoint(SUBTITLE_EXTENSIONS)
 
 
+def test_a_big_other_format_film_with_a_small_allowed_trailer_is_rejected_as_video_format():
+    decision = decide(_files(("Movie/Movie.m2ts", 20 * GB), ("Movie/Trailer.mp4", 100 * MB)))
+
+    assert decision == FileDecision(
+        accept=False, keep_ids=(), zero_ids=(0, 1), reason="video_format"
+    )
+
+
+def test_a_big_other_format_film_beside_an_mkv_of_a_fifth_keeps_the_mkv_and_the_subtitle():
+    decision = decide(
+        _files(("Movie.m2ts", 20 * GB), ("Movie.mkv", 4 * GB), ("Movie.srt", 2048))
+    )
+
+    assert decision == FileDecision(accept=True, keep_ids=(1, 2), zero_ids=(0,), reason=None)
+
+
+def test_the_ten_percent_boundary_is_measured_against_a_video_of_any_format():
+    exact = decide(_files(("Movie.webm", 10 * GB), ("Movie.mkv", 1 * GB)))
+    short = decide(_files(("Movie.webm", 10 * GB), ("Movie.mkv", 1 * GB - 1)))
+
+    assert exact == FileDecision(accept=True, keep_ids=(1,), zero_ids=(0,), reason=None)
+    assert short.accept is False
+    assert short.reason == "video_format"
+    assert short.keep_ids == ()
+
+
+def test_a_sample_named_video_of_another_format_never_sizes_the_main_video():
+    decision = decide(_files(("Sample/sample.m2ts", 20 * GB), ("Movie.mp4", 700 * MB)))
+
+    assert decision == FileDecision(accept=True, keep_ids=(1,), zero_ids=(0,), reason=None)
+
+
 def test_single_main_video_is_accepted_with_nothing_zeroed():
     decision = decide(_files(("Movie.mkv", 2 * GB)))
 

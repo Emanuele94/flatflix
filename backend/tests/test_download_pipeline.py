@@ -330,6 +330,28 @@ async def test_a_webm_only_torrent_is_unsupported_deleted_and_never_started(rig:
     assert fetched.json() == body
 
 
+async def test_a_big_film_in_another_format_with_a_small_allowed_trailer_is_unsupported(
+    rig: Rig,
+) -> None:
+    rig.cache()
+    rig.fake.set_metadata(
+        BTIH,
+        [
+            ("Movie/Movie.m2ts", 20 * 1024 * MB),
+            ("Movie/Trailer.mp4", 100 * MB),
+        ],
+    )
+
+    response = await rig.post()
+
+    body = response.json()
+    assert body["status"] == "unsupported"
+    assert rig.fake.deleted == [(BTIH, True)]
+    assert rig.fake.calls_to(START) == []
+    assert rig.fake.calls_to(FILE_PRIO) == []
+    assert BTIH not in rig.fake.torrents
+
+
 async def test_a_torrent_holding_only_samples_is_rejected(rig: Rig) -> None:
     rig.cache()
     rig.fake.set_metadata(
