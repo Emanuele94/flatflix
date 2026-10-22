@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/preact';
 import { Search, SAVED_SEARCH_KEY, clearSavedSearch } from '../Search.jsx';
+import { MSG } from '../messages.js';
 
 function jsonResponse(body, status = 200) {
   return { ok: status >= 200 && status < 300, status, json: async () => body };
@@ -231,6 +232,25 @@ describe('Search states (D-06, PUI-02)', () => {
     await tick(0);
     expect(screen.getByText('Type at least 2 characters.')).toBeTruthy();
     expect(container.textContent).not.toMatch(FOREIGN);
+  });
+
+  it('shows the throttle message on a 429 and nothing technical (D-39)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: 'too_many_requests' }, 429)));
+    const { container } = render(<Search />);
+    submitSearch('Sintel');
+    await tick(0);
+    expect(screen.getByRole('alert').textContent).toBe(MSG.throttled);
+    expect(container.textContent).not.toContain('429');
+    expect(container.textContent).not.toContain('too_many_requests');
+    expect(container.textContent).not.toMatch(/retry-after|\b\d+\s*s\b/i);
+    expect(screen.queryByText('Searching…')).toBeNull();
+    // The form stays editable and a later search works.
+    expect(screen.getByLabelText('Movie or series title').disabled).toBe(false);
+    stubSearch({ snapshots: [snapshot([], { done: false })] });
+    submitSearch('Sintel');
+    await tick(0);
+    expect(screen.queryByText(MSG.throttled)).toBeNull();
+    expect(screen.getByText('Searching…')).toBeTruthy();
   });
 
   it('shows the unreachable message on a network error', async () => {

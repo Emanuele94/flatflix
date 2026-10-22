@@ -156,6 +156,8 @@ function searchErrorMessage(err) {
     if (err.status === 503) return MSG.notReady;
     if (err.status === 422) return MSG.queryTooShort;
     if (err.status === 0) return MSG.serverUnreachable;
+    // D-39: one calm sentence; no countdown, no Retry-After value, no status code.
+    if (err.status === 429) return MSG.throttled;
   }
   return MSG.searchFailed;
 }
