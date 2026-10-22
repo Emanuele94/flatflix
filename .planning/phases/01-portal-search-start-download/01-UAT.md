@@ -3,7 +3,7 @@ status: complete
 phase: 01-portal-search-start-download
 source: [01-VERIFICATION.md]
 started: 2026-10-22T15:04:27Z
-updated: 2026-10-22T15:29:57Z
+updated: 2026-10-22T15:36:10.362Z
 ---
 
 Re-test round after gap closure G-01-3 (plans 01-14, 01-15, 01-16). The previous round (tests 1, 2, 4 passed; 3 issue; 5 skipped) is in git history.
@@ -21,9 +21,8 @@ note: "First attempt used a .webm Tears of Steel result (covered by test 2, gap 
 
 ### 2. UAT 3 phone re-test, .webm-only result (piratebay Tears of Steel 1080p webm)
 expected: Row says "This video format isn’t supported. Try another result.", no Started or check mark, the button is disabled, nothing appears in qBittorrent, and a reload still shows the same message.
-result: issue
-reported: "tears if steek giuves diwbnkiad failed as said before"
-severity: major
+result: pass
+note: "First attempt showed Download failed: the phone tab still ran the pre-01-16 bundle (stale client, diagnosed in .planning/debug/webm-download-failed.md). Re-tested on a freshly opened tab: pass."
 
 ### 3. Real-engine guard re-run (needs docker-compose.admin.yml up; adds live open-licensed torrents)
 expected: QBIT_TEST_URL=http://127.0.0.1:8088 uv run --project backend --frozen pytest backend/tests/integration -m integration -q -rs gives 4 passed, 0 skipped.
@@ -37,8 +36,8 @@ reason: "Deferred follow-up: defer"
 ## Summary
 
 total: 4
-passed: 2
-issues: 1
+passed: 3
+issues: 0
 pending: 0
 skipped: 1
 blocked: 0
@@ -50,12 +49,3 @@ blocked: 0
   deferred_at: 2026-10-22
 
 ## Gaps
-
-- gap_id: G-01-2
-  truth: "A .webm-only Tears of Steel result shows 'This video format isn’t supported. Try another result.' with the button disabled, not a generic failure"
-  status: failed
-  reason: "User reported: tears if steek giuves diwbnkiad failed as said before (i.e. Tears of Steel gives 'download failed' instead of the unsupported-format message)"
-  severity: major
-  test: 2
-  artifacts: []
-  missing: []
