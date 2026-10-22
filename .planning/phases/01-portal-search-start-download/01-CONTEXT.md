@@ -45,6 +45,13 @@ Out of this phase: download list, cancel, audit logs and full rate limiting (Pha
 - **D-17:** Portal password stored as a **hash** (bcrypt or argon2) in env `APP_PASS_HASH` instead of plaintext `APP_PASS` (deviation from qbit-wrapper.md §12). Provide a documented helper command to generate the hash. `.env.example` holds a placeholder only. — **Reversibility:** reversible.
 - **D-18:** **Basic login brute-force limit already in Phase 1** (e.g. 5 failed attempts per 15 min per IP). Full rate limiting stays in Phase 2.
 
+### Planning-time decisions (2026-10-22, after 01-RESEARCH.md)
+- **D-19:** The backend **auto-installs the official qBittorrent search plugins** at startup from URLs **pinned to a commit SHA** (via `search/installPlugin`). This amends D-08's "no extra code" for plugin setup only: without plugins search returns nothing.
+- **D-20:** Dev host runs **Docker Desktop with WSL integration**. LAN access goes through Docker Desktop port publishing; document the enable step as a human checkpoint before any compose task.
+- **D-21:** Completed torrents **seed until ratio 1.0 or 24 h, then stop** (qBittorrent share limits set at bootstrap). Files stay in place.
+- **D-22:** Pin **`lscr.io/linuxserver/qbittorrent:5.2.4`** (the version research verified), never `latest`.
+- **D-23:** FILT-02 is implemented by adding torrents **started with `stopCondition=MetadataReceived`**, not `stopped=true` (research showed a stopped magnet never fetches metadata). Same guarantee: no file data before the per-file allowlist runs.
+
 ### Claude's Discretion
 - Exact Caddy paths for portal vs TV (D-05).
 - How live results reach the browser (polling vs SSE) as long as D-06 holds.
