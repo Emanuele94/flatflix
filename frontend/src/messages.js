@@ -16,4 +16,12 @@ export const MSG = {
   typeSerie: 'Serie TV',
   queryPlaceholder: 'Titolo del film o della serie',
   searchButton: 'Cerca',
+  searching: 'Ricerca in corso…',
+  noResults: 'Nessun risultato. Prova con altre parole.',
+  searchTimedOut: 'La ricerca ha impiegato troppo tempo. Riprova.',
+  notReady: 'Il servizio si sta avviando. Riprova tra poco.',
+  queryTooShort: 'Scrivi almeno 2 caratteri.',
+  searchFailed: 'Qualcosa è andato storto. Riprova.',
+  seedUnit: 'seed',
+  leechUnit: 'in download',
 };

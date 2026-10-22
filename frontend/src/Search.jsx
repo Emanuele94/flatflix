@@ -1,9 +1,20 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { api } from './api.js';
+import { api, ApiError } from './api.js';
 import { MSG } from './messages.js';
 import { ResultRow } from './ResultRow.jsx';
 
 const POLL_MS = 700;
+
+// Only MSG strings ever reach the screen: no status code, JSON or English text.
+function searchErrorMessage(err) {
+  if (err instanceof ApiError) {
+    if (err.status === 401) return ''; // the App shows the login screen
+    if (err.status === 503) return MSG.notReady;
+    if (err.status === 422) return MSG.queryTooShort;
+    if (err.status === 0) return MSG.serverUnreachable;
+  }
+  return MSG.searchFailed;
+}
 
 // One search at a time. Polling runs only while the latest snapshot is not done;
 // a new search or an unmount bumps `runId`, which stops the previous loop.
@@ -12,6 +23,8 @@ export function Search() {
   const [q, setQ] = useState('');
   const [rows, setRows] = useState([]);
   const [searching, setSearching] = useState(false);
+  const [outcome, setOutcome] = useState(null); // null | 'empty' | 'timeout'
+  const [error, setError] = useState('');
   const runId = useRef(0);
   const timer = useRef(null);
 
@@ -31,6 +44,8 @@ export function Search() {
     const run = runId.current;
     const searchType = type;
     setRows([]);
+    setOutcome(null);
+    setError('');
     setSearching(true);
     try {
       const { search_id: searchId } = await api('/api/search', {
@@ -39,9 +54,15 @@ export function Search() {
       });
       if (run !== runId.current) return;
       poll(run, searchId);
-    } catch {
-      if (run === runId.current) setSearching(false);
+    } catch (err) {
+      fail(run, err);
     }
+  }
+
+  function fail(run, err) {
+    if (run !== runId.current) return;
+    setSearching(false);
+    setError(searchErrorMessage(err));
   }
 
   function poll(run, searchId) {
@@ -54,11 +75,12 @@ export function Search() {
         setRows(snap.results);
         if (snap.done) {
           setSearching(false);
+          if (snap.results.length === 0) setOutcome(snap.timed_out ? 'timeout' : 'empty');
         } else {
           poll(run, searchId);
         }
-      } catch {
-        if (run === runId.current) setSearching(false);
+      } catch (err) {
+        fail(run, err);
       }
     }, POLL_MS);
   }
@@ -100,6 +122,18 @@ export function Search() {
           {MSG.searchButton}
         </button>
       </form>
+      {error && (
+        <p class="form-error" role="alert">
+          {error}
+        </p>
+      )}
+      {searching && (
+        <p class="searching" role="status">
+          <span class="spinner" aria-hidden="true" /> {MSG.searching}
+        </p>
+      )}
+      {outcome === 'empty' && <p class="status">{MSG.noResults}</p>}
+      {outcome === 'timeout' && <p class="status">{MSG.searchTimedOut}</p>}
       <ul class="results">
         {rows.map((r) => (
           <ResultRow key={r.result_id} result={r} type={type} />
