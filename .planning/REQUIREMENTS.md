@@ -18,7 +18,7 @@ Requirements for the initial release. Each maps to exactly one roadmap phase.
 - [x] **SEC-02**: qBittorrent's WebUI is reachable only from the backend over the internal container network; if published at all for admin setup it is bound to the laptop's loopback only, never to the LAN or Internet. (qbit NF4, section 10)
 - [x] **SEC-03**: The backend accepts only `type` = `film` or `serie` (strict validation) and never accepts a file path or category name from the browser. (qbit sections 6, 10)
 - [x] **SEC-04**: All configuration (qBittorrent URL/user/password, categories, portal user/password, session key) comes from environment variables, with a committed `.env.example` holding placeholders only; the repo contains no secrets, LAN IPs or real credentials. (qbit NF5, section 12; user constraint)
-- [ ] **SEC-05**: Search and download endpoints are rate limited, so repeated rapid requests are throttled with a clear message. (qbit section 10)
+- [x] **SEC-05**: Search and download endpoints are rate limited, so repeated rapid requests are throttled with a clear message. (qbit section 10)
 - [x] **SEC-06**: The backend writes essential logs for debugging and audit (logins, searches, downloads, cancels, errors) and no log line contains credentials. (qbit NF6, section 10)
 
 ### Portal Search
@@ -146,7 +146,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SEC-02 | Phase 1 | Complete |
 | SEC-03 | Phase 1 | Complete |
 | SEC-04 | Phase 1 | Complete |
-| SEC-05 | Phase 2 | Pending |
+| SEC-05 | Phase 2 | Complete |
 | SEC-06 | Phase 2 | Complete |
 | SRCH-01 | Phase 1 | Complete |
 | SRCH-02 | Phase 1 | Complete |

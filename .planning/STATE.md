@@ -2,17 +2,17 @@
 gsd_state_version: "1.0"
 current_phase: 02
 current_phase_name: Portal Download Management & Hardening
-status: executing
-stopped_at: Completed 02-10-PLAN.md
-last_updated: "2026-10-22T20:43:46.831Z"
+status: verifying
+stopped_at: Completed 02-11-PLAN.md
+last_updated: "2026-10-22T20:50:36.379Z"
 last_activity: 2026-10-22
 last_activity_desc: Phase 02 execution started
-state_head: 44e95b07093480fd10b331c72bc106ccdfa17120
+state_head: 08b2f075152e46322fd67de5ec4ff7ca4ef52176
 progress:
   total_phases: 7
   completed_phases: 1
   total_plans: 27
-  completed_plans: 26
+  completed_plans: 27
   percent: 14
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-10-21)
 
 Phase: 02 (Portal Download Management & Hardening) — EXECUTING
 Plan: 11 of 11
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-10-22 — Phase 02 execution started
 
 Progress: [█░░░░░░░░░] 14%
@@ -82,6 +82,7 @@ Progress: [█░░░░░░░░░] 14%
 | Phase 02 P08 | 10 min | 2 tasks | 4 files |
 | Phase 02 P09 | 25min | 3 tasks | 8 files |
 | Phase 02 P10 | 30min | 2 tasks | 4 files |
+| Phase 02 P11 | 7 min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -137,6 +138,7 @@ Recent decisions affecting current work:
 - [Phase 02]: 02-09: failed logins audit outcome and address only, never the attempted username; download_done is written only for jobs that were not cancelled
 - [Phase 02]: 02-09: RedactingFilter keeps record.args structure and is installed on root and uvicorn handlers (RESEARCH A3 confirmed: uvicorn handlers do not propagate)
 - [Phase 02]: 02-10: Cancel and Remove share one id-only DELETE handler; a removed row is remembered with the poll number so an older poll cannot resurrect it
+- [Phase 02]: 02-11: the list integration test asserts one item with the synthetic torrent's id, not one item overall, so it passes beside the household's real downloads
 
 ### Pending Todos
 
@@ -166,6 +168,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-22T20:43:46.682Z
-Stopped at: Completed 02-10-PLAN.md
+Last session: 2026-10-22T20:50:36.189Z
+Stopped at: Completed 02-11-PLAN.md
 Resume file: None
