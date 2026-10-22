@@ -7,6 +7,10 @@ Run inside the backend container:
 Prints one line per check (names, paths, counts and versions only, never credentials) and
 exits 0 when every check passes, 1 otherwise. `--wait SECONDS` re-checks every 2 s until all
 checks pass or the time runs out, which covers the first start while bootstrap is running.
+
+`--torrents` prints instead one line per portal torrent (tag `fx`): name, category, save path,
+download path, state and progress. It never prints a hash or a credential, and it exits 0 unless
+qBittorrent is unreachable.
 """
 
 import argparse
@@ -21,6 +25,8 @@ from app.qbit.bootstrap import parse_version, same_save_path
 from app.qbit.client import QbitClient, QbitError
 
 RECHECK_SECONDS = 2.0
+PORTAL_TAG = "fx"
+NAME_WIDTH = 60
 
 Check = tuple[bool, str]
 
@@ -115,6 +121,36 @@ def plugin_checks(plugins: list[dict], settings: Settings) -> list[Check]:
     return checks
 
 
+def torrent_line(row: dict) -> str:
+    """One torrent as `name | category | save | incomplete | state | percent` (no hash)."""
+    progress = row.get("progress")
+    percent = f"{float(progress) * 100:.1f}%" if isinstance(progress, int | float) else "?"
+    fields = [
+        str(row.get("name", ""))[:NAME_WIDTH],
+        f"category {row.get('category') or '-'}",
+        f"save {row.get('save_path') or '-'}",
+        f"incomplete {row.get('download_path') or '-'}",
+        f"state {row.get('state') or '-'}",
+        percent,
+    ]
+    return " | ".join(fields)
+
+
+async def list_torrents(settings: Settings) -> int:
+    qbit = QbitClient.from_settings(settings)
+    try:
+        rows = await qbit.torrents_info(tag=PORTAL_TAG)
+    except QbitError as exc:
+        print(line(False, f"qBittorrent not reachable or refused access ({type(exc).__name__})"))
+        return 1
+    finally:
+        await qbit.aclose()
+    for row in rows:
+        print(torrent_line(row))
+    print(f"{len(rows)} portal torrent(s)")
+    return 0
+
+
 async def run(settings: Settings, wait_seconds: float) -> int:
     qbit = QbitClient.from_settings(settings)
     try:
@@ -136,7 +172,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--wait", type=float, default=0, metavar="SECONDS", help="re-check until compliant"
     )
+    parser.add_argument(
+        "--torrents", action="store_true", help="list the portal torrents instead of the checks"
+    )
     args = parser.parse_args(argv)
+    if args.torrents:
+        return asyncio.run(list_torrents(get_settings()))
     return asyncio.run(run(get_settings(), args.wait))
 
 

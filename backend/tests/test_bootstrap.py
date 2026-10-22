@@ -154,6 +154,26 @@ async def test_doctor_fails_against_an_unconfigured_qbittorrent(
     await client.aclose()
 
 
+def test_doctor_torrent_line_has_paths_and_progress_but_no_hash() -> None:
+    row = {
+        "hash": "0123456789abcdef0123456789abcdef01234567",
+        "name": "N" * 80,
+        "category": "Film",
+        "save_path": "/media/Film",
+        "download_path": "/incomplete/Film",
+        "state": "downloading",
+        "progress": 0.256,
+    }
+
+    text = doctor.torrent_line(row)
+
+    assert text == (
+        f"{'N' * 60} | category Film | save /media/Film | incomplete /incomplete/Film"
+        " | state downloading | 25.6%"
+    )
+    assert row["hash"] not in text
+
+
 def test_settings_reject_bad_category_names_and_paths() -> None:
     base = {
         "qbittorrent_url": QBIT_URL,

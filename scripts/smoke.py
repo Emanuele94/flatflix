@@ -4,6 +4,8 @@
 Usage:
     python3 scripts/smoke.py [--base URL] login
     python3 scripts/smoke.py [--base URL] search --q TEXT --type film|serie [--expect-results]
+    python3 scripts/smoke.py [--base URL] download --q TEXT --type film|serie
+    python3 scripts/smoke.py [--base URL] all
 
 Steps of `login` (one `OK <step>` line each, exit 1 with `FAIL <step>: <reason>`):
     no-session-401, wrong-password-401, login-204-cookie, session-200, logout-204,
@@ -13,6 +15,16 @@ Steps of `search`: login, start a search, poll the snapshots every 700 ms for up
 check each one (HTTP 200, whitelisted keys only, seeders non-increasing, done at the end).
 It prints the result count and the time to the first rows, never a result name, and it never
 starts a download.
+
+Steps of `download`: login, search, pick the first row whose name is one of the Blender open
+movies (CC BY: Big Buck Bunny, Sintel, Tears of Steel, Elephants Dream, Cosmos Laundromat),
+start it with POST /api/download and poll the job until started or duplicate. No such row
+prints `SKIP` and exits 2: nothing else is ever started. `all` runs login, a search and then
+`download` for "Big Buck Bunny", "Sintel" and "Tears of Steel" until one does not skip.
+
+Every response any step receives is scanned for leaks at the end (qBittorrent password, session
+secret, password hash, qBittorrent host, save paths, category names, magnet and plugin URLs): a
+hit prints `FAIL leak: <marker name>` and never the value.
 
 APP_USER is read from the local env file by key lookup (the file is never sourced)
 and the password from .dev-portal-password. Neither is ever printed.
@@ -24,6 +36,7 @@ from __future__ import annotations
 import argparse
 import http.cookiejar
 import json
+import re
 import sys
 import time
 import urllib.error
@@ -35,6 +48,24 @@ ENV_FILE = ROOT / ".env"
 PASSWORD_FILE = ROOT / ".dev-portal-password"
 SESSION_COOKIE = "flatflix_session"
 TIMEOUT = 15
+
+
+class Recorded:
+    """One response a probe received: where it came from and what the browser would see."""
+
+    __slots__ = ("body", "headers", "label", "status")
+
+    def __init__(
+        self, label: str, status: int, headers: dict[str, list[str]], body: bytes
+    ) -> None:
+        self.label = label
+        self.status = status
+        self.headers = headers
+        self.body = body
+
+
+# Filled by every Probe.request; scan_for_leaks reads it.
+RECORDED: list[Recorded] = []
 
 
 class Fail(Exception):
@@ -78,6 +109,7 @@ class Probe:
         headers_out: dict[str, list[str]] = {}
         for key in set(raw):
             headers_out.setdefault(key.lower(), []).extend(raw.get_all(key) or [])
+        RECORDED.append(Recorded(f"{method} {path}", status, headers_out, payload))
         return status, headers_out, payload
 
 
@@ -196,17 +228,23 @@ def check_snapshot(step: str, body: object) -> list[dict]:
     return rows
 
 
-def run_search(base: str, query: str, content_type: str, expect_results: bool) -> None:
-    user = read_env_value("APP_USER")
-    password = read_password()
+def login_probe(base: str) -> Probe:
+    """A probe with a live household session (the cookie is kept in its jar)."""
     probe = Probe(base)
-
     status, _, _ = probe.request(
-        "POST", "/api/login", {"username": user, "password": password}
+        "POST",
+        "/api/login",
+        {"username": read_env_value("APP_USER"), "password": read_password()},
     )
     expect("login-204", status, 204)
     step_ok("login-204")
+    return probe
 
+
+def search_flow(
+    probe: Probe, query: str, content_type: str, expect_results: bool
+) -> list[dict]:
+    """Start a search, poll it to the end, check every snapshot and return the final rows."""
     status, _, payload = probe.request(
         "POST", "/api/search", {"q": query, "type": content_type}
     )
@@ -249,9 +287,148 @@ def run_search(base: str, query: str, content_type: str, expect_results: bool) -
         print(
             f"OK search {content_type}: {len(rows)} results, first rows after {first_rows_ms} ms"
         )
+    return rows
 
+
+def run_search(base: str, query: str, content_type: str, expect_results: bool) -> None:
+    probe = login_probe(base)
+    search_flow(probe, query, content_type, expect_results)
     status, _, _ = probe.request("POST", "/api/logout")
     expect("logout-204", status, 204)
+
+
+# The only titles the smoke test may ever download: the Blender open movies (CC BY).
+OPEN_LICENSED = re.compile(
+    r"\b(big[ ._-]?buck[ ._-]?bunny|sintel|tears[ ._-]?of[ ._-]?steel"
+    r"|elephants?[ ._-]?dream|cosmos[ ._-]?laundromat)\b",
+    re.IGNORECASE,
+)
+DOWNLOAD_ANSWER_KEYS = {"status", "job_id"}
+DOWNLOAD_START_STATUSES = {"started", "preparing", "duplicate"}
+DOWNLOAD_POLL_SECONDS = 2
+DOWNLOAD_MAX_SECONDS = 120
+SKIP_EXIT = 2
+ALL_QUERIES = ("Big Buck Bunny", "Sintel", "Tears of Steel")
+
+
+def download_flow(probe: Probe, query: str, content_type: str) -> bool:
+    """Search, start the first open-licensed row, poll its job. False means nothing matched."""
+    rows = search_flow(probe, query, content_type, expect_results=False)
+    chosen = next((row for row in rows if OPEN_LICENSED.search(str(row["name"]))), None)
+    if chosen is None:
+        print("SKIP no open-licensed result passed the filters")
+        return False
+    title = OPEN_LICENSED.search(str(chosen["name"]))
+    print(
+        f"OK download picks an open-licensed result ({title.group(0).lower() if title else '?'})"
+    )
+
+    status, _, payload = probe.request(
+        "POST",
+        "/api/download",
+        {"result_id": chosen["result_id"], "type": content_type},
+    )
+    expect("download-200", status, 200)
+    try:
+        answer = json.loads(payload)
+    except ValueError:
+        raise Fail("download-200", "the answer is not JSON") from None
+    if not isinstance(answer, dict) or set(answer) != DOWNLOAD_ANSWER_KEYS:
+        raise Fail("download-200", "the answer keys differ from status, job_id")
+    if answer["status"] not in DOWNLOAD_START_STATUSES:
+        raise Fail("download-200", f"unexpected status {answer['status']}")
+    job_id = answer["job_id"]
+
+    began = time.monotonic()
+    final = answer["status"]
+    while final == "preparing" and time.monotonic() - began < DOWNLOAD_MAX_SECONDS:
+        time.sleep(DOWNLOAD_POLL_SECONDS)
+        status, _, payload = probe.request("GET", f"/api/download/{job_id}")
+        expect("download-poll-200", status, 200)
+        job = json.loads(payload)
+        if set(job) != DOWNLOAD_ANSWER_KEYS:
+            raise Fail("download-poll-200", "the job keys differ from status, job_id")
+        final = job["status"]
+    if final not in {"started", "duplicate"}:
+        raise Fail("download", f"the job ended as {final}")
+    print(f"OK download {final}")
+    return True
+
+
+def run_download(base: str, query: str, content_type: str) -> int:
+    probe = login_probe(base)
+    matched = download_flow(probe, query, content_type)
+    status, _, _ = probe.request("POST", "/api/logout")
+    expect("logout-204", status, 204)
+    return 0 if matched else SKIP_EXIT
+
+
+def run_all(base: str) -> int:
+    run_login(base)
+    probe = login_probe(base)
+    search_flow(probe, "1080p", "film", expect_results=True)
+    started = False
+    for query in ALL_QUERIES:
+        if download_flow(probe, query, "film"):
+            started = True
+            break
+    status, _, _ = probe.request("POST", "/api/logout")
+    expect("logout-204", status, 204)
+    return 0 if started else SKIP_EXIT
+
+
+def leak_markers() -> dict[str, str]:
+    """Marker name -> forbidden text. Secret values come from the local env file, never printed."""
+    markers = {
+        "qBittorrent password": read_env_value("QBITTORRENT_PASS"),
+        "session secret": read_env_value("SECRET_KEY"),
+        "password hash": read_env_value("APP_PASS_HASH"),
+        "qBittorrent host": "qbittorrent:8088",
+        "qBittorrent session cookie": "QBT_SID",
+        "save_path key": "save_path",
+        "content_path key": "content_path",
+        "media path": "/media/",
+        "incomplete path": "/incomplete",
+        "magnet link": "magnet:",
+        "fileUrl key": "fileUrl",
+        "descrLink key": "descrLink",
+        "category key": '"category"',
+    }
+    try:
+        markers["serie category name"] = read_env_value("CATEGORY_TV")
+    except Fail:
+        markers["serie category name"] = "SerieTV"  # the built-in default
+    return {name: text for name, text in markers.items() if text}
+
+
+def scan_for_leaks(recorded: list[Recorded] | None = None) -> list[str]:
+    """Names of the markers found in any recorded body or header, each once, never the value.
+
+    The flatflix_session Set-Cookie is the one header allowed to carry opaque data.
+    """
+    markers = leak_markers()
+    found: list[str] = []
+    for item in recorded if recorded is not None else RECORDED:
+        header_text = "\n".join(
+            f"{name}: {value}"
+            for name, values in item.headers.items()
+            for value in values
+            if not (name == "set-cookie" and value.startswith(SESSION_COOKIE + "="))
+        )
+        text = item.body.decode("utf-8", errors="replace") + "\n" + header_text
+        for name, forbidden in markers.items():
+            if forbidden in text and name not in found:
+                found.append(name)
+    return found
+
+
+def report_leaks() -> int:
+    leaks = scan_for_leaks()
+    for name in leaks:
+        print(f"FAIL leak: {name}")
+    if not leaks:
+        print(f"OK no-leaks ({len(RECORDED)} responses scanned)")
+    return 1 if leaks else 0
 
 
 def main(argv: list[str]) -> int:
@@ -265,20 +442,34 @@ def main(argv: list[str]) -> int:
     search.add_argument(
         "--expect-results", action="store_true", help="zero results is a FAIL"
     )
+    download = sub.add_parser(
+        "download", help="start one open-licensed (Blender) result"
+    )
+    download.add_argument("--q", required=True, help="search text")
+    download.add_argument("--type", required=True, choices=["film", "serie"])
+    sub.add_parser(
+        "all", help="login, search, download an open-licensed film, leak scan"
+    )
     args = parser.parse_args(argv)
 
+    code = 0
     try:
         if args.command == "login":
             run_login(args.base)
         elif args.command == "search":
             run_search(args.base, args.q, args.type, args.expect_results)
+        elif args.command == "download":
+            code = run_download(args.base, args.q, args.type)
+        elif args.command == "all":
+            code = run_all(args.base)
+        leak_code = report_leaks()
     except Fail as exc:
         print(f"FAIL {exc.step}: {exc.reason}")
         return 1
     except (urllib.error.URLError, OSError) as exc:
         print(f"FAIL connect: {type(exc).__name__}")
         return 1
-    return 0
+    return leak_code or code
 
 
 if __name__ == "__main__":

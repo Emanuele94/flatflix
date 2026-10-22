@@ -2,6 +2,7 @@
 
 import io
 import re
+from pathlib import Path
 
 import pytest
 from argon2 import PasswordHasher
@@ -199,3 +200,24 @@ def test_password_shorter_than_8_characters_exits_2(
 
     assert code == 2
     assert "APP_PASS_HASH" not in capsys.readouterr().out
+
+
+# SEC-04 adjacency: .env.example and Settings describe the same set of keys.
+ENV_EXAMPLE = Path(__file__).resolve().parents[2] / ".env.example"
+COMPOSE_LEVEL_KEYS = {"WEB_PORT", "MEDIA_ROOT", "INCOMPLETE_DIR", "PUID", "PGID", "TZ"}
+
+
+def test_env_example_keys_match_the_settings_fields_exactly() -> None:
+    documented = {
+        line.partition("=")[0].strip()
+        for line in ENV_EXAMPLE.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#") and "=" in line
+    }
+    expected = {name.upper() for name in Settings.model_fields} | COMPOSE_LEVEL_KEYS
+
+    missing_in_example = sorted(expected - documented)
+    orphan_in_example = sorted(documented - expected)
+    assert missing_in_example == [], (
+        f"Settings fields without a key in .env.example: {missing_in_example}"
+    )
+    assert orphan_in_example == [], f"keys in .env.example that nothing reads: {orphan_in_example}"
