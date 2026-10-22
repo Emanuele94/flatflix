@@ -35,9 +35,11 @@ ROOT = Path(
     ).stdout.strip()
 )
 
+# (first octet, second octet, prefix length) for 10/8, 172.16/12, 192.168/16,
+# 169.254/16 and 100.64/10. Kept as tuples so this file holds no full address.
+_PRIVATE_BLOCKS = [(10, 0, 8), (172, 16, 12), (192, 168, 16), (169, 254, 16), (100, 64, 10)]
 PRIVATE_NETWORKS = [
-    ipaddress.ip_network(net)
-    for net in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "100.64.0.0/10")
+    ipaddress.ip_network(f"{a}.{b}.0.0/{prefix}") for a, b, prefix in _PRIVATE_BLOCKS
 ]
 _DOTTED_QUAD = re.compile(r"(?<![\w.])\d{1,3}(?:\.\d{1,3}){3}(?!\w|\.\d)")
 _ARGON2 = re.compile(
@@ -47,10 +49,29 @@ _QBIT_HASH = re.compile(r"@ByteArray\([A-Za-z0-9+/=]{16,}:[A-Za-z0-9+/=]{16,}\)"
 
 
 def find_lan_ips(text: str) -> list[tuple[int, str]]:
-    return []  # RED stub
+    """(line number, address) for every private, link-local or CGNAT address in text."""
+    found = []
+    for number, line in enumerate(text.splitlines(), start=1):
+        for match in _DOTTED_QUAD.finditer(line):
+            try:
+                address = ipaddress.ip_address(match.group(0))
+            except ValueError:
+                continue
+            if any(address in net for net in PRIVATE_NETWORKS):
+                found.append((number, match.group(0)))
+    return found
+
 
 def find_secret_material(text: str) -> list[tuple[int, str]]:
-    return []  # RED stub
+    """(line number, kind) for every complete argon2id hash or qBittorrent PBKDF2 value."""
+    found = []
+    for number, line in enumerate(text.splitlines(), start=1):
+        if _ARGON2.search(line):
+            found.append((number, "argon2id hash"))
+        if _QBIT_HASH.search(line):
+            found.append((number, "qBittorrent password hash"))
+    return found
+
 
 def _tracked_text_files() -> list[Path]:
     names = _git("ls-files", "-z").stdout.split(b"\0")

@@ -38,10 +38,35 @@ def _load_yaml(name: str) -> dict:
 
 
 def published_host_ip(entry) -> str | None:
-    return None  # RED stub
+    """Host IP a ports entry binds to, or None when it binds every interface.
+
+    The comparison is on the exact string: a prefix such as 127.0.0.10 or a
+    host name that merely starts with the loopback address is a different IP.
+    """
+    if isinstance(entry, dict):
+        value = entry.get("host_ip")
+        return None if value is None else str(value)
+    text = str(entry).strip()
+    if text.startswith("["):
+        end = text.find("]")
+        if end == -1:
+            return None
+        return text[: end + 1]
+    parts = text.split(":")
+    if len(parts) >= 3:
+        return parts[0]
+    return None
+
 
 def check_qbittorrent_ports(entries) -> list[str]:
-    return []  # RED stub
+    """Every violation of "only entries bound to exactly 127.0.0.1", not just the first."""
+    violations = []
+    for index, entry in enumerate(entries or []):
+        ip = published_host_ip(entry)
+        if ip != LOOPBACK:
+            violations.append(f"ports[{index}] {entry!r} binds {ip or 'all interfaces'}")
+    return violations
+
 
 def _host_port(entry) -> str | None:
     """Host side of a ports entry, with a ${VAR:-default} reduced to its default."""
