@@ -66,6 +66,7 @@ const TEXT = {
   started: 'Started ✓',
   preparing: 'Preparing',
   rejected: 'This file doesn’t contain a video. Try another result.',
+  unsupported: 'This video format isn’t supported. Try another result.',
   unavailable: 'Not available. Try another result.',
   duplicate: 'Already added',
   failed: 'Download failed. Try again.',
@@ -114,7 +115,7 @@ describe('ResultRow Download button (DOWN-01, D-10)', () => {
     expect(container.querySelector('.spinner')).toBeTruthy();
   });
 
-  it.each(['rejected', 'unavailable', 'failed', 'expired', 'notReady', 'network', 'lost'])(
+  it.each(['rejected', 'unsupported', 'unavailable', 'failed', 'expired', 'notReady', 'network', 'lost'])(
     'shows the plain Italian message for %s on its own row',
     (state) => {
       const { container } = renderRow({}, { state });
@@ -131,7 +132,7 @@ describe('ResultRow Download button (DOWN-01, D-10)', () => {
     expect(onDownload).toHaveBeenCalledTimes(1);
   });
 
-  it.each(['rejected', 'unavailable', 'expired'])('does not offer a retry after %s', (state) => {
+  it.each(['rejected', 'unsupported', 'unavailable', 'expired'])('does not offer a retry after %s', (state) => {
     const onDownload = vi.fn();
     renderRow({}, { state, onDownload });
     const button = screen.getByRole('button', { name: 'Download' });

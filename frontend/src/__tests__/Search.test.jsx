@@ -391,6 +391,7 @@ describe('Download from the result list (DOWN-01, SEC-03, D-10)', () => {
 
 const OUTCOMES = [
   ['rejected', () => jsonResponse({ status: 'rejected', job_id: JOB }), 'This file doesn’t contain a video. Try another result.'],
+  ['unsupported', () => jsonResponse({ status: 'unsupported', job_id: JOB }), 'This video format isn’t supported. Try another result.'],
   ['unavailable', () => jsonResponse({ status: 'unavailable', job_id: JOB }), 'Not available. Try another result.'],
   ['duplicate', () => jsonResponse({ status: 'duplicate', job_id: JOB }), 'Already added'],
   ['failed', () => jsonResponse({ status: 'failed', job_id: JOB }), 'Download failed. Try again.'],
@@ -462,6 +463,19 @@ describe('Preparing jobs poll the job (D-11)', () => {
     expect(rowOf(container, 'Alpha').textContent).toContain(
       'This file doesn’t contain a video. Try another result.',
     );
+    expect(container.textContent).not.toContain('Started');
+  });
+
+  it('shows the format message when the job ends unsupported', async () => {
+    const { container } = await openRows({
+      download: () => jsonResponse({ status: 'preparing', job_id: JOB }),
+      jobs: () => jsonResponse({ status: 'unsupported', job_id: JOB }),
+    });
+    await tap(container, 'Alpha');
+    await tick(2000);
+    const li = rowOf(container, 'Alpha');
+    expect(li.textContent).toContain('This video format isn’t supported. Try another result.');
+    expect(li.textContent).not.toContain('This file doesn’t contain a video.');
     expect(container.textContent).not.toContain('Started');
   });
 
@@ -698,6 +712,27 @@ describe('Survives a page reload (G-01-3)', () => {
     expect(container.querySelectorAll('li.result').length).toBe(2);
     expect(rowOf(container, 'Alpha').textContent).toContain('Preparing');
     expect(rowOf(container, 'Beta').textContent).not.toContain('Preparing');
+  });
+
+  it('brings back an unsupported row with the format message and a disabled button', async () => {
+    const calls = stubReload({
+      searches: { [SID]: [reloadSnapshot(SID, [row(RA, 'Alpha', 50)])] },
+      download: () => jsonResponse({ status: 'unsupported', job_id: JOB }),
+    });
+    const first = render(<Search />);
+    submitSearch('Sintel');
+    await tick(0);
+    await tick(700);
+    await tap(first.container, 'Alpha');
+    expect(rowOf(first.container, 'Alpha').textContent).toContain('This video format isn’t supported. Try another result.');
+    const { container } = await reload();
+    const li = rowOf(container, 'Alpha');
+    expect(li.textContent).toContain('This video format isn’t supported. Try another result.');
+    expect(li.querySelector('button').disabled).toBe(true);
+    expect(container.textContent).not.toContain('Started');
+    await tick(5000);
+    expect(downloadPosts(calls).length).toBe(1);
+    expect(jobGets(calls)).toBe(0);
   });
 
   it('restores a TV Series search as TV Series and keeps posting that type', async () => {
