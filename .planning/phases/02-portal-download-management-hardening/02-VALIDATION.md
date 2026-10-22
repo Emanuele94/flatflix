@@ -40,14 +40,17 @@ created: "2026-10-22"
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| TBD (filled by planner) | — | — | DOWN-04 | — | Only exact `Film`/`SerieTV` torrents listed; plain states only | unit + API | `uv run --project backend --frozen pytest backend/tests/test_download_listing.py backend/tests/test_downloads_api.py -q` | ❌ W0 | ⬜ pending |
-| TBD | — | — | DOWN-04 | — | Polling only while tab visible; stale list greyed with banner | component | `npm --prefix frontend test -- Downloads` | ❌ W0 | ⬜ pending |
-| TBD | — | — | DOWN-05 | — | Opaque id; server picks `deleteFiles` from live state; non-Film/SerieTV refused | API | `uv run --project backend --frozen pytest backend/tests/test_downloads_api.py backend/tests/test_download_cancel.py -q` | ❌ W0 | ⬜ pending |
-| TBD | — | — | DOWN-06 | — | qBittorrent credential failure never surfaces as 401; no raw text in DOM | API + component | `uv run --project backend --frozen pytest backend/tests/test_downloads_api.py -q && npm --prefix frontend test` | ❌ W0 | ⬜ pending |
-| TBD | — | — | SEC-05 | — | 11th search / 21st download per minute gets 429; polls never throttled | API | `uv run --project backend --frozen pytest backend/tests/test_rate_limit.py -q` | ❌ W0 | ⬜ pending |
-| TBD | — | — | SEC-06 | — | Audit lines with client IP; canary secrets never logged | API + caplog | `uv run --project backend --frozen pytest backend/tests/test_audit.py -q` | ❌ W0 | ⬜ pending |
-| TBD | — | — | SEC-06 / D-42 | — | json-file rotation on every service; Caddy cache headers | infra | `uv run --project backend --frozen pytest infra/tests -q` | partial | ⬜ pending |
-| TBD | — | — | D-43 | — | Non-allowlisted main video rejected as unsupported | unit | `uv run --project backend --frozen pytest backend/tests/test_allowlist.py -q` | ✅ extend | ⬜ pending |
+| 02-01 T1-T3 | 02-01 | 1 | DOWN-04, DOWN-06 | T-02-01..05 | Only exact `Film`/`SerieTV` torrents listed; plain states only; 502 codes, never 401 | unit + API | `uv run --project backend --frozen pytest backend/tests/test_download_listing.py backend/tests/test_downloads_api.py backend/tests/test_no_leaks.py -q` | ❌ created in task | ⬜ pending |
+| 02-02 T1-T2 | 02-02 | 1 | DOWN-06 (D-43) | T-02-06..08 | Non-allowlisted main video rejected as unsupported; 415 unavailable; 409 drift failed | unit + pipeline | `uv run --project backend --frozen pytest backend/tests/test_allowlist.py backend/tests/test_download_pipeline.py -q` | ✅ extend | ⬜ pending |
+| 02-03 T1-T2 | 02-03 | 1 | SEC-06 (D-40, D-42) | T-02-09..11 | json-file rotation on every service; Caddy cache headers | infra + smoke | `uv run --project backend --frozen pytest infra/tests -q && python3 scripts/smoke.py --base http://127.0.0.1 cache` | partial | ⬜ pending |
+| 02-04 T1-T2 | 02-04 | 2 | DOWN-04 | T-02-12..14 | Failed jobs 24 h; each download listed once | unit + API | `uv run --project backend --frozen pytest backend/tests/test_download_listing.py backend/tests/test_downloads_api.py -q` | ✅ from 02-01 | ⬜ pending |
+| 02-05 T1-T2 | 02-05 | 2 | SEC-05 | T-02-15..18 | 11th search / 21st download per minute gets 429; polls never throttled | API | `uv run --project backend --frozen pytest backend/tests/test_rate_limit.py backend/tests/test_login_throttle.py -q` | ❌ created in task | ⬜ pending |
+| 02-06 T1-T3 | 02-06 | 2 | DOWN-04, DOWN-06 | T-02-19..22 | Polling only while tab visible; stale list greyed with banner; no raw text in DOM | component + smoke | `npm --prefix frontend test && python3 scripts/smoke.py --base http://127.0.0.1 downloads` | ❌ created in task | ⬜ pending |
+| 02-07 T1-T3 | 02-07 | 3 | DOWN-05, DOWN-06 | T-02-23..28 | Opaque id; server picks `deleteFiles` from live state; non-Film/SerieTV refused; no 401 on qBittorrent refusal | API | `uv run --project backend --frozen pytest backend/tests/test_downloads_api.py backend/tests/test_download_cancel.py -q` | ❌ created in task | ⬜ pending |
+| 02-08 T1-T2 | 02-08 | 3 | SEC-05, DOWN-06 | T-02-29..30 | 429 and cancelled read as plain, retryable messages | component | `npm --prefix frontend test` | ✅ extend | ⬜ pending |
+| 02-09 T1-T3 | 02-09 | 4 | SEC-06 | T-02-31..36 | Audit lines with client IP; canary secrets never logged | API + log capture | `uv run --project backend --frozen pytest backend/tests/test_audit.py -q` | ❌ created in task | ⬜ pending |
+| 02-10 T1-T2 | 02-10 | 4 | DOWN-05, DOWN-06 | T-02-37..39 | One confirm, one DELETE with the opaque id only; disabled during outage | component | `npm --prefix frontend test` | ✅ from 02-06 | ⬜ pending |
+| 02-11 T1-T2 | 02-11 | 5 | all | T-02-40..42 | Real-engine list and cancel; full gate; docs; end-of-phase phone check | integration + smoke + human | `QBIT_TEST_URL=http://127.0.0.1:8088 uv run --project backend --frozen pytest backend/tests/integration -m integration -q` | ❌ created in task | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 

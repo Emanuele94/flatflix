@@ -46,7 +46,7 @@ Decision IDs continue from Phase 1 (D-01..D-24) so they stay unique across the p
 
 ### Phase 1 leftovers (folded)
 - **D-42:** **Stale clients:** Caddy sends `Cache-Control: no-cache` on `index.html` (and the SPA fallback) and long immutable caching on hashed `/assets/*`, so phones pick up a new version after a redeploy.
-- **D-43:** **WR-01:** when choosing the main video, the allowlist counts **non-allowlisted videos too**. If the largest video in the torrent is not allowlisted (e.g. a big `.webm` film with a small `.mp4` trailer), the torrent is rejected as **`unsupported`** with the existing text "This video format isn’t supported. Try another result." (D-13 amended). The FILT-02 allowlist itself is unchanged.
+- **D-43:** **WR-01:** when choosing the main video, the allowlist counts **non-allowlisted videos too**. If the largest video in the torrent is not allowlisted (e.g. a big `.webm` film with a small `.mp4` trailer), the torrent is rejected as **`unsupported`** with the existing text "This video format isn’t supported. Try another result." (D-13 amended). The FILT-02 allowlist itself is unchanged. **Interpretation confirmed by the user (2026-10-22):** the 10 % rule from RESEARCH Pattern 11 / WR-01. The main video is the largest non-sample video of any format, and an allowlisted video below 10 % of it does not count. 20 GB `.m2ts` + 4 GB `.mkv` is accepted; 20 GB `.m2ts` + 100 MB `.mp4` is rejected as `unsupported`.
 
 ### Claude's Discretion
 - Mapping of qBittorrent states to plain states, and the ETA wording/rounding.

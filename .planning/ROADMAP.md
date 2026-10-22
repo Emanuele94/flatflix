@@ -95,7 +95,30 @@ Plans:
   3. When qBittorrent is down, a torrent is invalid or a category path is wrong, the user sees a plain-language message (with automatic retry when qBittorrent is unreachable), never a raw error.
   4. Rapid repeated search or download requests are throttled, and the logs record logins, searches, downloads, cancels and errors without any credentials.
 
-**Plans**: TBD
+**Plans**: 11 plans in 5 waves
+
+Plans:
+**Wave 1**
+- [ ] 02-01-PLAN.md — Tracer: GET /api/downloads lists Film/SerieTV torrents with plain state, progress, ETA, opaque ids, 7-day window, 502 codes (wave 1)
+- [ ] 02-02-PLAN.md — Tracer: WR-01 main-video rule (D-43) and plain outcomes for an invalid torrent (415) and a refused category path (409) (wave 1)
+- [ ] 02-03-PLAN.md — Tracer: Caddy cache headers so phones pick up a redeploy (D-42); json-file log rotation on every service (D-40); smoke cache probe (wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 02-04-PLAN.md — Tracer: failed attempts (24 h) and torrent-less Preparing jobs in the list; every download appears once (wave 2)
+- [ ] 02-05-PLAN.md — Tracer: search 10/min and download 20/min per address, 429 too_many_requests; generic sliding-window limiter (wave 2)
+- [ ] 02-06-PLAN.md — Tracer: Search | Downloads tabs, live list polled every 5 s while visible, outage banner, row states, ETA, styling contract, smoke downloads probe (wave 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [ ] 02-07-PLAN.md — Tracer: DELETE /api/downloads/{id}: cancel deletes partial files, remove keeps the film, server-side checks, no ghost rows (wave 3)
+- [ ] 02-08-PLAN.md — Tracer: throttled search and download taps and cancelled jobs read as plain, retryable messages on the Search screen (wave 3)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+- [ ] 02-09-PLAN.md — Tracer: audit trail on stdout (logins, searches, downloads, cancels, throttles, errors) with client IP; redaction on every handler; canary test (wave 4)
+- [ ] 02-10-PLAN.md — Tracer: Cancel download with one in-row confirm, Remove from list, failures and outage lock on the Downloads tab (wave 4)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+- [ ] 02-11-PLAN.md — Tracer: real-engine list and cancel, full gate on the rebuilt stack, admin guide sections, end-of-phase phone check (wave 5)
+
 **UI hint**: yes
 
 ### Phase 02.1: Download Quarantine & Firecracker Validation (INSERTED)
@@ -177,7 +200,7 @@ Phases execute in numeric order: 1 → 2 → 2.1 → 3 → 4 → 5 → 6 (Phases
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Portal Search & Start Download | 16/16 | Complete    | 2026-10-22 |
-| 2. Portal Download Management & Hardening | 0/TBD | Not started | - |
+| 2. Portal Download Management & Hardening | 0/11 | Not started | - |
 | 2.1 Download Quarantine & Firecracker Validation | 0/TBD | Not started | - |
 | 3. Jellyfin Server & TV Playback Gate | 0/TBD | Not started | - |
 | 4. Library Hand-off | 0/TBD | Not started | - |
