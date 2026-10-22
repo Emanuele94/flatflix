@@ -15,7 +15,7 @@ from fastapi import HTTPException, Request
 
 from app.config import Settings
 from app.download.allowlist import EXCLUDED_FILE_PATTERNS
-from app.qbit.client import QbitClient, QbitError, QbitUnavailable
+from app.qbit.client import QbitAuthError, QbitBanned, QbitClient, QbitError
 
 logger = logging.getLogger(__name__)
 
@@ -120,22 +120,43 @@ class Bootstrapper:
             # Names are compared exactly: an existing "film" does not satisfy "Film".
             stored = existing.get(name)
             if stored is None:
-                created = await self._qbit.create_category(name, save_path)
-                if created:
+                if await self._qbit.create_category(name, save_path):
                     continue
-                # 409: it appeared meanwhile; fall through to compare its path.
-                stored = (await self._qbit.categories()).get(name, {})
+                # 409: it appeared since the list was read. Compare its path, never assume.
+                stored = (await self._qbit.categories()).get(name)
+                if stored is None:
+                    raise QbitError("qBittorrent refused to create a category")
             if not same_save_path(str(stored.get("savePath", "")), save_path):
                 await self._qbit.edit_category(name, save_path)
 
     async def run_forever(self) -> None:
+        """Retry until configured; stop for good on a fault only an admin can fix.
+
+        Waits min(2 ** attempt, 30) seconds between attempts: 1, 2, 4, ... capped at 30.
+        """
         attempt = 0
         while True:
             try:
                 await self.run_once()
                 return
-            except QbitUnavailable:
+            except (QbitAuthError, QbitBanned, QbitIncompatible) as exc:
+                reason = type(exc).__name__
+                self._readiness.mark_failed(reason)
+                logger.error(
+                    "qBittorrent bootstrap stopped: %s; fix .env or the image tag and restart",
+                    reason,
+                )
+                return
+            except QbitError as exc:
+                # Unreachable or an unexpected answer: log the class only, never a body or URL.
                 delay = min(2**attempt, BACKOFF_CAP_SECONDS)
                 attempt += 1
-                logger.warning("qBittorrent not ready; retrying in %s s", delay)
+                logger.warning(
+                    "qBittorrent not ready (%s); retrying in %s s", type(exc).__name__, delay
+                )
                 await self._sleep(delay)
+            except Exception as exc:  # noqa: BLE001 - a dead task would leave health unexplained
+                reason = type(exc).__name__
+                self._readiness.mark_failed(reason)
+                logger.error("qBittorrent bootstrap crashed: %s", reason)
+                return
