@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from starlette.middleware.sessions import SessionMiddleware
 
-from app.auth import SESSION_COOKIE
+from app.auth import SESSION_COOKIE, LoginThrottle
 from app.config import Settings, get_settings
 from app.qbit.client import QbitClient
 from app.routers import auth, health
@@ -45,6 +45,11 @@ def create_app(settings: Settings | None = None, qbit: QbitClient | None = None)
         redoc_url=None,
         openapi_url=None,
         lifespan=lifespan,
+    )
+    # Built here, not in the lifespan: the limiter must exist for every request path.
+    app.state.login_throttle = LoginThrottle(
+        max_attempts=settings.login_max_attempts,
+        window_seconds=settings.login_window_seconds,
     )
     app.add_middleware(
         SessionMiddleware,

@@ -51,3 +51,17 @@ async def verify_credentials(settings: Settings, username: str, password: str) -
         _verify_hash, settings.app_pass_hash.get_secret_value(), password
     )
     return user_ok and password_ok
+
+
+class LoginThrottle:
+    """RED stub: allows everything. Replaced by the real limiter in the GREEN commit."""
+
+    def __init__(self, max_attempts: int = 5, window_seconds: float = 900, clock=None) -> None:  # type: ignore[no-untyped-def]
+        self.max_attempts = max_attempts
+        self.window_seconds = window_seconds
+
+    def try_acquire(self, ip: str) -> float | None:
+        return None
+
+    def reset(self, ip: str) -> None:
+        return None
