@@ -6,6 +6,7 @@ Usage:
     python3 scripts/smoke.py [--base URL] search --q TEXT --type film|serie [--expect-results]
     python3 scripts/smoke.py [--base URL] download --q TEXT --type film|serie
     python3 scripts/smoke.py [--base URL] cache
+    python3 scripts/smoke.py [--base URL] downloads
     python3 scripts/smoke.py [--base URL] all
 
 Steps of `login` (one `OK <step>` line each, exit 1 with `FAIL <step>: <reason>`):
@@ -27,6 +28,12 @@ Steps of `cache` (no login): cache-index-no-cache (GET / revalidates), cache-spa
 (GET /downloads revalidates), cache-asset-immutable (the hashed JS asset index.html references is
 cached for a year, immutable), cache-missing-asset-404 (a missing hashed asset is a plain 404, never
 immutable and never the index page).
+
+Steps of `downloads`: login, GET /api/downloads must answer 200 with a JSON object whose only key
+is items (a list); every item has exactly the keys id, name, type, state, progress, eta_seconds,
+action, a 16 hex id, a known state, an integer progress from 0 to 100 and an action of cancel,
+remove or null. It prints `OK downloads-list (<n> items)` (a count, never a name), then logs out.
+`all` runs the same list check after its download step and requires at least one item.
 
 Every response any step receives is scanned for leaks at the end (qBittorrent password, session
 secret, password hash, qBittorrent host, save paths, category names, magnet and plugin URLs): a
@@ -370,6 +377,59 @@ def run_download(base: str, query: str, content_type: str) -> int:
     return 0 if matched else SKIP_EXIT
 
 
+DOWNLOAD_LIST_KEYS = {"id", "name", "type", "state", "progress", "eta_seconds", "action"}
+DOWNLOAD_ITEM_STATES = {
+    "preparing",
+    "downloading",
+    "stalled",
+    "ready",
+    "problem",
+    "rejected",
+    "unsupported",
+    "unavailable",
+    "failed",
+}
+DOWNLOAD_ITEM_ACTIONS = {"cancel", "remove", None}
+HEX16 = re.compile(r"^[0-9a-f]{16}$")
+
+
+def check_downloads_list(probe: Probe, require_items: bool) -> int:
+    """GET /api/downloads through Caddy and check the shape; returns the item count, never a name."""
+    status, _, payload = probe.request("GET", "/api/downloads")
+    expect("downloads-list", status, 200)
+    try:
+        body = json.loads(payload)
+    except ValueError:
+        raise Fail("downloads-list", "the answer is not JSON") from None
+    if not isinstance(body, dict) or set(body) != {"items"} or not isinstance(body["items"], list):
+        raise Fail("downloads-list", "the answer is not an object whose only key is items")
+    for item in body["items"]:
+        if not isinstance(item, dict) or set(item) != DOWNLOAD_LIST_KEYS:
+            raise Fail("downloads-list", "an item has keys outside the expected seven")
+        if not isinstance(item["id"], str) or not HEX16.match(item["id"]):
+            raise Fail("downloads-list", "an id is not 16 lower-case hex characters")
+        if item["state"] not in DOWNLOAD_ITEM_STATES:
+            raise Fail("downloads-list", "an item has an unknown state")
+        progress = item["progress"]
+        if isinstance(progress, bool) or not isinstance(progress, int) or not 0 <= progress <= 100:
+            raise Fail("downloads-list", "progress is not an integer from 0 to 100")
+        if item["action"] not in DOWNLOAD_ITEM_ACTIONS:
+            raise Fail("downloads-list", "an item has an unknown action")
+    count = len(body["items"])
+    if require_items and count == 0:
+        raise Fail("downloads-list", "expected at least one item after the download step, got none")
+    print(f"OK downloads-list ({count} items)")
+    return count
+
+
+def run_downloads(base: str) -> None:
+    """The live downloads list through Caddy: shape only, counts only (DOWN-04)."""
+    probe = login_probe(base)
+    check_downloads_list(probe, require_items=False)
+    status, _, _ = probe.request("POST", "/api/logout")
+    expect("logout-204", status, 204)
+
+
 def _header(headers: dict[str, list[str]], name: str) -> str:
     return ", ".join(headers.get(name, [])).lower()
 
@@ -418,6 +478,8 @@ def run_all(base: str) -> int:
         if download_flow(probe, query, "film"):
             started = True
             break
+    if started:
+        check_downloads_list(probe, require_items=True)
     status, _, _ = probe.request("POST", "/api/logout")
     expect("logout-204", status, 204)
     return 0 if started else SKIP_EXIT
@@ -494,8 +556,9 @@ def main(argv: list[str]) -> int:
     download.add_argument("--q", required=True, help="search text")
     download.add_argument("--type", required=True, choices=["film", "serie"])
     sub.add_parser("cache", help="Cache-Control of index.html, SPA paths and hashed assets")
+    sub.add_parser("downloads", help="the live downloads list through Caddy")
     sub.add_parser(
-        "all", help="login, search, download an open-licensed film, leak scan"
+        "all", help="login, search, download an open-licensed film, list check, leak scan"
     )
     args = parser.parse_args(argv)
 
@@ -509,6 +572,8 @@ def main(argv: list[str]) -> int:
             code = run_download(args.base, args.q, args.type)
         elif args.command == "cache":
             run_cache(args.base)
+        elif args.command == "downloads":
+            run_downloads(args.base)
         elif args.command == "all":
             code = run_all(args.base)
         leak_code = report_leaks()
