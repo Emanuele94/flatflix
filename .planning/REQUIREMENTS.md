@@ -24,7 +24,7 @@ Requirements for the initial release. Each maps to exactly one roadmap phase.
 ### Portal Search
 
 - [ ] **SRCH-01**: User can choose Film or Serie TV and search by keyword; the backend queries the installed qBittorrent search plugins using plugin category `movies` (film) or `tv` (serie). (qbit F1, section 9)
-- [x] **SRCH-02**: Results show name, size, seeders, leechers and source, normalized and sorted by seeders descending. (qbit F2, section 9)
+- [ ] **SRCH-02**: Results show name, size, seeders, leechers and source, normalized and sorted by seeders descending. (qbit F2, section 9)
 - [ ] **SRCH-03**: First results appear within about 2 seconds of submitting a search (results fill in while the qBittorrent search runs), and a search timeout shows a plain-language message instead of an error. (qbit NF2, section 13 code 504)
 
 ### Portal Downloads
@@ -43,8 +43,8 @@ Requirements for the initial release. Each maps to exactly one roadmap phase.
 
 ### Download Filtering & Validation
 
-- [x] **FILT-01**: At startup the backend sets qBittorrent's global excluded-file-names list (executables, scripts, shortcuts, archives, disk images, e.g. `*.exe`, `*.bat`, `*.cmd`, `*.ps1`, `*.scr`, `*.lnk`, `*.msi`, `*.zip`, `*.rar`, `*.7z`, `*.iso`), so such files are never downloaded. (user)
-- [x] **FILT-02**: The backend adds every torrent stopped, waits for its metadata and reads the file list against an allowlist (video: `.mkv`, `.mp4`, `.avi`, `.m4v`; subtitles: `.srt`, `.ass`, `.ssa`, `.sub`, `.idx`). A torrent with no allowed video file is removed before any data is downloaded and the user sees a plain message; in an accepted torrent every non-allowed file gets priority 0; only then is the torrent started. (user)
+- [ ] **FILT-01**: At startup the backend sets qBittorrent's global excluded-file-names list (executables, scripts, shortcuts, archives, disk images, e.g. `*.exe`, `*.bat`, `*.cmd`, `*.ps1`, `*.scr`, `*.lnk`, `*.msi`, `*.zip`, `*.rar`, `*.7z`, `*.iso`), so such files are never downloaded. (user)
+- [ ] **FILT-02**: The backend adds every torrent stopped, waits for its metadata and reads the file list against an allowlist (video: `.mkv`, `.mp4`, `.avi`, `.m4v`; subtitles: `.srt`, `.ass`, `.ssa`, `.sub`, `.idx`). A torrent with no allowed video file is removed before any data is downloaded and the user sees a plain message; in an accepted torrent every non-allowed file gets priority 0; only then is the torrent started. (user)
 - [ ] **QUAR-01**: Completed downloads are saved to a quarantine folder (per category) outside the media folders that Jellyfin reads; no file moves to a media folder without passing validation. (user)
 - [ ] **QUAR-02**: Each completed video file is probed with ffprobe inside a fresh Firecracker microVM: no network device, the file attached read-only, fixed vCPU and memory limits, a hard wall-clock timeout, and the VM destroyed after the check; a crash or timeout counts as a failure. (user)
 - [ ] **QUAR-03**: A file passes only if its real container (per ffprobe) matches its extension, it has at least one video stream with a known codec, and its duration and size are plausible for its type (configurable thresholds for film and episode). (user)
@@ -149,7 +149,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SEC-05 | Phase 2 | Pending |
 | SEC-06 | Phase 2 | Pending |
 | SRCH-01 | Phase 1 | Pending |
-| SRCH-02 | Phase 1 | Complete |
+| SRCH-02 | Phase 1 | Pending |
 | SRCH-03 | Phase 1 | Pending |
 | DOWN-01 | Phase 1 | Pending |
 | DOWN-02 | Phase 1 | Pending |
@@ -165,8 +165,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INFRA-04 | Phase 3 | Pending |
 | INFRA-05 | Phase 6 | Pending |
 | MEDIA-01 | Phase 1 | Pending |
-| FILT-01 | Phase 1 | Complete |
-| FILT-02 | Phase 1 | Complete |
+| FILT-01 | Phase 1 | Pending |
+| FILT-02 | Phase 1 | Pending |
 | QUAR-01 | Phase 2.1 | Pending |
 | QUAR-02 | Phase 2.1 | Pending |
 | QUAR-03 | Phase 2.1 | Pending |
