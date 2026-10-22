@@ -175,6 +175,77 @@ To unlock immediately:
 docker compose restart backend
 ```
 
+### Downloads list
+
+The Downloads tab shows every torrent in the Film and SerieTV categories, including
+ones you added by hand in the qBittorrent WebUI. Torrents in any other category are
+never shown and cannot be cancelled from the portal.
+
+- **Finished downloads** leave the list `COMPLETED_VISIBLE_DAYS` days after they
+  complete (default 7). Only the list entry goes: the files and the torrent stay.
+- **Failed attempts** (for example a torrent with no video file) stay for
+  `FAILED_VISIBLE_HOURS` hours (default 24). They live in the backend's memory, so a
+  backend restart also clears them.
+- **Cancel download** deletes the torrent and its partly downloaded files, after one
+  confirm tap.
+- **Remove from list**, on a finished download, removes the torrent but keeps the film
+  on disk. It also ends seeding early for that torrent, whatever the seeding policy says.
+
+The server, not the phone, decides whether files are deleted. It re-reads the torrent
+when the tap arrives, so a download that finished a second earlier still keeps its film.
+A row offers "Cancel download" only when the server would delete its partial files. Every
+other download still in qBittorrent, including the rare finished one in an error state,
+offers "Remove from list". Failed attempts offer no button.
+
+### Rate limits
+
+Each address may start `SEARCH_RATE_PER_MINUTE` searches (default 10) and
+`DOWNLOAD_RATE_PER_MINUTE` downloads (default 20) per minute. Over the limit, the
+phone shows "Too many requests. Wait a moment and try again." Status polling and the
+Downloads list are never limited, and a backend restart clears the counters.
+
+Like the login lockout, the limits count per client address. When the host hides real
+addresses (Docker Desktop and WSL2 userland proxying, a NAT in front of the box), every
+phone looks like the same address and the whole household shares one budget.
+
+### Logs and audit trail
+
+Everything is written to the containers' output, and Docker rotates it (json-file,
+10 MB x 5 files per container). There is no log file or volume to clean up.
+
+```
+docker compose logs backend
+docker compose logs backend | grep app.audit
+```
+
+Audit lines carry the logger name `app.audit` and plain `key=value` text. One example of
+each kind (the address is from the documentation range):
+
+```
+INFO app.audit event=login ip=203.0.113.7 outcome=ok
+INFO app.audit event=search ip=203.0.113.7 type=film q="Big Buck Bunny"
+INFO app.audit event=download ip=203.0.113.7 type=film job_id=0d9707f6a78d2c7a name="Sintel.2010.1080p"
+INFO app.audit event=download_done job_id=0d9707f6a78d2c7a name="Sintel.2010.1080p" outcome=started
+INFO app.audit event=cancel ip=203.0.113.7 name="Sintel.2010.1080p" outcome=done
+INFO app.audit event=throttled ip=203.0.113.7 scope=search
+INFO app.audit event=error where=downloads ip=203.0.113.7 exc=QbitError status=500
+```
+
+The audit log contains what people searched for, the names of the downloads they started
+or cancelled, and client addresses. Anyone with access to the laptop can read it, and
+someone who types a secret into the search box puts it there. Passwords, password hashes,
+session cookies, `SECRET_KEY` and the qBittorrent credentials are never written. A failed
+login records the outcome and the address only, never the username that was typed.
+
+`LOG_LEVEL=WARNING` quiets the ordinary application lines but keeps the audit lines.
+
+### Phones and new versions
+
+After a redeploy, a plain reload on the phone loads the new portal. The page itself
+(`index.html`) is revalidated on every load, while the hashed script and style files are
+cached for a year because their names change with every build. Nobody needs to clear the
+phone's cache.
+
 ## Where files go
 
 Finished films land in `data/media/Film` and series in `data/media/SerieTV`
@@ -191,3 +262,4 @@ they finish. See the media contract in [ports-and-media.md](ports-and-media.md).
 | Bootstrap stopped after wrong qBittorrent credentials | qBittorrent bans an address for an hour after five failed logins, so the backend stops retrying. Fix `.env` and restart: `docker compose restart backend`. |
 | Phone cannot open the page | Windows firewall rule for TCP 80 on the Private profile, the right `<laptop-ip>`, and `WEB_PORT` if you changed it. |
 | Everybody is locked out of the login | See "Login lockout" above. |
+| Downloads tab says it can’t reach the download service | qBittorrent is down or restarting. The list retries every 5 seconds on its own and recovers when it is back. Check `docker compose ps` and `docker compose logs qbittorrent`. |
