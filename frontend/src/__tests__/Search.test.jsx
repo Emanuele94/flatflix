@@ -448,6 +448,63 @@ describe('Download outcomes on the row (D-11, D-13)', () => {
   });
 });
 
+describe('Throttled downloads and cancelled jobs (D-39, 02-08)', () => {
+  const CANCELLED = 'This download was cancelled. Tap Download to start it again.';
+
+  it('a 429 on a Download tap leaves only that row throttled, retryable, with the plain text', async () => {
+    let n = 0;
+    const { container, calls } = await openRows({
+      download: () =>
+        n++ === 0
+          ? jsonResponse({ detail: 'too_many_requests' }, 429)
+          : jsonResponse({ status: 'started', job_id: JOB }),
+    });
+    await tap(container, 'Alpha');
+    const li = rowOf(container, 'Alpha');
+    const note = li.querySelector('p.row-state');
+    expect(note.textContent).toBe(MSG.throttled);
+    expect(note.classList.contains('row-state-warn')).toBe(true);
+    expect(note.getAttribute('role')).toBe('status');
+    expect(li.querySelector('button').disabled).toBe(false);
+    expect(container.textContent).not.toMatch(FOREIGN);
+    expect(container.textContent).not.toContain('429');
+    expect(container.textContent).not.toContain('too_many_requests');
+    expect(rowOf(container, 'Beta').querySelector('p.row-state')).toBeNull();
+    expect(rowOf(container, 'Beta').querySelector('button').disabled).toBe(false);
+    // Tapping again sends a second POST and the row ends on Started.
+    await tap(container, 'Alpha');
+    expect(downloadPosts(calls).length).toBe(2);
+    expect(rowOf(container, 'Alpha').textContent).toContain('Started ✓');
+  });
+
+  it('a job that answers cancelled leaves a retryable warn row and stops polling', async () => {
+    let posts = 0;
+    const { container, calls } = await openRows({
+      download: () => {
+        posts += 1;
+        return jsonResponse({ status: 'preparing', job_id: JOB });
+      },
+      jobs: () => jsonResponse({ status: 'cancelled', job_id: JOB }),
+    });
+    await tap(container, 'Alpha');
+    await tick(2000);
+    const li = rowOf(container, 'Alpha');
+    const note = li.querySelector('p.row-state');
+    expect(note.textContent).toBe(CANCELLED);
+    expect(note.classList.contains('row-state-warn')).toBe(true);
+    expect(li.querySelector('button').disabled).toBe(false);
+    expect(li.querySelector('.spinner')).toBeNull();
+    expect(container.textContent).not.toMatch(/\bcancelled\b/);
+    const gets = () => calls.filter((c) => c.path === `/api/download/${JOB}`).length;
+    expect(gets()).toBe(1);
+    await tick(10000);
+    expect(gets()).toBe(1);
+    // A new tap posts again.
+    await tap(container, 'Alpha');
+    expect(posts).toBe(2);
+  });
+});
+
 describe('Preparing jobs poll the job (D-11)', () => {
   it('polls GET /api/download/{job_id} every 2 s until a final status', async () => {
     const answers = ['preparing', 'preparing', 'started'];
@@ -871,6 +928,28 @@ describe('Survives a page reload (G-01-3)', () => {
     expect(li.querySelector('button').disabled).toBe(false);
     await tick(10000);
     expect(calls.length).toBe(0);
+  });
+
+  it('throttled and cancelled rows come back with their texts and enabled buttons, with no request', async () => {
+    seed({ jobs: { [RA]: { state: 'throttled' }, [RB]: { state: 'cancelled' } } });
+    const { container, calls } = await mountSeeded();
+    const a = rowOf(container, 'Alpha');
+    expect(a.querySelector('p.row-state').textContent).toBe(MSG.throttled);
+    expect(a.querySelector('button').disabled).toBe(false);
+    const b = rowOf(container, 'Beta');
+    expect(b.querySelector('p.row-state').textContent).toBe(MSG.downloadCancelled);
+    expect(b.querySelector('button').disabled).toBe(false);
+    expect(container.textContent).not.toMatch(/429|too_many_requests/);
+    await tick(10000);
+    expect(calls.filter((c) => c.path !== '/api/search/' + SID).length).toBe(0);
+  });
+
+  it('a saved job with an unknown state such as bogus is still dropped', async () => {
+    seed({ jobs: { [RA]: { state: 'bogus' } } });
+    const { container } = await mountSeeded();
+    const li = rowOf(container, 'Alpha');
+    expect(li.querySelector('p.row-state')).toBeNull();
+    expect(li.querySelector('button').disabled).toBe(false);
   });
 
   it('a preparing row whose job is 331 s old comes back as lost and is never polled', async () => {

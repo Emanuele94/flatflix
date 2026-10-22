@@ -74,6 +74,8 @@ const TEXT = {
   notReady: 'The service is starting up. Try again in a moment.',
   network: 'Can’t reach the server. Check that the computer is turned on.',
   lost: 'We lost track of this download. Tap Download to check it again.',
+  throttled: 'Too many requests. Wait a moment and try again.',
+  cancelled: 'This download was cancelled. Tap Download to start it again.',
 };
 const NON_STARTED = Object.keys(TEXT).filter((k) => k !== 'started');
 
@@ -115,7 +117,7 @@ describe('ResultRow Download button (DOWN-01, D-10)', () => {
     expect(container.querySelector('.spinner')).toBeTruthy();
   });
 
-  it.each(['rejected', 'unsupported', 'unavailable', 'failed', 'expired', 'notReady', 'network', 'lost'])(
+  it.each(['rejected', 'unsupported', 'unavailable', 'failed', 'expired', 'notReady', 'network', 'lost', 'throttled', 'cancelled'])(
     'shows the plain Italian message for %s on its own row',
     (state) => {
       const { container } = renderRow({}, { state });
@@ -123,7 +125,7 @@ describe('ResultRow Download button (DOWN-01, D-10)', () => {
     },
   );
 
-  it.each(['failed', 'notReady', 'network', 'lost'])('lets the user retry after %s', (state) => {
+  it.each(['failed', 'notReady', 'network', 'lost', 'throttled', 'cancelled'])('lets the user retry after %s', (state) => {
     const onDownload = vi.fn();
     renderRow({}, { state, onDownload });
     const button = screen.getByRole('button', { name: 'Download' });
@@ -139,6 +141,16 @@ describe('ResultRow Download button (DOWN-01, D-10)', () => {
     expect(button.disabled).toBe(true);
     fireEvent.click(button);
     expect(onDownload).not.toHaveBeenCalled();
+  });
+
+  it.each(['throttled', 'cancelled'])('%s is a warn-tone status row with no spinner and no raw code', (state) => {
+    const { container } = renderRow({}, { state });
+    const note = container.querySelector('p.row-state');
+    expect(note.classList.contains('row-state-warn')).toBe(true);
+    expect(note.getAttribute('role')).toBe('status');
+    expect(note.textContent).toBe(TEXT[state]);
+    expect(container.querySelector('.spinner')).toBeNull();
+    expect(container.textContent).not.toMatch(/429|too_many_requests|\bcancelled\b/);
   });
 
   it('styles ok, warning and error states with classes only', () => {
