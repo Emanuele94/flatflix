@@ -43,17 +43,91 @@ function writeSaved(gen, record) {
   }
 }
 
+// The seven fields the search API returns for a row; nothing else is ever saved or restored.
+const ROW_FIELDS = ['result_id', 'name', 'size_human', 'seeders', 'leechers', 'source', 'quality'];
+const MAX_QUERY = 1000; // the backend's raw cap on q
+const MAX_ROWS = 500;
+
+const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+const isPrimitive = (v) => v === null || ['string', 'number', 'boolean'].includes(typeof v);
+
+function pickRow(r) {
+  const out = {};
+  for (const f of ROW_FIELDS) if (r[f] !== undefined && isPrimitive(r[f])) out[f] = r[f];
+  return out;
+}
+
+// A row needs an id-shaped result_id and a string name; a bad row is dropped on its own.
+const validRow = (r) => isPlainObject(r) && ID.test(r.result_id) && typeof r.name === 'string';
+
+// Turns saved jobs into row states. A mid-tap row (pending) and a job past the give-up time come
+// back as lost and retryable, never as a spinner (WR-05). Only a young preparing job resumes
+// polling, with its original start time so the 330 s limit survives the reload (T-01-56).
+function restoreJobs(saved, now) {
+  const jobs = {};
+  const resume = [];
+  if (!isPlainObject(saved)) return { jobs, resume };
+  for (const [id, entry] of Object.entries(saved)) {
+    if (!ID.test(id) || !isPlainObject(entry)) continue;
+    if (entry.state !== 'pending' && !ROW_STATES.has(entry.state)) continue;
+    if (entry.jobId !== undefined && !(typeof entry.jobId === 'string' && ID.test(entry.jobId))) continue;
+    if (entry.startedAt !== undefined && !Number.isFinite(entry.startedAt)) continue;
+    if (entry.state === 'pending') {
+      jobs[id] = { state: 'lost' };
+    } else if (entry.state !== 'preparing') {
+      jobs[id] = { state: entry.state };
+    } else if (
+      entry.jobId !== undefined &&
+      entry.startedAt !== undefined &&
+      entry.startedAt <= now &&
+      now - entry.startedAt < JOB_GIVE_UP_MS
+    ) {
+      jobs[id] = { state: 'preparing', jobId: entry.jobId, startedAt: entry.startedAt };
+      resume.push([id, entry.jobId, entry.startedAt]);
+    } else {
+      jobs[id] = { state: 'lost' };
+    }
+  }
+  return { jobs, resume };
+}
+
+// Saved data is untrusted input. Any whole-record failure discards it (and the key); a bad row
+// or job only drops that item. Returns null when there is nothing usable.
 function readSaved() {
   try {
     const raw = sessionStorage.getItem(SAVED_SEARCH_KEY);
     if (raw === null) return null;
     const rec = JSON.parse(raw);
-    if (!rec || rec.v !== SAVED_SEARCH_VERSION) return null;
-    if (rec.type !== 'film' && rec.type !== 'serie') return null;
-    if (typeof rec.q !== 'string' || !ID.test(rec.search_id)) return null;
-    if (!Array.isArray(rec.rows) || !rec.jobs || typeof rec.jobs !== 'object') return null;
-    return rec;
+    const ok =
+      isPlainObject(rec) &&
+      rec.v === SAVED_SEARCH_VERSION &&
+      (rec.type === 'film' || rec.type === 'serie') &&
+      typeof rec.q === 'string' &&
+      rec.q.length <= MAX_QUERY &&
+      typeof rec.search_id === 'string' &&
+      ID.test(rec.search_id) &&
+      typeof rec.done === 'boolean' &&
+      (rec.outcome === null || rec.outcome === 'empty' || rec.outcome === 'timeout') &&
+      Array.isArray(rec.rows) &&
+      rec.rows.length <= MAX_ROWS &&
+      isPlainObject(rec.jobs);
+    if (!ok) {
+      clearSavedSearch();
+      return null;
+    }
+    const { jobs, resume } = restoreJobs(rec.jobs, Date.now());
+    return {
+      type: rec.type,
+      q: rec.q,
+      search_id: rec.search_id,
+      done: rec.done,
+      outcome: rec.outcome,
+      rows: rec.rows.filter(validRow).map(pickRow),
+      jobs,
+      resume,
+    };
   } catch {
+    clearSavedSearch(); // unreadable JSON, or storage that throws (the removal is then a no-op)
     return null;
   }
 }
@@ -148,26 +222,22 @@ export function Search() {
       type: rec.type,
       q: rec.q,
       search_id: rec.search_id,
-      done: rec.done === true,
-      outcome: rec.outcome === 'empty' || rec.outcome === 'timeout' ? rec.outcome : null,
+      done: rec.done,
+      outcome: rec.done && rec.rows.length === 0 ? rec.outcome : null,
       rows: rec.rows,
     };
     setType(rec.type);
     setQ(rec.q);
     setRows(rec.rows);
-    if (rec.rows.length === 0) setOutcome(saved.current.outcome);
+    setOutcome(saved.current.outcome);
     jobsRef.current = rec.jobs;
     setJobs(jobsRef.current);
-    for (const [id, entry] of Object.entries(rec.jobs)) {
-      if (
-        entry.state === 'preparing' &&
-        ID.test(entry.jobId) &&
-        Date.now() - entry.startedAt < JOB_GIVE_UP_MS
-      ) {
-        pollJob(id, jobEpoch.current, entry.jobId, entry.startedAt);
-      }
+    for (const [id, jobId, startedAt] of rec.resume) pollJob(id, jobEpoch.current, jobId, startedAt);
+    if (!rec.done) {
+      setSearching(true);
+      poll(runId.current, rec.search_id);
     }
-    persist();
+    persist(); // mapped states (lost) stick
   }, []);
 
   // Maps a backend job answer to a row state and keeps polling while it is preparing.
@@ -289,12 +359,10 @@ export function Search() {
           }
         }
         if (saved.current !== null) {
-          saved.current = { ...saved.current, rows: snap.results, done: !!snap.done, outcome: result };
+          saved.current = { ...saved.current, rows: snap.results.map(pickRow), done: !!snap.done, outcome: result };
           persist();
         }
-        if (!snap.done) {
-          poll(run, searchId);
-        }
+        if (!snap.done) poll(run, searchId);
       } catch (err) {
         fail(run, err);
       }
