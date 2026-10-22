@@ -72,6 +72,7 @@ const TEXT = {
   expired: 'Search expired. Search again.',
   notReady: 'The service is starting up. Try again in a moment.',
   network: 'Can’t reach the server. Check that the computer is turned on.',
+  lost: 'We lost track of this download. Tap Download to check it again.',
 };
 const NON_STARTED = Object.keys(TEXT).filter((k) => k !== 'started');
 
@@ -113,7 +114,7 @@ describe('ResultRow Download button (DOWN-01, D-10)', () => {
     expect(container.querySelector('.spinner')).toBeTruthy();
   });
 
-  it.each(['rejected', 'unavailable', 'failed', 'expired', 'notReady', 'network'])(
+  it.each(['rejected', 'unavailable', 'failed', 'expired', 'notReady', 'network', 'lost'])(
     'shows the plain Italian message for %s on its own row',
     (state) => {
       const { container } = renderRow({}, { state });
@@ -121,7 +122,7 @@ describe('ResultRow Download button (DOWN-01, D-10)', () => {
     },
   );
 
-  it.each(['failed', 'notReady', 'network'])('lets the user retry after %s', (state) => {
+  it.each(['failed', 'notReady', 'network', 'lost'])('lets the user retry after %s', (state) => {
     const onDownload = vi.fn();
     renderRow({}, { state, onDownload });
     const button = screen.getByRole('button', { name: 'Download' });

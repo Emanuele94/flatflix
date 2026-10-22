@@ -8,7 +8,7 @@ const JOB_POLL_MS = 2000; // D-11: ask the backend about a preparing job every 2
 const JOB_GIVE_UP_MS = 330000; // METADATA_TIMEOUT is 5 min; stop asking after 5.5 min
 
 // A row in one of these states can be tapped again; every other state ignores taps.
-const RETRYABLE = new Set(['failed', 'notReady', 'network']);
+const RETRYABLE = new Set(['failed', 'notReady', 'network', 'lost']);
 // Backend job statuses that map to a row state. Anything else is a failure, never a success.
 const JOB_STATES = new Set(['started', 'preparing', 'rejected', 'unavailable', 'duplicate', 'failed']);
 
@@ -107,11 +107,17 @@ export function Search() {
         }
       } catch (err) {
         if (epoch !== jobEpoch.current) return;
-        // The job is unknown or the session is gone: asking again will not help.
-        if (err instanceof ApiError && (err.status === 404 || err.status === 401)) return;
+        if (err instanceof ApiError && err.status === 401) return; // the login screen takes over
+        if (err instanceof ApiError && err.status === 404) {
+          // The backend forgot the job (it restarted). Asking again will not help, but a new tap
+          // will: the server finds the torrent again and finishes or reports it (WR-05).
+          setJob(id, { state: 'lost' });
+          return;
+        }
         // Anything else (network blip, 5xx) keeps the row on "Preparing" and retries.
       }
       if (Date.now() - startedAt < JOB_GIVE_UP_MS) pollJob(id, epoch, jobId, startedAt);
+      else setJob(id, { state: 'lost' }); // never leave a row on "Preparing" for good (WR-05)
     }, JOB_POLL_MS);
     jobTimers.current.set(id, t);
   }

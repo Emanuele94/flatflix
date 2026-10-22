@@ -2,7 +2,7 @@ import { MSG } from './messages.js';
 
 // Row states (kept by Search, keyed by result_id):
 //   undefined | pending | started | preparing | duplicate
-//   | rejected | unavailable | failed | expired | notReady | network
+//   | rejected | unavailable | failed | expired | notReady | network | lost
 // "Started" is rendered for `started` only: the backend returns it after the allowlist ran,
 // priorities were verified and torrents/start succeeded. Nothing else ever looks like success.
 
@@ -21,6 +21,7 @@ const MESSAGE = {
   failed: { text: MSG.downloadFailed, tone: 'error', retry: true },
   notReady: { text: MSG.notReady, tone: 'warn', retry: true },
   network: { text: MSG.serverUnreachable, tone: 'error', retry: true },
+  lost: { text: MSG.downloadLost, tone: 'warn', retry: true },
 };
 
 // One search result. Names are attacker-controlled text: only ever rendered as text children.

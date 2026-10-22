@@ -463,7 +463,7 @@ describe('Preparing jobs poll the job (D-11)', () => {
     expect(container.textContent).not.toContain('Started');
   });
 
-  it('gives up after 330 s and keeps "Preparing"', async () => {
+  it('gives up after 330 s, stops asking, and lets the row be tapped again', async () => {
     const { container, calls } = await openRows({
       download: () => jsonResponse({ status: 'preparing', job_id: JOB }),
       jobs: () => jsonResponse({ status: 'preparing', job_id: JOB }),
@@ -474,10 +474,40 @@ describe('Preparing jobs poll the job (D-11)', () => {
     const after = gets();
     expect(after).toBeGreaterThan(100);
     expect(after).toBeLessThanOrEqual(165);
-    expect(rowOf(container, 'Alpha').textContent).toContain('Preparing');
+    const li = rowOf(container, 'Alpha');
+    expect(li.textContent).not.toContain('Preparing');
+    expect(li.textContent).toContain('We lost track of this download. Tap Download to check it again.');
+    expect(li.querySelector('button').disabled).toBe(false);
     await tick(20000);
     expect(gets()).toBe(after);
-    expect(rowOf(container, 'Alpha').textContent).toContain('Preparing');
+  });
+
+  it('a job the backend no longer knows (404) leaves a retryable row, not a spinner (WR-05)', async () => {
+    let posts = 0;
+    const { container, calls } = await openRows({
+      download: () => {
+        posts += 1;
+        return posts === 1
+          ? jsonResponse({ status: 'preparing', job_id: JOB })
+          : jsonResponse({ status: 'started', job_id: JOB });
+      },
+      jobs: () => jsonResponse({ detail: 'job_not_found' }, 404),
+    });
+    await tap(container, 'Alpha');
+    await tick(2000);
+
+    const li = rowOf(container, 'Alpha');
+    expect(li.textContent).not.toContain('Preparing');
+    expect(li.textContent).toContain('We lost track of this download');
+    expect(li.textContent).not.toMatch(FOREIGN);
+    expect(li.querySelector('button').disabled).toBe(false);
+    const gets = calls.filter((c) => c.path === `/api/download/${JOB}`).length;
+    await tick(10000);
+    expect(calls.filter((c) => c.path === `/api/download/${JOB}`).length).toBe(gets);
+
+    await tap(container, 'Alpha');
+    expect(downloadPosts(calls).length).toBe(2);
+    expect(rowOf(container, 'Alpha').textContent).toContain('Started ✓');
   });
 
   it('stops polling when the screen unmounts', async () => {

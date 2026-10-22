@@ -29,6 +29,7 @@ export const MSG = {
   unavailable: 'Not available. Try another result.',
   duplicate: 'Already added',
   downloadFailed: 'Download failed. Try again.',
+  downloadLost: 'We lost track of this download. Tap Download to check it again.',
   searchExpired: 'Search expired. Search again.',
   seedUnit: 'seed',
   leechUnit: 'downloading',
