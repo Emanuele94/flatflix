@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks';
-import { api, ApiError } from './api.js';
+import { api, ApiError, setUnauthorizedHandler } from './api.js';
 import { Login } from './Login.jsx';
 import { MSG } from './messages.js';
 
@@ -7,6 +7,20 @@ export function App() {
   // checking | login | in
   const [view, setView] = useState('checking');
   const [health, setHealth] = useState(null);
+
+  useEffect(() => {
+    setUnauthorizedHandler(() => setView('login'));
+    return () => setUnauthorizedHandler(null);
+  }, []);
+
+  async function logout() {
+    try {
+      await api('/api/logout', { method: 'POST' });
+    } catch {
+      // Whatever happened, the user asked to leave: show the login screen.
+    }
+    setView('login');
+  }
 
   useEffect(() => {
     let alive = true;
@@ -44,7 +58,7 @@ export function App() {
       <>
         <header class="app-header">
           <h1>{MSG.appTitle}</h1>
-          <button class="btn" type="button">
+          <button class="btn" type="button" onClick={logout}>
             {MSG.logout}
           </button>
         </header>

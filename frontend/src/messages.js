@@ -10,4 +10,6 @@ export const MSG = {
   loginButton: 'Entra',
   logout: 'Esci',
   loggedIn: 'Accesso effettuato.',
+  loginFailed: 'Nome utente o password errati.',
+  loginThrottled: 'Troppi tentativi. Riprova tra qualche minuto.',
 };

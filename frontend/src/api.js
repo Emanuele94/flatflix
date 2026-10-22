@@ -8,6 +8,13 @@ export class ApiError extends Error {
   }
 }
 
+let unauthorizedHandler = null;
+
+// App registers a callback that runs on any 401 except the login call itself.
+export function setUnauthorizedHandler(fn) {
+  unauthorizedHandler = typeof fn === 'function' ? fn : null;
+}
+
 export async function api(path, { method = 'GET', body } = {}) {
   const init = { method, credentials: 'same-origin', headers: {} };
   if (body !== undefined) {
@@ -33,6 +40,7 @@ export async function api(path, { method = 'GET', body } = {}) {
 
   if (!res.ok) {
     const detail = data && typeof data.detail === 'string' ? data.detail : 'error';
+    if (res.status === 401 && path !== '/api/login' && unauthorizedHandler) unauthorizedHandler();
     throw new ApiError(res.status, detail);
   }
   return data;

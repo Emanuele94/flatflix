@@ -94,3 +94,12 @@ select {
   border: 1px solid #888;
   border-radius: 0.5rem;
 }
+
+.form-error {
+  margin: 0 0 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid #b3141f;
+  border-radius: 0.5rem;
+  background: #fdecee;
+  color: #7a0e16;
+}
