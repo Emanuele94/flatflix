@@ -188,3 +188,181 @@ async def test_a_failed_row_disappears_after_failed_visible_hours(rig: Rig) -> N
 
     assert gone.json() == {"items": []}
     assert [item["id"] for item in shown.json()["items"]] == [job_id]
+
+
+# -- cancel and remove (DOWN-05, D-32..D-35) ------------------------------------------------
+
+# (raw state, progress, files go?). The list must offer Cancel exactly where the files go.
+CANCEL_TABLE = [
+    ("stalledUP", 1.0, False),
+    ("stoppedUP", 1.0, False),
+    ("moving", 1.0, False),
+    ("checkingUP", 1.0, False),
+    ("missingFiles", 1.0, False),
+    ("error", 1.0, False),
+    ("error", 0.3, True),
+    ("stalledDL", 0.2, True),
+    ("stoppedDL", 0.5, True),
+    ("metaDL", 0.0, True),
+    ("downloading", 0.4, True),
+    ("weird", 0.1, False),
+]
+
+
+@pytest.mark.parametrize(("state", "progress", "deletes"), CANCEL_TABLE)
+async def test_the_list_action_and_the_delete_agree_on_what_happens_to_the_files(
+    user_api: httpx.AsyncClient,
+    fake_qbit: FakeQbit,
+    state: str,
+    progress: float,
+    deletes: bool,
+) -> None:
+    fake_qbit.add_torrent_row(
+        HASH, category="Film", state=state, progress=progress, completion_on=int(time.time()) - 60
+    )
+    (item,) = (await user_api.get("/api/downloads")).json()["items"]
+
+    response = await user_api.delete(f"/api/downloads/{item['id']}")
+
+    assert item["action"] == ("cancel" if deletes else "remove")
+    assert response.status_code == 204
+    assert fake_qbit.deleted == [(HASH, deletes)]
+    assert response.content == b""
+
+
+async def test_an_admin_added_torrent_without_tags_is_cancelled_and_no_tag_is_deleted(
+    user_api: httpx.AsyncClient, fake_qbit: FakeQbit
+) -> None:
+    fake_qbit.add_torrent_row(HASH, category="SerieTV", state="stoppedDL", progress=0.5)
+
+    (item,) = (await user_api.get("/api/downloads")).json()["items"]
+    response = await user_api.delete(f"/api/downloads/{item['id']}")
+
+    assert response.status_code == 204
+    assert fake_qbit.deleted == [(HASH, True)]
+    assert fake_qbit.calls_to("/api/v2/torrents/deleteTags") == []
+
+
+@pytest.mark.parametrize("category", ["Other", "Film/Extra", "film", ""])
+async def test_a_torrent_outside_film_and_serie_cannot_be_cancelled(
+    user_api: httpx.AsyncClient, fake_qbit: FakeQbit, category: str
+) -> None:
+    fake_qbit.add_torrent_row(HASH, category=category, state="downloading", progress=0.4)
+    wanted = download_id(PORTAL_SECRET_KEY, HASH)
+
+    response = await user_api.delete(f"/api/downloads/{wanted}")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "download_not_found"}
+    assert fake_qbit.deleted == []
+    assert HASH in fake_qbit.torrents
+
+
+async def test_an_unknown_id_answers_404_and_deletes_nothing(
+    user_api: httpx.AsyncClient, fake_qbit: FakeQbit
+) -> None:
+    fake_qbit.add_torrent_row(HASH, category="Film", state="downloading", progress=0.4)
+
+    response = await user_api.delete("/api/downloads/0000000000000000")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "download_not_found"}
+    assert fake_qbit.deleted == []
+
+
+@pytest.mark.parametrize("bad_id", ["x", "ABCDEF0123456789", "0123456789abcde", "all"])
+async def test_a_malformed_id_answers_422(
+    user_api: httpx.AsyncClient, fake_qbit: FakeQbit, bad_id: str
+) -> None:
+    fake_qbit.add_torrent_row(HASH, category="Film", state="downloading", progress=0.4)
+
+    response = await user_api.delete(f"/api/downloads/{bad_id}")
+
+    assert response.status_code == 422
+    assert fake_qbit.deleted == []
+
+
+async def test_a_second_delete_of_the_same_id_answers_404(
+    user_api: httpx.AsyncClient, fake_qbit: FakeQbit
+) -> None:
+    fake_qbit.add_torrent_row(HASH, category="Film", state="downloading", progress=0.4)
+    wanted = download_id(PORTAL_SECRET_KEY, HASH)
+
+    first = await user_api.delete(f"/api/downloads/{wanted}")
+    second = await user_api.delete(f"/api/downloads/{wanted}")
+
+    assert (first.status_code, second.status_code) == (204, 404)
+    assert fake_qbit.deleted == [(HASH, True)]
+
+
+async def test_two_simultaneous_deletes_send_one_torrents_delete(
+    user_api: httpx.AsyncClient, fake_qbit: FakeQbit
+) -> None:
+    fake_qbit.add_torrent_row(HASH, category="Film", state="downloading", progress=0.4)
+    wanted = download_id(PORTAL_SECRET_KEY, HASH)
+
+    responses = await asyncio.gather(
+        user_api.delete(f"/api/downloads/{wanted}"), user_api.delete(f"/api/downloads/{wanted}")
+    )
+
+    assert sorted(r.status_code for r in responses) == [204, 404]
+    assert fake_qbit.deleted == [(HASH, True)]
+    assert len(fake_qbit.calls_to("/api/v2/torrents/delete")) == 1
+
+
+async def test_a_delete_during_an_outage_answers_502_and_keeps_the_session(
+    user_api: httpx.AsyncClient, fake_qbit: FakeQbit
+) -> None:
+    fake_qbit.unreachable = True
+
+    response = await user_api.delete(f"/api/downloads/{download_id(PORTAL_SECRET_KEY, HASH)}")
+
+    assert response.status_code == 502
+    assert response.json() == {"detail": "qbit_unreachable"}
+    assert (await user_api.get("/api/session")).status_code == 200
+
+
+async def test_a_delete_with_refused_credentials_answers_502_qbit_refused(
+    user_api: httpx.AsyncClient, fake_qbit: FakeQbit
+) -> None:
+    fake_qbit.refuse_logins = True
+    fake_qbit.expire_sessions()
+
+    response = await user_api.delete(f"/api/downloads/{download_id(PORTAL_SECRET_KEY, HASH)}")
+
+    assert response.status_code == 502
+    assert response.json() == {"detail": "qbit_refused"}
+    assert (await user_api.get("/api/session")).status_code == 200
+
+
+async def test_no_portal_route_answers_401_when_qbit_refuses_the_backend(
+    rig: Rig,  # noqa: F811
+) -> None:
+    rig.cache()
+    rig.fake.refuse_logins = True
+    rig.fake.expire_sessions()
+    wanted = download_id(PORTAL_SECRET_KEY, HASH)
+
+    answers = {
+        "list": await rig.api.get("/api/downloads"),
+        "delete": await rig.api.delete(f"/api/downloads/{wanted}"),
+        "search": await rig.api.post("/api/search", json={"q": "sintel", "type": "film"}),
+        "download": await rig.post(),
+    }
+
+    assert {name: r.status_code for name, r in answers.items() if r.status_code == 401} == {}
+    assert (await rig.api.get("/api/session")).status_code == 200
+
+
+async def test_delete_is_never_rate_limited(
+    user_api: httpx.AsyncClient, fake_qbit: FakeQbit
+) -> None:
+    statuses = {(await user_api.delete(f"/api/downloads/{i:016x}")).status_code for i in range(30)}
+
+    assert statuses == {404}
+
+
+async def test_delete_needs_a_session(api: httpx.AsyncClient) -> None:
+    response = await api.delete("/api/downloads/0123456789abcdef")
+
+    assert response.status_code == 401

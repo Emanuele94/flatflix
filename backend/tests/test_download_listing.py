@@ -18,6 +18,7 @@ from app.download.listing import (
     FAILED_JOB_STATES,
     READY_STATES,
     build_items,
+    cancel_deletes_files,
     display_name,
     download_id,
     eta_of,
@@ -282,6 +283,54 @@ def test_a_ready_item_can_be_removed_and_a_problem_item_can_be_cancelled() -> No
     actions = {item["state"]: item["action"] for item in items_of([ready, broken])}
 
     assert actions == {"ready": "remove", "problem": "cancel"}
+
+
+ALL_RAW_STATES = [
+    "uploading", "stalledUP", "stoppedUP", "queuedUP", "forcedUP", "checkingUP", "pausedUP",
+    "downloading", "forcedDL", "moving", "metaDL", "forcedMetaDL", "checkingResumeData",
+    "checkingDL", "queuedDL", "error", "missingFiles", "stalledDL", "stoppedDL", "pausedDL",
+    "allocating", "unknown", "somethingNew", "",
+]  # fmt: skip
+
+
+@pytest.mark.parametrize("progress", [0.4, 1.0])
+@pytest.mark.parametrize("state", ALL_RAW_STATES)
+def test_action_is_cancel_exactly_when_cancel_deletes_files(state: str, progress: float) -> None:
+    torrent = row(state=state, progress=progress, completion_on=int(NOW) - 60)
+
+    (item,) = items_of([torrent])
+
+    assert item["action"] == ("cancel" if cancel_deletes_files(torrent) else "remove")
+    if item["state"] == "ready":
+        assert item["action"] == "remove"
+
+
+@pytest.mark.parametrize(
+    ("state", "progress", "expected"),
+    [
+        ("downloading", 0.4, True),
+        ("forcedDL", 0.0, True),
+        ("metaDL", 0.0, True),
+        ("stalledDL", 0.2, True),
+        ("stoppedDL", 0.5, True),
+        ("error", 0.3, True),
+        ("missingFiles", 0.3, True),
+        ("downloading", 1.0, False),
+        ("stalledUP", 1.0, False),
+        ("stoppedUP", 1.0, False),
+        ("checkingUP", 1.0, False),
+        ("moving", 0.4, False),
+        ("moving", 1.0, False),
+        ("missingFiles", 1.0, False),
+        ("error", 1.0, False),
+        ("weird", 0.1, False),
+        ("downloading", "not-a-number", False),
+    ],
+)
+def test_cancel_deletes_files_only_for_a_known_in_progress_state_below_one(
+    state: str, progress: object, expected: bool
+) -> None:
+    assert cancel_deletes_files({"state": state, "progress": progress}) is expected
 
 
 def test_active_rows_come_first_then_newest_first_inside_each_group() -> None:
