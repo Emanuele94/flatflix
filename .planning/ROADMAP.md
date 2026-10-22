@@ -12,7 +12,7 @@ flatflix gives a non-technical household a two-step flow on the home LAN: search
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Portal Search & Start Download** - Log in from a phone, search films/series, start a download into the right folder; stack, port map and media contract set up
+- [x] **Phase 1: Portal Search & Start Download** - Log in from a phone, search films/series, start a download into the right folder; stack, port map and media contract set up (completed 2026-10-22)
 - [ ] **Phase 2: Portal Download Management & Hardening** - See and cancel downloads, friendly errors, rate limiting and audit logs
 - [ ] **Phase 2.1: Download Quarantine & Firecracker Validation** (INSERTED) - Completed downloads are verified with ffprobe inside a Firecracker microVM before they reach the media folders
 - [ ] **Phase 3: Jellyfin Server & TV Playback Gate** - Jellyfin behind Caddy, stable LAN address, real-TV compatibility verdict, naming decision recorded
@@ -35,7 +35,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   5. One documented laptop port map (Caddy, portal frontend, qBittorrent WebUI if published, Jellyfin 8096) and one media-folder contract (host paths, owner IDs, separate incomplete-downloads folder) exist, and no two services collide on a port.
   6. A torrent whose file list has no allowed video file is rejected before any data is downloaded, with a plain message to the user; in an accepted torrent, executables, scripts, shortcuts, archives and every other non-video, non-subtitle file are never downloaded (qBittorrent exclusion list plus per-file priority 0).
 
-**Plans**: 16/16 plans executed (12 waves plus 2 gap-closure waves; listed in execution order, so plan numbers are not sequential)
+**Plans**: 16/16 plans complete (12 waves plus 2 gap-closure waves; listed in execution order, so plan numbers are not sequential)
 
 Plans:
 **Wave 1**
@@ -176,7 +176,7 @@ Phases execute in numeric order: 1 → 2 → 2.1 → 3 → 4 → 5 → 6 (Phases
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Portal Search & Start Download | 16/16 | In Progress | - |
+| 1. Portal Search & Start Download | 16/16 | Complete    | 2026-10-22 |
 | 2. Portal Download Management & Hardening | 0/TBD | Not started | - |
 | 2.1 Download Quarantine & Firecracker Validation | 0/TBD | Not started | - |
 | 3. Jellyfin Server & TV Playback Gate | 0/TBD | Not started | - |

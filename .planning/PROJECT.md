@@ -16,13 +16,14 @@ Full list with IDs, source references and phase mapping: `.planning/REQUIREMENTS
 
 ### Validated
 
-(None yet — ship to validate)
+- ✓ Portal: login-protected, mobile-friendly search of films and series, results with size/seeders/leechers/source, one-tap download into the right predefined folder (Film or SerieTV) — Phase 1
+- ✓ Download filtering: only video and subtitle files are ever downloaded (qBittorrent exclusion list + per-file allowlist), torrents without a video are rejected up front — Phase 1
 
 ### Active
 
-- [ ] Portal: login-protected, mobile-friendly search of films and series, results with size/seeders/leechers/source, one-tap download into the right predefined folder (Film or SerieTV) — Phase 1
 - [ ] Portal: see in-progress and completed downloads, cancel a download, friendly errors, rate limiting, audit logs — Phase 2
-- [ ] Download filtering: only video and subtitle files are ever downloaded (qBittorrent exclusion list + per-file allowlist), torrents without a video are rejected up front — Phase 1
+- [ ] Portal: phones pick up a new app version after a redeploy (no-cache on index.html, long cache on hashed assets) — emerged in Phase 1 UAT (stale-client report)
+- [ ] Allowlist: count non-allowlisted videos when choosing the main file, so a large .webm/.mov film with a small .mp4 trailer is not reported as Started (code review WR-01) — emerged in Phase 1
 - [ ] Quarantine: completed files are verified with ffprobe inside a throwaway Firecracker microVM before reaching the media folders; rejected files never reach Jellyfin — Phase 2.1
 - [ ] Jellyfin on the laptop behind Caddy (single origin), stable LAN IP, real-TV compatibility gate (H.264/HEVC, audio, subtitles) proving no video transcoding — Phase 3
 - [ ] Downloads from the portal land in Jellyfin's required naming layout and appear in the Film / SerieTV libraries without manual steps — Phase 4
@@ -91,6 +92,10 @@ No locked decisions. No ADRs were ingested (both source docs are unlocked SPECs)
 | TV distribution: plan A (VIDAA icon tool) or plan B (HDMI stick + APK) | Plan A is unofficial and may break on firmware updates | — Pending (Phase 6) |
 | Exact production box model | Must be x86_64 with VT-x + KVM for Firecracker; N100/N150 class also covers Jellyfin transcoding if Phase 3 needs it | — Pending (before Phase 6; informed by Phase 3 gate) |
 | If and when to open access from outside home (Tailscale / WireGuard) | Out of scope for v1 | — Pending (v2) |
+| Every torrent add carries `stopCondition=MetadataReceived`, never a stopped add (D-23 re-affirmed) | A fully stopped magnet never fetches metadata; qBittorrent 5.2.4 pauses metadata-complete adds itself | Decided (Phase 1, gap G-01-3) |
+| Keep the FILT-02 allowlist (.mkv .mp4 .avi .m4v); a torrent whose only videos are another format gets its own "unsupported" status and message | User choice (option B) over widening the allowlist | Decided (user, 2026-10-22) |
+| Reload persistence via per-tab sessionStorage only; downloads list stays in Phase 2 | Smallest Phase-1 fix for reload during Preparing | Decided (user, 2026-10-22) |
+| qBittorrent Web API v2 coverage recorded in phase-01 COVERAGE.md (12 integrate, 9 opt-out) | api-coverage gate; per-torrent controls deferred to Phase 2 | Decided (2026-10-22) |
 
 ## Evolution
 
@@ -110,4 +115,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-21 after adding download filtering and Firecracker validation (Phase 2.1)*
+*Last updated: 2026-10-22 after Phase 1*
