@@ -2,8 +2,8 @@
 
 from app.download.allowlist import (
     EXCLUDED_FILE_PATTERNS,
-    SAMPLE_SIZE_RATIO,
     OTHER_VIDEO_EXTENSIONS,
+    SAMPLE_SIZE_RATIO,
     SUBTITLE_EXTENSIONS,
     VIDEO_EXTENSIONS,
     FileDecision,

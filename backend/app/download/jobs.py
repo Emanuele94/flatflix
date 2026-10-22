@@ -25,6 +25,9 @@ class JobState(str, Enum):
     PREPARING = "preparing"  # waiting for metadata or for the allowlist to finish
     STARTED = "started"  # filtered and running
     REJECTED = "rejected"  # no usable video inside: deleted with its files (D-13)
+    # only videos in a format outside the allowlist (e.g. .webm): deleted with its files (D-13
+    # amended 2026-10-22). Not an active state.
+    UNSUPPORTED = "unsupported"
     UNAVAILABLE = "unavailable"  # no metadata before METADATA_TIMEOUT: deleted (D-12)
     DUPLICATE = "duplicate"  # qBittorrent already has it
     FAILED = "failed"  # anything else: nothing was started

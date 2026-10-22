@@ -10,7 +10,9 @@ Order of one job, with the reason for each step:
    unfinished.
 2. Poll `torrents/files` until it is non-empty (an empty list means no metadata yet), but never
    longer than METADATA_TIMEOUT after the add (D-12).
-3. `decide()` splits the files into keep and zero ids; a torrent with no usable video is deleted.
+3. `decide()` splits the files into keep and zero ids; a torrent with no usable video is deleted,
+   as `unsupported` when its only videos are in a format outside the allowlist (e.g. .webm) and
+   as `rejected` otherwise.
 4. File priorities 0 and 1 are set and re-read; any mismatch deletes the torrent.
 5. Only then `torrents/start`, and the pending tags are removed.
 
@@ -257,7 +259,9 @@ class DownloadPipeline:
         decision = decide([TorrentFile.from_qbit(row) for row in files])
         if not decision.accept:
             await self._discard(torrent_hash, job_tag)
-            job.state = JobState.REJECTED
+            job.state = (
+                JobState.UNSUPPORTED if decision.reason == "video_format" else JobState.REJECTED
+            )
             return
         await self._qbit.set_file_priority(torrent_hash, decision.zero_ids, 0)
         await self._qbit.set_file_priority(torrent_hash, decision.keep_ids, 1)
