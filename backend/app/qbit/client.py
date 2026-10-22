@@ -5,6 +5,7 @@ The client never sets Referer or Origin (qBittorrent rejects a foreign one) and
 never logs or reprs the password.
 """
 
+import asyncio
 import time
 from collections.abc import Callable
 
@@ -50,6 +51,13 @@ class QbitClient:
         self._ban_cooldown = ban_cooldown_seconds
         self._clock = clock
         self._logged_in = False
+        # Counts successful logins; a caller that waited on the lock uses it to see
+        # that another caller already refreshed the session.
+        self._session_epoch = 0
+        self._login_lock = asyncio.Lock()
+        # While blocked, no login (and so no request) leaves this process.
+        self._login_blocked_until = 0.0
+        self._blocked_error: type[QbitError] | None = None
         self._http = httpx.AsyncClient(
             base_url=self._base_url,
             transport=transport,
@@ -82,12 +90,33 @@ class QbitClient:
         status = response.status_code
         if status in (200, 204) and response.text.strip() != "Fails.":
             self._logged_in = True
+            self._session_epoch += 1
+            self._blocked_error = None
             return
+        self._logged_in = False
         if status == 403:
+            self._block(QbitBanned, self._ban_cooldown)
             raise QbitBanned("qBittorrent refused the login (client IP banned)")
         if status == 401 or status == 200:
+            self._block(QbitAuthError, self._login_cooldown)
             raise QbitAuthError("qBittorrent rejected the configured credentials")
         raise QbitUnavailable(f"qBittorrent login answered HTTP {status}")
+
+    def _block(self, error: type[QbitError], seconds: float) -> None:
+        self._blocked_error = error
+        self._login_blocked_until = self._clock() + seconds
+
+    def _raise_if_blocked(self) -> None:
+        if self._blocked_error is not None and self._clock() < self._login_blocked_until:
+            raise self._blocked_error("qBittorrent login is paused after a refused login")
+
+    async def _ensure_session(self, seen_epoch: int) -> None:
+        """Log in at most once for all callers that saw the same stale session."""
+        async with self._login_lock:
+            if self._session_epoch != seen_epoch:
+                return  # another caller refreshed the session while this one waited
+            self._raise_if_blocked()
+            await self._login()
 
     async def _send(self, method: str, path: str, **kwargs) -> httpx.Response:
         try:
@@ -96,11 +125,14 @@ class QbitClient:
             raise QbitUnavailable("qBittorrent is unreachable") from exc
 
     async def _request(self, method: str, path: str, **kwargs) -> httpx.Response:
+        epoch = self._session_epoch
         if not self._logged_in:
-            await self._login()
+            await self._ensure_session(epoch)
+        epoch = self._session_epoch
         response = await self._send(method, path, **kwargs)
         if response.status_code == 403:
-            await self._login()
+            # Expired session: one shared re-login and one retry, never a loop.
+            await self._ensure_session(epoch)
             response = await self._send(method, path, **kwargs)
         return response
 
