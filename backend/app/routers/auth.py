@@ -3,6 +3,8 @@
 JSON bodies only (`extra="forbid"`): a cross-site form post gets 422 (T-01-18).
 """
 
+import math
+
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -22,8 +24,20 @@ class LoginRequest(BaseModel):
 @router.post("/login", status_code=204)
 async def login(body: LoginRequest, request: Request) -> Response:
     settings = request.app.state.settings
+    throttle = request.app.state.login_throttle
+    # Behind Caddy, uvicorn --proxy-headers makes this the forwarded client address.
+    ip = request.client.host if request.client else "unknown"
+    # The slot is reserved before the (slow) password check so concurrent guesses are counted.
+    retry_in = throttle.try_acquire(ip)
+    if retry_in is not None:
+        raise HTTPException(
+            status_code=429,
+            detail="too_many_attempts",
+            headers={"Retry-After": str(max(1, math.ceil(retry_in)))},
+        )
     if not await verify_credentials(settings, body.username, body.password):
         raise HTTPException(status_code=401, detail="bad_credentials")
+    throttle.reset(ip)
     # Fresh session on login: nothing from a previous one survives.
     request.session.clear()
     request.session["auth"] = dict(SESSION_VALUE)

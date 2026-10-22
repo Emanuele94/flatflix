@@ -6,6 +6,9 @@ public routes are POST /api/login and GET /api/health (guarded by a test).
 """
 
 import hmac
+import time
+from collections import deque
+from collections.abc import Callable
 from typing import Any
 
 from argon2 import PasswordHasher
@@ -54,14 +57,42 @@ async def verify_credentials(settings: Settings, username: str, password: str) -
 
 
 class LoginThrottle:
-    """RED stub: allows everything. Replaced by the real limiter in the GREEN commit."""
+    """Per-IP sliding-window limit on login attempts (D-18, T-01-14).
 
-    def __init__(self, max_attempts: int = 5, window_seconds: float = 900, clock=None) -> None:  # type: ignore[no-untyped-def]
+    `try_acquire` checks and records in one synchronous step with no `await`
+    in between, so concurrent requests cannot all slip past the limit: a slot is
+    reserved BEFORE the slow argon2 check runs. State is in memory; a restart
+    clears it, which is acceptable for a one-account household LAN portal.
+    """
+
+    def __init__(
+        self,
+        max_attempts: int = 5,
+        window_seconds: float = 900,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
         self.max_attempts = max_attempts
         self.window_seconds = window_seconds
+        self._clock = clock
+        self._attempts: dict[str, deque[float]] = {}
 
     def try_acquire(self, ip: str) -> float | None:
+        """None: allowed and the slot is recorded. A float: seconds until a slot frees up."""
+        now = self._clock()
+        cutoff = now - self.window_seconds
+        attempts = self._attempts.get(ip)
+        if attempts is not None:
+            while attempts and attempts[0] <= cutoff:
+                attempts.popleft()
+            if not attempts:
+                del self._attempts[ip]
+                attempts = None
+        if attempts is not None and len(attempts) >= self.max_attempts:
+            return attempts[0] + self.window_seconds - now
+        if attempts is None:
+            attempts = self._attempts[ip] = deque()
+        attempts.append(now)
         return None
 
     def reset(self, ip: str) -> None:
-        return None
+        self._attempts.pop(ip, None)
