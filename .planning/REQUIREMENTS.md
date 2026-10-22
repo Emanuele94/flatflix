@@ -32,9 +32,9 @@ Requirements for the initial release. Each maps to exactly one roadmap phase.
 - [x] **DOWN-01**: User can start the download of a search result with one tap on Download. (qbit F3)
 - [x] **DOWN-02**: The download is automatically assigned to category `Film` (film) or `SerieTV` (serie) by the backend; the user never picks a category. (qbit F4)
 - [x] **DOWN-03**: Each category saves to its predefined path (`Film` -> `/media/Film`, `SerieTV` -> `/media/SerieTV`): categories are created through the API at startup if missing, "Append category name to save path" is disabled, and the browser sends no path. (qbit F5, section 6)
-- [ ] **DOWN-04**: User can see downloads in progress and completed (Film and SerieTV only) with their state and progress, refreshed about every 5 seconds. (qbit F6, section 5.3)
+- [x] **DOWN-04**: User can see downloads in progress and completed (Film and SerieTV only) with their state and progress, refreshed about every 5 seconds. (qbit F6, section 5.3)
 - [ ] **DOWN-05**: User can cancel a download from the list and it is removed from qBittorrent. (qbit F7)
-- [ ] **DOWN-06**: Failures show plain messages to the user: invalid torrent (415), qBittorrent unreachable (502, with automatic retry), invalid category path (409); wrong qBittorrent credentials (401) are logged and shown only as a generic message. (qbit section 13)
+- [x] **DOWN-06**: Failures show plain messages to the user: invalid torrent (415), qBittorrent unreachable (502, with automatic retry), invalid category path (409); wrong qBittorrent credentials (401) are logged and shown only as a generic message. (qbit section 13)
 
 ### Portal Interface
 
@@ -154,9 +154,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DOWN-01 | Phase 1 | Complete |
 | DOWN-02 | Phase 1 | Complete |
 | DOWN-03 | Phase 1 | Complete |
-| DOWN-04 | Phase 2 | Pending |
+| DOWN-04 | Phase 2 | Complete |
 | DOWN-05 | Phase 2 | Pending |
-| DOWN-06 | Phase 2 | Pending |
+| DOWN-06 | Phase 2 | Complete |
 | PUI-01 | Phase 1 | Complete |
 | PUI-02 | Phase 1 | Complete |
 | INFRA-01 | Phase 1 | Complete |

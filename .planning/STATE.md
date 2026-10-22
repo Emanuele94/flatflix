@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 02
 current_phase_name: Portal Download Management & Hardening
 status: executing
-stopped_at: Completed 02-05-PLAN.md
-last_updated: "2026-10-22T20:13:26.609Z"
+stopped_at: Completed 02-06-PLAN.md
+last_updated: "2026-10-22T20:18:08.644Z"
 last_activity: 2026-10-22
 last_activity_desc: Phase 02 execution started
-state_head: d535cd491995e4e18eb0b937d4a3e94651e66649
+state_head: 55919ec71a74fd31b690e8296d9f56f73f8bc630
 progress:
   total_phases: 7
   completed_phases: 1
   total_plans: 27
-  completed_plans: 21
+  completed_plans: 22
   percent: 14
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-21)
 ## Current Position
 
 Phase: 02 (Portal Download Management & Hardening) — EXECUTING
-Plan: 6 of 11
+Plan: 7 of 11
 Status: Ready to execute
 Last activity: 2026-10-22 — Phase 02 execution started
 
@@ -77,6 +77,7 @@ Progress: [█░░░░░░░░░] 14%
 | Phase 02 P03 | 8 min | 2 tasks | 4 files |
 | Phase 02 P04 | 12 min | 2 tasks | 6 files |
 | Phase 02 P05 | 20 min | 2 tasks | 8 files |
+| Phase 02 P06 | 4min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -124,6 +125,8 @@ Recent decisions affecting current work:
 - [Phase 02]: 02-04: finished_at is stamped in a finally around the whole job task so a long Preparing job ages from its end, not its start
 - [Phase 02]: 02-04: a failed job row is listed next to its torrent row; the torrent still appears once, and a hash-named job name is never shown
 - [Phase 02]: 02-05: search and download throttles are per address only (no global ceiling); LoginThrottle kept as an alias of SlidingWindowThrottle
+- [Phase 02]: 02-06: a known-empty Downloads list is not shown as 'No downloads yet' while an outage is active; only the banner shows
+- [Phase 02]: 02-06: Downloads polling is a setTimeout chain with epoch check; only visibilityState 'hidden' pauses it (jsdom never reports 'visible')
 
 ### Pending Todos
 
@@ -153,6 +156,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-22T20:13:26.471Z
-Stopped at: Completed 02-05-PLAN.md
+Last session: 2026-10-22T20:18:08.510Z
+Stopped at: Completed 02-06-PLAN.md
 Resume file: None
