@@ -338,3 +338,21 @@ def test_index_and_spa_fallback_are_revalidated():
     assert 'Cache-Control "no-cache"' in catch_all
     assert "try_files {path} /index.html" in catch_all
     assert "immutable" not in catch_all
+
+
+# -- every container logs to stdout through Docker, rotated (D-40, SEC-06) --------------------
+
+
+@pytest.mark.parametrize("name", ["qbittorrent", "backend", "web"])
+def test_every_service_rotates_its_logs(base, name):
+    assert base["services"][name]["logging"] == {
+        "driver": "json-file",
+        "options": {"max-size": "10m", "max-file": "5"},
+    }
+
+
+def test_no_service_writes_logs_to_a_volume(base):
+    for name, service in base["services"].items():
+        for volume in service.get("volumes") or []:
+            target = volume["target"] if isinstance(volume, dict) else str(volume).split(":")[1]
+            assert "log" not in target.lower(), f"{name} mounts a log path: {target}"

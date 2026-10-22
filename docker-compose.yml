@@ -2,6 +2,14 @@
 # docs/ports-and-media.md; keep this file in line with it.
 name: flatflix
 
+# D-40: logs go to stdout only and Docker rotates them (10 MB x 5 files per container);
+# read them with `docker compose logs backend`. Docker's defaults are unlimited size, one file.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   qbittorrent:
     image: lscr.io/linuxserver/qbittorrent:5.2.4
@@ -40,6 +48,7 @@ services:
       retries: 12
       start_period: 20s
     restart: unless-stopped
+    logging: *default-logging
 
   backend:
     build: ./backend
@@ -60,6 +69,7 @@ services:
       retries: 6
       start_period: 10s
     restart: unless-stopped
+    logging: *default-logging
 
   web:
     build:
@@ -78,6 +88,7 @@ services:
       timeout: 3s
       retries: 6
     restart: unless-stopped
+    logging: *default-logging
 
 networks:
   # Backend and the web service only.
