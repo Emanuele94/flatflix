@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/preact';
 import { api, setUnauthorizedHandler } from '../api.js';
 import { App } from '../App.jsx';
+import { SAVED_SEARCH_KEY } from '../Search.jsx';
 
 function jsonResponse(body, status = 200) {
   return {
@@ -27,6 +28,7 @@ function stubApi({ session = jsonResponse({ logged_in: true }), health } = {}) {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  sessionStorage.clear();
 });
 
 describe('App session gate', () => {
@@ -150,5 +152,56 @@ describe('App session lifecycle', () => {
     await screen.findByRole('button', { name: 'Log in' });
     await waitFor(() => expect(setItem).not.toHaveBeenCalled());
     setItem.mockRestore();
+  });
+
+  describe('saved search (G-01-3)', () => {
+    const SID = 'b'.repeat(16);
+    const RID = 'c'.repeat(16);
+
+    function seedSearch() {
+      sessionStorage.setItem(
+        SAVED_SEARCH_KEY,
+        JSON.stringify({
+          v: 1,
+          type: 'film',
+          q: 'Sintel',
+          search_id: SID,
+          done: true,
+          outcome: null,
+          rows: [
+            {
+              result_id: RID,
+              name: 'Sintel 1080p',
+              size_human: '4.2 GB',
+              seeders: 50,
+              leechers: 3,
+              source: 'piratebay',
+              quality: '1080p',
+            },
+          ],
+          jobs: {},
+        }),
+      );
+    }
+
+    async function logIn() {
+      fireEvent.input(screen.getByLabelText('Username'), { target: { value: 'casa' } });
+      fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'giusta' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Log in' }));
+      await screen.findByRole('button', { name: 'Search' });
+    }
+
+    it('logging in shows the restored rows; Log out removes the saved search and the next login starts empty', async () => {
+      seedSearch();
+      await loginFlow();
+      expect(await screen.findByText('Sintel 1080p')).toBeTruthy();
+      expect(screen.getByLabelText('Movie or series title').value).toBe('Sintel');
+      fireEvent.click(screen.getByRole('button', { name: 'Log out' }));
+      await screen.findByRole('button', { name: 'Log in' });
+      expect(sessionStorage.getItem(SAVED_SEARCH_KEY) === null).toBe(true);
+      await logIn();
+      expect(screen.queryByText('Sintel 1080p')).toBeNull();
+      expect(screen.getByLabelText('Movie or series title').value).toBe('');
+    });
   });
 });

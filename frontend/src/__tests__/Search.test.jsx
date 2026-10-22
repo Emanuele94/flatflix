@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/preact';
-import { Search, SAVED_SEARCH_KEY } from '../Search.jsx';
+import { Search, SAVED_SEARCH_KEY, clearSavedSearch } from '../Search.jsx';
 
 function jsonResponse(body, status = 200) {
   return { ok: status >= 200 && status < 300, status, json: async () => body };
@@ -965,5 +965,24 @@ describe('Survives a page reload (G-01-3)', () => {
     expect(rowOf(container, 'Alpha').textContent).toContain('Started ✓');
     expect(container.querySelector('.form-error')).toBeNull();
     expect(container.textContent).not.toMatch(/denied|storage/i);
+  });
+
+  it('a job answer that arrives after clearSavedSearch (logout) cannot write the search back', async () => {
+    stubReload({
+      searches: { [SID]: [reloadSnapshot(SID, [row(RA, 'Alpha', 50)])] },
+      jobs: () => jsonResponse({ status: 'started', job_id: JOB }),
+    });
+    const { container } = render(<Search />);
+    submitSearch('Sintel');
+    await tick(0);
+    await tick(700);
+    await tap(container, 'Alpha');
+    expect(rowOf(container, 'Alpha').textContent).toContain('Preparing');
+    expect(sessionStorage.getItem(SAVED_SEARCH_KEY)).not.toBeNull();
+    clearSavedSearch(); // what logout calls
+    expect(sessionStorage.getItem(SAVED_SEARCH_KEY)).toBeNull();
+    await tick(2000); // the late answer: started
+    expect(rowOf(container, 'Alpha').textContent).toContain('Started ✓');
+    expect(sessionStorage.getItem(SAVED_SEARCH_KEY)).toBeNull();
   });
 });
