@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 02
 current_phase_name: Portal Download Management & Hardening
 status: executing
-stopped_at: Completed 02-07-PLAN.md
-last_updated: "2026-10-22T20:26:33.282Z"
+stopped_at: Completed 02-08-PLAN.md
+last_updated: "2026-10-22T20:29:27.216Z"
 last_activity: 2026-10-22
 last_activity_desc: Phase 02 execution started
-state_head: b9840cadf413809581a3ccefff8c35d98f4b5ca2
+state_head: 6d9c0409996c23123b355abedb0c3513be9a2bdf
 progress:
   total_phases: 7
   completed_phases: 1
   total_plans: 27
-  completed_plans: 23
+  completed_plans: 24
   percent: 14
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-21)
 ## Current Position
 
 Phase: 02 (Portal Download Management & Hardening) — EXECUTING
-Plan: 8 of 11
+Plan: 9 of 11
 Status: Ready to execute
 Last activity: 2026-10-22 — Phase 02 execution started
 
@@ -79,6 +79,7 @@ Progress: [█░░░░░░░░░] 14%
 | Phase 02 P05 | 20 min | 2 tasks | 8 files |
 | Phase 02 P06 | 4min | 3 tasks | 10 files |
 | Phase 02 P07 | 8min | 3 tasks | 8 files |
+| Phase 02 P08 | 10 min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -130,6 +131,7 @@ Recent decisions affecting current work:
 - [Phase 02]: 02-06: Downloads polling is a setTimeout chain with epoch check; only visibilityState 'hidden' pauses it (jsdom never reports 'visible')
 - [Phase 02]: 02-07: deleteFiles is true only for a known in-progress raw state below progress 1; the list action derives from the same cancel_deletes_files rule
 - [Phase 02]: 02-07: cancel sweep and job-tag lookup decide deleteFiles per row so no portal path deletes a completed download's files
+- [Phase 02]: 02-08: cancelled is a JOB_STATES member (backend status, stops polling); throttled is a client-side ROW_STATES member; both retryable and restorable
 
 ### Pending Todos
 
@@ -159,6 +161,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-22T20:26:33.140Z
-Stopped at: Completed 02-07-PLAN.md
+Last session: 2026-10-22T20:29:27.077Z
+Stopped at: Completed 02-08-PLAN.md
 Resume file: None
