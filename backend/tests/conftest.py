@@ -9,6 +9,8 @@ from pydantic import SecretStr
 
 from app.config import Settings
 from app.main import create_app
+from app.qbit.client import QbitClient
+from tests.fakeqbit import FakeQbit
 
 QBIT_URL = "http://qbittorrent.test:8088"
 QBIT_USER = "portal-test"
@@ -25,8 +27,19 @@ def settings() -> Settings:
 
 
 @pytest.fixture
-def app(settings: Settings) -> FastAPI:
-    return create_app(settings)
+def fake_qbit() -> FakeQbit:
+    return FakeQbit(QBIT_USER, QBIT_PASS)
+
+
+@pytest.fixture
+def app(settings: Settings, fake_qbit: FakeQbit) -> FastAPI:
+    client = QbitClient(
+        settings.qbittorrent_url,
+        settings.qbittorrent_user,
+        settings.qbittorrent_pass,
+        transport=fake_qbit.transport,
+    )
+    return create_app(settings, client)
 
 
 @pytest.fixture
