@@ -48,6 +48,7 @@ async function tick(ms) {
 
 beforeEach(() => {
   vi.useFakeTimers();
+  sessionStorage.clear(); // every search now writes its state: tests must not leak into each other
 });
 
 afterEach(() => {
@@ -618,5 +619,164 @@ describe('Row state keyed by result_id (PUI-02)', () => {
     expect(items[1].textContent).toContain('Alpha');
     expect(items[1].textContent).toContain('Started ✓');
     expect(downloadPosts(calls).length).toBe(1);
+  });
+});
+
+// ---- Page reload (01-15, G-01-3 c): the search survives an unmount + new mount -----------
+const SID = 'b'.repeat(16);
+const SID2 = '9'.repeat(16);
+const RA = 'c'.repeat(16);
+const RB = 'd'.repeat(16);
+const RE = 'e'.repeat(16);
+
+function reloadSnapshot(sid, results, { done = true, timed_out = false } = {}) {
+  return jsonResponse({ search_id: sid, done, timed_out, results });
+}
+
+// Like stubPortal, but with 16-hex search ids and one answer list per search id.
+function stubReload({
+  starts = [SID],
+  searches,
+  download = () => jsonResponse({ status: 'preparing', job_id: JOB }),
+  jobs = () => jsonResponse({ status: 'preparing', job_id: JOB }),
+}) {
+  const calls = [];
+  const served = {};
+  let started = 0;
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (path, init = {}) => {
+      calls.push({ path, method: init.method ?? 'GET', body: init.body });
+      if (path === '/api/search') return jsonResponse({ search_id: starts[Math.min(started++, starts.length - 1)] });
+      const hit = path.match(/^\/api\/search\/(.+)$/);
+      if (hit) {
+        const list = searches[hit[1]];
+        if (!list) return jsonResponse({ detail: 'search_not_found' }, 404);
+        const i = served[hit[1]] ?? 0;
+        served[hit[1]] = i + 1;
+        return list[Math.min(i, list.length - 1)];
+      }
+      if (path === '/api/download') return download(JSON.parse(init.body));
+      if (path.startsWith('/api/download/')) return jobs(path.split('/').pop());
+      throw new Error(`unexpected ${path}`);
+    }),
+  );
+  return calls;
+}
+
+// A reload is an unmount followed by a fresh mount of the same screen.
+async function reload() {
+  cleanup();
+  const view = render(<Search />);
+  await tick(0);
+  return view;
+}
+
+const jobGets = (calls) => calls.filter((c) => c.path === `/api/download/${JOB}`).length;
+
+describe('Survives a page reload (G-01-3)', () => {
+  async function preparingRow() {
+    const calls = stubReload({
+      searches: { [SID]: [reloadSnapshot(SID, [row(RA, 'Alpha', 50), row(RB, 'Beta', 40)])] },
+    });
+    const view = render(<Search />);
+    fireEvent.click(screen.getByLabelText('Movie'));
+    submitSearch('Sintel');
+    await tick(0);
+    await tick(700);
+    await tap(view.container, 'Alpha');
+    expect(rowOf(view.container, 'Alpha').textContent).toContain('Preparing');
+    return calls;
+  }
+
+  it('brings back the rows, the query, the Movie choice and the Preparing row', async () => {
+    await preparingRow();
+    const { container } = await reload();
+    expect(screen.getByLabelText('Movie or series title').value).toBe('Sintel');
+    expect(screen.getByLabelText('Movie').checked).toBe(true);
+    expect(container.querySelectorAll('li.result').length).toBe(2);
+    expect(rowOf(container, 'Alpha').textContent).toContain('Preparing');
+    expect(rowOf(container, 'Beta').textContent).not.toContain('Preparing');
+  });
+
+  it('restores a TV Series search as TV Series and keeps posting that type', async () => {
+    const calls = stubReload({
+      searches: { [SID]: [reloadSnapshot(SID, [row(RA, 'Alpha', 50)])] },
+      download: () => jsonResponse({ status: 'started', job_id: JOB }),
+    });
+    render(<Search />);
+    fireEvent.click(screen.getByLabelText('TV Series'));
+    submitSearch('Pioneer One');
+    await tick(0);
+    await tick(700);
+    const { container } = await reload();
+    expect(screen.getByLabelText('TV Series').checked).toBe(true);
+    await tap(container, 'Alpha');
+    expect(JSON.parse(downloadPosts(calls)[0].body).type).toBe('serie');
+  });
+
+  it('resumes polling the job 2 s after the new mount and ends on Started, with no second POST', async () => {
+    const calls = await preparingRow();
+    const { container } = await reload();
+    const before = jobGets(calls);
+    await tick(1900);
+    expect(jobGets(calls)).toBe(before);
+    await tick(100);
+    expect(jobGets(calls)).toBe(before + 1);
+    expect(downloadPosts(calls).length).toBe(1);
+    expect(rowOf(container, 'Alpha').textContent).toContain('Preparing');
+  });
+
+  it('the resumed row ends on the final state of the job', async () => {
+    const calls = stubReload({
+      searches: { [SID]: [reloadSnapshot(SID, [row(RA, 'Alpha', 50)])] },
+      jobs: () => jsonResponse({ status: 'started', job_id: JOB }),
+    });
+    const first = render(<Search />);
+    submitSearch('Sintel');
+    await tick(0);
+    await tick(700);
+    await tap(first.container, 'Alpha');
+    expect(rowOf(first.container, 'Alpha').textContent).toContain('Preparing');
+    const { container } = await reload();
+    await tick(2000);
+    expect(rowOf(container, 'Alpha').textContent).toContain('Started ✓');
+    expect(downloadPosts(calls).length).toBe(1);
+  });
+
+  it('a new search after a restore replaces the saved search', async () => {
+    const calls = stubReload({
+      starts: [SID, SID2],
+      searches: {
+        [SID]: [reloadSnapshot(SID, [row(RA, 'Alpha', 50)])],
+        [SID2]: [reloadSnapshot(SID2, [row(RE, 'Epsilon', 70)])],
+      },
+    });
+    const first = render(<Search />);
+    submitSearch('Sintel');
+    await tick(0);
+    await tick(700);
+    await tap(first.container, 'Alpha');
+    const second = await reload();
+    fireEvent.input(screen.getByLabelText('Movie or series title'), { target: { value: 'Tears' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    await tick(0);
+    await tick(700);
+    expect(second.container.textContent).toContain('Epsilon');
+    const third = await reload();
+    expect(screen.getByLabelText('Movie or series title').value).toBe('Tears');
+    expect(third.container.textContent).toContain('Epsilon');
+    expect(third.container.textContent).not.toContain('Alpha');
+    await tick(10000);
+    expect(jobGets(calls)).toBe(0);
+  });
+
+  it('writes nothing to web storage before the first search', async () => {
+    const setItem = vi.spyOn(Storage.prototype, 'setItem');
+    stubReload({ searches: {} });
+    render(<Search />);
+    await tick(5000);
+    expect(setItem).not.toHaveBeenCalled();
+    setItem.mockRestore();
   });
 });
