@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 01
 current_phase_name: Portal Search & Start Download
 status: executing
-stopped_at: Completed 01-12-PLAN.md
-last_updated: "2026-10-22T10:59:08.783Z"
+stopped_at: Completed 01-08-PLAN.md
+last_updated: "2026-10-22T11:15:02.707Z"
 last_activity: 2026-10-22
 last_activity_desc: Phase 01 execution started
-state_head: 816dd365a1e2f09493175c24e44d74d8b4b55614
+state_head: 7e8a53e18331f0a610692056c6aa939bf57e82f6
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 13
-  completed_plans: 10
+  completed_plans: 11
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-21)
 ## Current Position
 
 Phase: 01 (Portal Search & Start Download) — EXECUTING
-Plan: 11 of 13
+Plan: 12 of 13
 Status: Ready to execute
 Last activity: 2026-10-22 — Phase 01 execution started
 
@@ -66,6 +66,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P06 | 6 min | 3 tasks | 12 files |
 | Phase 01 P07 | 7 min | 2 tasks | 12 files |
 | Phase 01 P12 | 15min | 2 tasks | 8 files |
+| Phase 01 P08 | 18 min | 2 tasks | 14 files |
 
 ## Accumulated Context
 
@@ -94,6 +95,10 @@ Recent decisions affecting current work:
 - [Phase 01]: 01-07: a cut-short search (timeout, eviction, shutdown) is done with timed_out true only when no row passed the filters; a non-empty SUSPICIOUS_TERMS replaces the built-in list — A timeout is an ordinary end, never an error; one documented rule for the term list
 - [Phase 01]: 01-07: search_start 409 frees tracked searches and sweeps untracked leftovers, then retries once; qBittorrent failures answer 503 search_unavailable — A crashed backend must not block search permanently, and no qBittorrent body reaches the browser
 - [Phase 01]: 01-12: added MSG.searchFailed so poll errors (e.g. 404 search_not_found) show plain Italian, never technical text
+- [Phase 01]: A STARTED job dedupes a repeat tap only for 60 s; later taps hit the btih duplicate check
+- [Phase 01]: A 404 from torrents/files right after a magnet add is retried like an empty list, bounded by METADATA_TIMEOUT
+- [Phase 01]: Bootstrapper on_ready hook runs reconcile after readiness; reconciled jobs reuse the id from their fx-job tag
+- [Phase 01]: A non-magnet torrent that never appears becomes unavailable; a late arrival keeps fx-pending and the next reconcile removes it
 
 ### Pending Todos
 
@@ -123,6 +128,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-22T10:59:08.730Z
-Stopped at: Completed 01-12-PLAN.md
+Last session: 2026-10-22T11:15:02.633Z
+Stopped at: Completed 01-08-PLAN.md
 Resume file: None
