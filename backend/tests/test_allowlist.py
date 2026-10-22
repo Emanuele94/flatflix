@@ -1,6 +1,14 @@
 """Tests for the pure per-file allowlist (FILT-02, D-14)."""
 
-from app.download.allowlist import FileDecision, TorrentFile, decide
+from app.download.allowlist import (
+    EXCLUDED_FILE_PATTERNS,
+    SAMPLE_SIZE_RATIO,
+    FileDecision,
+    TorrentFile,
+    decide,
+    final_extension,
+    is_sample_name,
+)
 
 # Verbatim qBittorrent 5.2.4 `torrents/files` rows (research, Code Examples).
 SINTEL_VIDEO_ROW = {"index": 5, "priority": 1, "size": 129241752, "name": "Sintel/Sintel.mp4"}
@@ -24,3 +32,141 @@ def test_from_qbit_maps_index_name_size_priority():
     file = TorrentFile.from_qbit(SINTEL_VIDEO_ROW)
 
     assert file == TorrentFile(index=5, name="Sintel/Sintel.mp4", size=129241752, priority=1)
+
+
+# --- Task 2: edge cases -------------------------------------------------------------------
+
+GB = 1024**3
+MB = 1024**2
+
+
+def _files(*specs):
+    """Build TorrentFile rows from (name, size) pairs; index is the position."""
+    return [
+        TorrentFile(index=i, name=name, size=size, priority=1)
+        for i, (name, size) in enumerate(specs)
+    ]
+
+
+def test_samples_are_zeroed_and_sampler_is_kept():
+    files = _files(
+        ("Movie.2020.mkv", 4 * GB),
+        ("Movie.Sample.mkv", 50 * MB),
+        ("sample/clip.mkv", 4 * GB),
+        ("Sampler.mkv", 4 * GB),
+    )
+
+    decision = decide(files)
+
+    assert decision.accept is True
+    assert decision.keep_ids == (0, 3)
+    assert decision.zero_ids == (1, 2)
+
+
+def test_is_sample_name_matches_only_whole_word():
+    assert is_sample_name("Movie.Sample.mkv")
+    assert is_sample_name("sample/clip.mkv")
+    assert is_sample_name("Movie_SAMPLE-720p.mkv")
+    assert not is_sample_name("Sampler.mkv")
+    assert not is_sample_name("Resampled/Movie.mkv")
+
+
+def test_size_boundary_is_exactly_ten_percent_of_largest_video():
+    files = _files(("big.mkv", 1000), ("exactly-ten-percent.mkv", 100), ("one-byte-short.mkv", 99))
+
+    decision = decide(files)
+
+    assert decision.keep_ids == (0, 1)
+    assert decision.zero_ids == (2,)
+
+
+def test_full_season_is_kept_and_small_featurette_is_zeroed():
+    episodes = [(f"Show S01/Show.S01E{n:02d}.mkv", 1 * GB) for n in range(1, 11)]
+    files = _files(*episodes, ("Show S01/Extras/Featurette.mkv", 50 * MB))
+
+    decision = decide(files)
+
+    assert decision.accept is True
+    assert decision.keep_ids == tuple(range(10))
+    assert decision.zero_ids == (10,)
+
+
+def test_double_extension_uses_final_suffix_only():
+    files = _files(("a/main.mkv", GB), ("movie.mkv.exe", GB), ("movie.exe.mkv", GB))
+
+    decision = decide(files)
+
+    assert decision.keep_ids == (0, 2)
+    assert decision.zero_ids == (1,)
+    assert final_extension("movie.mkv.exe") == ".exe"
+    assert final_extension("movie.exe.mkv") == ".mkv"
+
+
+def test_extension_check_is_case_insensitive():
+    files = _files(("MOVIE.MKV", GB), ("SETUP.EXE", GB))
+
+    decision = decide(files)
+
+    assert decision.keep_ids == (0,)
+    assert decision.zero_ids == (1,)
+
+
+def test_file_without_extension_is_zeroed():
+    files = _files(("Film/Film.mkv", GB), ("Film/README", 1000))
+
+    decision = decide(files)
+
+    assert decision.keep_ids == (0,)
+    assert decision.zero_ids == (1,)
+    assert final_extension("README") == ""
+
+
+def test_non_ascii_and_nested_paths_are_kept():
+    files = _files(("Città/Film.mkv", GB), ("Città/Sub/Film.it.srt", 20000))
+
+    decision = decide(files)
+
+    assert decision.accept is True
+    assert decision.keep_ids == (0, 1)
+    assert decision.zero_ids == ()
+
+
+def test_empty_torrent_is_rejected_as_no_video():
+    assert decide([]) == FileDecision(accept=False, keep_ids=(), zero_ids=(), reason="no_video")
+
+
+def test_subtitles_only_torrent_is_rejected_with_every_index_zeroed():
+    decision = decide(_files(("a.srt", 1000), ("b.ass", 2000)))
+
+    assert decision == FileDecision(accept=False, keep_ids=(), zero_ids=(0, 1), reason="no_video")
+
+
+def test_non_allowed_only_torrent_is_rejected_with_every_index_zeroed():
+    decision = decide(_files(("a.txt", 1000), ("b.nfo", 2000)))
+
+    assert decision == FileDecision(accept=False, keep_ids=(), zero_ids=(0, 1), reason="no_video")
+
+
+def test_samples_only_torrent_is_rejected_with_every_index_zeroed():
+    decision = decide(_files(("Movie.Sample.mkv", 50 * MB), ("sample/clip.mp4", 40 * MB)))
+
+    assert decision == FileDecision(accept=False, keep_ids=(), zero_ids=(0, 1), reason="no_video")
+
+
+def test_single_main_video_is_accepted_with_nothing_zeroed():
+    decision = decide(_files(("Movie.mkv", 2 * GB)))
+
+    assert decision == FileDecision(accept=True, keep_ids=(0,), zero_ids=(), reason=None)
+
+
+def test_excluded_file_patterns_start_with_the_filt01_list_in_order():
+    assert EXCLUDED_FILE_PATTERNS[:11] == (
+        "*.exe", "*.bat", "*.cmd", "*.ps1", "*.scr", "*.lnk",
+        "*.msi", "*.zip", "*.rar", "*.7z", "*.iso",
+    )  # fmt: skip
+
+
+def test_excluded_file_patterns_are_lower_case_and_unique():
+    assert all(p == p.lower() for p in EXCLUDED_FILE_PATTERNS)
+    assert len(set(EXCLUDED_FILE_PATTERNS)) == len(EXCLUDED_FILE_PATTERNS)
+    assert SAMPLE_SIZE_RATIO == 0.10

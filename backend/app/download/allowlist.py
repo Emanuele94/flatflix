@@ -11,6 +11,14 @@ from dataclasses import dataclass
 VIDEO_EXTENSIONS = frozenset({".mkv", ".mp4", ".avi", ".m4v"})
 SUBTITLE_EXTENSIONS = frozenset({".srt", ".ass", ".ssa", ".sub", ".idx"})
 
+# RED skeleton for Task 2: placeholders so tests fail on assertions, not on import.
+EXCLUDED_FILE_PATTERNS: tuple[str, ...] = ()
+SAMPLE_SIZE_RATIO = 0.0
+
+
+def is_sample_name(path: str) -> bool:
+    return False
+
 
 @dataclass(frozen=True, slots=True)
 class TorrentFile:
