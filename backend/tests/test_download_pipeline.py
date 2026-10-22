@@ -6,6 +6,7 @@ sent (call log) or what the fake ended up holding, never about internal calls.
 
 import asyncio
 import inspect
+import logging
 import socket
 from dataclasses import dataclass, field
 
@@ -464,13 +465,58 @@ async def test_a_409_from_add_is_a_duplicate(rig: Rig) -> None:
     assert rig.fake.calls_to(START) == []
 
 
-async def test_any_other_refusal_from_add_is_a_failure(rig: Rig) -> None:
+async def test_an_invalid_torrent_answered_415_is_unavailable(
+    rig: Rig, caplog: pytest.LogCaptureFixture
+) -> None:
     rig.cache()
-    rig.fake.register("POST", ADD, lambda request: httpx.Response(415, text="Unsupported"))
+    rig.fake.register(
+        "POST", ADD, lambda request: httpx.Response(415, text="is not a valid torrent file")
+    )
+
+    with caplog.at_level(logging.WARNING):
+        response = await rig.post()
+
+    assert response.json()["status"] == "unavailable"
+    assert rig.fake.calls_to(START) == []
+    assert rig.fake.calls_to(DELETE) == []
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert "HTTP 415" in warnings[0]
+    assert MAGNET not in warnings[0]
+    assert BTIH not in warnings[0]
+    assert "valid torrent" not in warnings[0]
+
+
+async def test_a_category_path_refused_with_409_fails_the_job_and_logs_the_status(
+    rig: Rig, caplog: pytest.LogCaptureFixture
+) -> None:
+    rig.cache()
+    rig.fake.set_metadata(BTIH, SINTEL_FILES)
+    rig.fake.category_table["Film"]["savePath"] = "/somewhere/else"
+    rig.fake.register(
+        "POST",
+        "/api/v2/torrents/editCategory",
+        lambda request: httpx.Response(409, text="Category editing failed"),
+    )
+
+    with caplog.at_level(logging.WARNING):
+        response = await rig.post()
+
+    assert response.json()["status"] == "failed"
+    assert rig.adds() == []
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("QbitError" in w and "HTTP 409" in w for w in warnings)
+    assert not any("Category editing failed" in w for w in warnings)
+
+
+async def test_any_other_add_error_still_fails(rig: Rig) -> None:
+    rig.cache()
+    rig.fake.register("POST", ADD, lambda request: httpx.Response(500, text="boom"))
 
     response = await rig.post()
 
     assert response.json()["status"] == "failed"
+    assert rig.fake.calls_to(START) == []
 
 
 async def test_a_qbittorrent_error_midway_fails_the_job_and_keeps_the_pending_tag(
