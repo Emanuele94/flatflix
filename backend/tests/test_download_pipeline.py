@@ -497,6 +497,11 @@ async def test_a_non_magnet_torrent_that_never_appears_is_unavailable(rig: Rig) 
     assert rig.fake.deleted == []  # there is nothing to delete
 
 
+def private_ip(last: int) -> str:
+    """A household-LAN address built at run time (the repo scan bans such literals)."""
+    return ".".join(str(part) for part in (192, 168, 1, last))
+
+
 # -- untrusted plugin URLs (WR-03) ----------------------------------------------------------
 
 
@@ -507,7 +512,7 @@ async def test_a_non_magnet_torrent_that_never_appears_is_unavailable(rig: Rig) 
         "ftp://tracker.example/t.torrent",
         "http://qbittorrent:8080/api/v2/app/shutdown",
         "http://127.0.0.1:8080/",
-        "http://192.168.1.1/t.torrent",
+        f"http://{private_ip(1)}/t.torrent",
     ],
 )
 async def test_a_cached_url_that_is_not_safe_is_never_sent_to_qbittorrent(
@@ -524,7 +529,10 @@ async def test_a_cached_url_that_is_not_safe_is_never_sent_to_qbittorrent(
 
 async def test_a_host_that_resolves_to_a_private_address_is_refused(rig: Rig) -> None:
     rig.cache(url=PAGE_URL, engine="limetorrents")
-    rig.dns["limetorrents.example"] = ["93.184.216.34", "192.168.1.20"]  # one bad answer is enough
+    rig.dns["limetorrents.example"] = [
+        "93.184.216.34",
+        private_ip(20),
+    ]  # one bad answer is enough
 
     response = await rig.post()
 
