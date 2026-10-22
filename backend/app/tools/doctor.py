@@ -35,6 +35,7 @@ async def collect(qbit: QbitClient, settings: Settings) -> list[Check]:
         version = await qbit.webapi_version()
         prefs = await qbit.get_preferences()
         categories = await qbit.categories()
+        plugins = await qbit.search_plugins()
     except QbitError as exc:
         return [(False, f"qBittorrent not reachable or refused access ({type(exc).__name__})")]
 
@@ -75,6 +76,42 @@ async def collect(qbit: QbitClient, settings: Settings) -> list[Check]:
         f"{present}/{len(EXCLUDED_FILE_PATTERNS)} required present"
     )
     checks.append((exclusion_ok, exclusion_text))
+
+    checks.append(share_limit_check(prefs, settings))
+    checks.extend(plugin_checks(plugins, settings))
+    return checks
+
+
+def share_limit_check(prefs: dict, settings: Settings) -> Check:
+    ratio = prefs.get("max_ratio")
+    minutes = prefs.get("max_seeding_time")
+    action = prefs.get("max_ratio_act")
+    ok = (
+        bool(prefs.get("max_ratio_enabled"))
+        and bool(prefs.get("max_seeding_time_enabled"))
+        and isinstance(ratio, int | float)
+        and float(ratio) == settings.share_ratio_limit
+        and minutes == settings.share_time_limit_minutes
+        and action == 0
+    )
+    shown_ratio = float(ratio) if isinstance(ratio, int | float) else ratio
+    text = (
+        f"share limits max_ratio {shown_ratio} max_seeding_time {minutes} max_ratio_act {action} "
+        f"(wanted {settings.share_ratio_limit}, {settings.share_time_limit_minutes}, 0 = stop)"
+    )
+    return ok, text
+
+
+def plugin_checks(plugins: list[dict], settings: Settings) -> list[Check]:
+    """Every configured plugin must be installed. A disabled one is an admin's choice."""
+    by_name = {str(plugin.get("name")): plugin for plugin in plugins}
+    checks: list[Check] = []
+    for name in settings.search_plugin_names:
+        plugin = by_name.get(name)
+        if plugin is None:
+            checks.append((False, f"plugin {name} missing"))
+        else:
+            checks.append((True, f"plugin {name} installed enabled {plugin.get('enabled')}"))
     return checks
 
 

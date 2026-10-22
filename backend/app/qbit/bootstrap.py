@@ -20,6 +20,12 @@ from app.qbit.client import QbitAuthError, QbitBanned, QbitClient, QbitError
 logger = logging.getLogger(__name__)
 
 BACKOFF_CAP_SECONDS = 30
+PLUGIN_POLL_SECONDS = 2
+PLUGIN_WAIT_SECONDS = 30
+# Official repository only (D-19); the commit comes from validated config.
+PLUGIN_URL_TEMPLATE = (
+    "https://raw.githubusercontent.com/qbittorrent/search-plugins/{ref}/nova3/engines/{name}.py"
+)
 
 
 class QbitIncompatible(QbitError):
@@ -46,6 +52,11 @@ def require_ready(request: Request) -> None:
     """FastAPI dependency: 503 until qBittorrent has been configured."""
     if request.app.state.readiness.state != "ready":
         raise HTTPException(status_code=503, detail="not_ready")
+
+
+def plugin_url(ref: str, name: str) -> str:
+    """Raw URL of one official search plugin at a pinned commit (names and ref are validated)."""
+    return PLUGIN_URL_TEMPLATE.format(ref=ref, name=name)
 
 
 def parse_version(text: str) -> tuple[int, ...]:
@@ -75,6 +86,12 @@ def build_preferences(settings: Settings, current_excluded: str) -> dict:
         "category_changed_tmm_enabled": True,
         "temp_path_enabled": True,
         "temp_path": settings.incomplete_path,
+        # D-21: stop at the ratio or the time, whichever comes first. 0 = Stop, files stay.
+        "max_ratio_enabled": True,
+        "max_ratio": settings.share_ratio_limit,
+        "max_seeding_time_enabled": True,
+        "max_seeding_time": settings.share_time_limit_minutes,
+        "max_ratio_act": 0,
     }
 
 
@@ -107,6 +124,8 @@ class Bootstrapper:
         excluded = str(current.get("excluded_file_names") or "")
         await self._qbit.set_preferences(build_preferences(self._settings, excluded))
         await self._sync_categories()
+        # Plugins never affect download safety, so readiness does not wait for them.
+        await self._install_plugins()
         self._readiness.mark_ready()
 
     async def _check_version(self) -> None:
@@ -128,6 +147,34 @@ class Bootstrapper:
                     raise QbitError("qBittorrent refused to create a category")
             if not same_save_path(str(stored.get("savePath", "")), save_path):
                 await self._qbit.edit_category(name, save_path)
+
+    async def _installed_plugin_names(self) -> set[str]:
+        return {str(plugin.get("name")) for plugin in await self._qbit.search_plugins()}
+
+    async def _install_plugins(self) -> None:
+        """Install the configured plugins that are missing; never touch installed ones."""
+        wanted = self._settings.search_plugin_names
+        installed = await self._installed_plugin_names()
+        missing = [name for name in wanted if name not in installed]
+        if not missing:
+            return
+        for name in missing:
+            await self._qbit.install_search_plugin(
+                plugin_url(self._settings.search_plugins_ref, name)
+            )
+        for _ in range(PLUGIN_WAIT_SECONDS // PLUGIN_POLL_SECONDS):
+            installed = await self._installed_plugin_names()
+            if all(name in installed for name in missing):
+                return
+            await self._sleep(PLUGIN_POLL_SECONDS)
+        installed = await self._installed_plugin_names()
+        still_missing = [name for name in missing if name not in installed]
+        if still_missing:
+            logger.warning(
+                "search plugins not installed after %s s: %s",
+                PLUGIN_WAIT_SECONDS,
+                " ".join(still_missing),
+            )
 
     async def run_forever(self) -> None:
         """Retry until configured; stop for good on a fault only an admin can fix.
