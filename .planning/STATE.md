@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 02
 current_phase_name: Portal Download Management & Hardening
 status: executing
-stopped_at: Completed 02-03-PLAN.md
-last_updated: "2026-10-22T20:04:02.400Z"
+stopped_at: Completed 02-04-PLAN.md
+last_updated: "2026-10-22T20:08:51.388Z"
 last_activity: 2026-10-22
 last_activity_desc: Phase 02 execution started
-state_head: 3a22b7dbf9de9c157c039d59309e71f82830a5e1
+state_head: 1056a3d44b2200ea6b67b62705065eb0b31f81b5
 progress:
   total_phases: 7
   completed_phases: 1
   total_plans: 27
-  completed_plans: 19
+  completed_plans: 20
   percent: 14
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-21)
 ## Current Position
 
 Phase: 02 (Portal Download Management & Hardening) — EXECUTING
-Plan: 4 of 11
+Plan: 5 of 11
 Status: Ready to execute
 Last activity: 2026-10-22 — Phase 02 execution started
 
@@ -75,6 +75,7 @@ Progress: [█░░░░░░░░░] 14%
 | Phase 02 P01 | 25 min | 3 tasks | 10 files |
 | Phase 02 P02 | 9 min | 2 tasks | 4 files |
 | Phase 02 P03 | 8 min | 2 tasks | 4 files |
+| Phase 02 P04 | 12 min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -119,6 +120,8 @@ Recent decisions affecting current work:
 - [Phase 02]: 02-02: sample ratio measured against the largest non-sample video of any format (10 %, inclusive); 415 from torrents/add is unavailable
 - [Phase 02]: Hashed /assets/* never fall back to index.html: a missing asset is a plain 404, so no HTML page is cached for a year (D-42)
 - [Phase 02]: Logs stay on stdout through Docker json-file 10m x 5 via one x-logging anchor; no log volume (D-40)
+- [Phase 02]: 02-04: finished_at is stamped in a finally around the whole job task so a long Preparing job ages from its end, not its start
+- [Phase 02]: 02-04: a failed job row is listed next to its torrent row; the torrent still appears once, and a hash-named job name is never shown
 
 ### Pending Todos
 
@@ -148,6 +151,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-22T20:04:02.265Z
-Stopped at: Completed 02-03-PLAN.md
+Last session: 2026-10-22T20:08:51.258Z
+Stopped at: Completed 02-04-PLAN.md
 Resume file: None
