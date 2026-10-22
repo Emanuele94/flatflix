@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 02
 current_phase_name: Portal Download Management & Hardening
 status: executing
-stopped_at: Phase 2 UI-SPEC approved
-last_updated: "2026-10-22T19:21:16.327Z"
+stopped_at: Completed 02-01-PLAN.md
+last_updated: "2026-10-22T19:58:03.226Z"
 last_activity: 2026-10-22
-last_activity_desc: Phase 01 complete, transitioned to Phase 2
-state_head: 427510af08ce447daa8d1a73580c38270a556a76
+last_activity_desc: Phase 02 execution started
+state_head: 939cabc56a58dc8e1030b67b67931be95798d9e4
 progress:
   total_phases: 7
   completed_phases: 1
   total_plans: 27
-  completed_plans: 16
+  completed_plans: 17
   percent: 14
 ---
 
@@ -23,14 +23,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-21)
 
 **Core value:** A non-technical household member can get a film or series onto the TV using only a phone and the TV remote, and watch it in at least 1080p with no video transcoding.
-**Current focus:** Phase 2 — Portal Download Management & Hardening
+**Current focus:** Phase 02 — Portal Download Management & Hardening
 
 ## Current Position
 
-Phase: 02 (Portal Download Management & Hardening) — READY TO EXECUTE
-Plan: Not started
+Phase: 02 (Portal Download Management & Hardening) — EXECUTING
+Plan: 2 of 11
 Status: Ready to execute
-Last activity: 2026-10-22 — Phase 01 complete, transitioned to Phase 2
+Last activity: 2026-10-22 — Phase 02 execution started
 
 Progress: [█░░░░░░░░░] 14%
 
@@ -72,6 +72,7 @@ Progress: [█░░░░░░░░░] 14%
 | Phase 01 P14 | 9 min | 3 tasks | 5 files |
 | Phase 01 P15 | 8 min | 3 tasks | 4 files |
 | Phase 01 P16 | 6 min | 3 tasks | 11 files |
+| Phase 02 P01 | 25 min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -111,6 +112,8 @@ Recent decisions affecting current work:
 - [Phase 01]: 01-15: search persisted in sessionStorage (Search.jsx only); logout and a new search clear it, a 401 does not; saved ids must match 16 hex and a future startedAt is rejected
 - [Phase 01]: 01-16: FILT-02 allowlist unchanged; non-allowlisted video formats (.webm etc.) give status unsupported with their own text (D-13 amended)
 - [Phase 01]: 01-16: D-24 reload persistence via sessionStorage recorded; D-23 re-affirmed for plugin-printed magnets
+- [Phase 02]: Downloads list route is read-only and not behind require_ready, so it keeps working while bootstrap retries
+- [Phase 02]: A torrent is the primary identity of a list row (HMAC id of the info-hash); jobs are only a detail for rows with no torrent
 
 ### Pending Todos
 
@@ -140,6 +143,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-22T18:22:06.045Z
-Stopped at: Phase 2 UI-SPEC approved
-Resume file: .planning/phases/02-portal-download-management-hardening/02-UI-SPEC.md
+Last session: 2026-10-22T19:58:03.082Z
+Stopped at: Completed 02-01-PLAN.md
+Resume file: None
