@@ -290,3 +290,303 @@ describe('Search states (D-06, PUI-02)', () => {
     expect(after[1]).toBe(alphaBefore);
   });
 });
+
+// ---- Download rows (01-13): Scarica, row states, polling -------------------------------
+const JOB = 'a'.repeat(16);
+
+function stubPortal({ snapshots, download, jobs = () => jsonResponse({ detail: 'job_not_found' }, 404) }) {
+  const calls = [];
+  let i = 0;
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (path, init = {}) => {
+      calls.push({ path, method: init.method ?? 'GET', body: init.body });
+      if (path === '/api/search') return jsonResponse({ search_id: 's1' });
+      if (path === '/api/search/s1') return snapshots[Math.min(i++, snapshots.length - 1)];
+      if (path === '/api/download') return download(JSON.parse(init.body));
+      if (path.startsWith('/api/download/')) return jobs(path.split('/').pop());
+      throw new Error(`unexpected ${path}`);
+    }),
+  );
+  return calls;
+}
+
+async function openRows(stub, rows = [row('a', 'Alpha', 50), row('b', 'Beta', 40)]) {
+  const calls = stubPortal({ snapshots: [snapshot(rows)], ...stub });
+  const view = render(<Search />);
+  submitSearch('Sintel');
+  await tick(0);
+  await tick(700);
+  return { ...view, calls };
+}
+
+const rowOf = (container, name) =>
+  [...container.querySelectorAll('li.result')].find((li) => li.textContent.includes(name));
+
+async function tap(container, name) {
+  await act(async () => {
+    fireEvent.click(rowOf(container, name).querySelector('button'));
+  });
+  await tick(0);
+}
+
+const downloadPosts = (calls) => calls.filter((c) => c.path === '/api/download' && c.method === 'POST');
+
+describe('Download from the result list (DOWN-01, SEC-03, D-10)', () => {
+  it('posts exactly {result_id, type} and shows "Avviato ✓" for a started job', async () => {
+    const { container, calls } = await openRows({
+      download: () => jsonResponse({ status: 'started', job_id: JOB }),
+    });
+    await tap(container, 'Alpha');
+    const posts = downloadPosts(calls);
+    expect(posts.length).toBe(1);
+    expect(JSON.parse(posts[0].body)).toEqual({ result_id: 'a', type: 'film' });
+    expect(rowOf(container, 'Alpha').textContent).toContain('Avviato ✓');
+  });
+
+  it('sends the type of the search that produced the row, not the current toggle', async () => {
+    const calls = stubPortal({
+      snapshots: [snapshot([row('a', 'Alpha', 50)])],
+      download: () => jsonResponse({ status: 'started', job_id: JOB }),
+    });
+    const { container } = render(<Search />);
+    fireEvent.click(screen.getByLabelText('Serie TV'));
+    submitSearch('Pioneer One');
+    await tick(0);
+    await tick(700);
+    fireEvent.click(screen.getByLabelText('Film')); // toggled after the results arrived
+    await tap(container, 'Alpha');
+    expect(JSON.parse(downloadPosts(calls)[0].body).type).toBe('serie');
+  });
+
+  it('disables the button with a spinner while the POST is pending', async () => {
+    let release;
+    const { container } = await openRows({
+      download: () => new Promise((resolve) => { release = resolve; }),
+    });
+    await tap(container, 'Alpha');
+    const li = rowOf(container, 'Alpha');
+    expect(li.querySelector('button').disabled).toBe(true);
+    expect(li.querySelector('.spinner')).toBeTruthy();
+    await act(async () => {
+      release(jsonResponse({ status: 'started', job_id: JOB }));
+    });
+    await tick(0);
+    expect(li.textContent).toContain('Avviato ✓');
+    expect(li.querySelector('.spinner')).toBeNull();
+  });
+
+  it('stays on the list after a start and keeps the other rows tappable', async () => {
+    const { container } = await openRows({
+      download: () => jsonResponse({ status: 'started', job_id: JOB }),
+    });
+    await tap(container, 'Alpha');
+    expect(container.querySelectorAll('li.result').length).toBe(2);
+    expect(rowOf(container, 'Beta').querySelector('button').disabled).toBe(false);
+    expect(rowOf(container, 'Beta').textContent).not.toContain('Avviato');
+  });
+});
+
+const OUTCOMES = [
+  ['rejected', () => jsonResponse({ status: 'rejected', job_id: JOB }), 'Questo file non contiene un video. Prova un altro risultato.'],
+  ['unavailable', () => jsonResponse({ status: 'unavailable', job_id: JOB }), 'Non disponibile. Prova un altro risultato.'],
+  ['duplicate', () => jsonResponse({ status: 'duplicate', job_id: JOB }), 'Già presente'],
+  ['failed', () => jsonResponse({ status: 'failed', job_id: JOB }), 'Download non riuscito. Riprova.'],
+  ['preparing', () => jsonResponse({ status: 'preparing', job_id: JOB }), 'In preparazione'],
+  ['410', () => jsonResponse({ detail: 'search_expired' }, 410), 'Ricerca scaduta, cerca di nuovo.'],
+  ['503', () => jsonResponse({ detail: 'not_ready' }, 503), 'Il servizio si sta avviando. Riprova tra poco.'],
+  ['422', () => jsonResponse({ detail: 'type_mismatch' }, 422), 'Download non riuscito. Riprova.'],
+  ['network', () => { throw new TypeError('Failed to fetch'); }, 'Server non raggiungibile. Controlla che il computer sia acceso.'],
+];
+
+describe('Download outcomes on the row (D-11, D-13)', () => {
+  it.each(OUTCOMES)('%s shows its plain Italian message on the row and nothing technical', async (_n, download, text) => {
+    const { container } = await openRows({ download });
+    await tap(container, 'Alpha');
+    const li = rowOf(container, 'Alpha');
+    expect(li.textContent).toContain(text);
+    expect(li.textContent).not.toMatch(FOREIGN);
+    expect(container.querySelectorAll('li.result').length).toBe(2);
+  });
+
+  it.each(OUTCOMES)('never_success: %s never renders "Avviato"', async (_n, download) => {
+    const { container } = await openRows({ download });
+    await tap(container, 'Alpha');
+    expect(container.textContent).not.toContain('Avviato');
+    expect(container.textContent).not.toContain('✓');
+  });
+
+  it('a failed job enables the button again', async () => {
+    const { container } = await openRows({
+      download: () => jsonResponse({ status: 'failed', job_id: JOB }),
+    });
+    await tap(container, 'Alpha');
+    expect(rowOf(container, 'Alpha').querySelector('button').disabled).toBe(false);
+  });
+});
+
+describe('Preparing jobs poll the job (D-11)', () => {
+  it('polls GET /api/download/{job_id} every 2 s until a final status', async () => {
+    const answers = ['preparing', 'preparing', 'started'];
+    let n = 0;
+    const { container, calls } = await openRows({
+      download: () => jsonResponse({ status: 'preparing', job_id: JOB }),
+      jobs: () => jsonResponse({ status: answers[n++], job_id: JOB }),
+    });
+    await tap(container, 'Alpha');
+    const gets = () => calls.filter((c) => c.path === `/api/download/${JOB}`).length;
+    expect(gets()).toBe(0);
+    await tick(1900);
+    expect(gets()).toBe(0);
+    await tick(100);
+    expect(gets()).toBe(1);
+    expect(rowOf(container, 'Alpha').textContent).toContain('In preparazione');
+    await tick(2000);
+    expect(gets()).toBe(2);
+    await tick(2000);
+    expect(gets()).toBe(3);
+    expect(rowOf(container, 'Alpha').textContent).toContain('Avviato ✓');
+    await tick(10000);
+    expect(gets()).toBe(3);
+  });
+
+  it('shows the rejection when the job ends rejected', async () => {
+    const { container } = await openRows({
+      download: () => jsonResponse({ status: 'preparing', job_id: JOB }),
+      jobs: () => jsonResponse({ status: 'rejected', job_id: JOB }),
+    });
+    await tap(container, 'Alpha');
+    await tick(2000);
+    expect(rowOf(container, 'Alpha').textContent).toContain(
+      'Questo file non contiene un video. Prova un altro risultato.',
+    );
+    expect(container.textContent).not.toContain('Avviato');
+  });
+
+  it('gives up after 330 s and keeps "In preparazione"', async () => {
+    const { container, calls } = await openRows({
+      download: () => jsonResponse({ status: 'preparing', job_id: JOB }),
+      jobs: () => jsonResponse({ status: 'preparing', job_id: JOB }),
+    });
+    await tap(container, 'Alpha');
+    await tick(330000);
+    const gets = () => calls.filter((c) => c.path === `/api/download/${JOB}`).length;
+    const after = gets();
+    expect(after).toBeGreaterThan(100);
+    expect(after).toBeLessThanOrEqual(165);
+    expect(rowOf(container, 'Alpha').textContent).toContain('In preparazione');
+    await tick(20000);
+    expect(gets()).toBe(after);
+    expect(rowOf(container, 'Alpha').textContent).toContain('In preparazione');
+  });
+
+  it('stops polling when the screen unmounts', async () => {
+    const { container, calls, unmount } = await openRows({
+      download: () => jsonResponse({ status: 'preparing', job_id: JOB }),
+      jobs: () => jsonResponse({ status: 'preparing', job_id: JOB }),
+    });
+    await tap(container, 'Alpha');
+    await tick(2000);
+    const before = calls.length;
+    unmount();
+    await tick(20000);
+    expect(calls.length).toBe(before);
+  });
+
+  it('keeps "In preparazione" and keeps polling through a network blip', async () => {
+    let n = 0;
+    const { container } = await openRows({
+      download: () => jsonResponse({ status: 'preparing', job_id: JOB }),
+      jobs: () => {
+        n += 1;
+        if (n === 1) throw new TypeError('Failed to fetch');
+        return jsonResponse({ status: 'started', job_id: JOB });
+      },
+    });
+    await tap(container, 'Alpha');
+    await tick(2000);
+    expect(rowOf(container, 'Alpha').textContent).toContain('In preparazione');
+    await tick(2000);
+    expect(rowOf(container, 'Alpha').textContent).toContain('Avviato ✓');
+  });
+});
+
+describe('Row state keyed by result_id (PUI-02)', () => {
+  it.each([
+    ['started', 'Avviato ✓'],
+    ['preparing', 'In preparazione'],
+    ['duplicate', 'Già presente'],
+  ])('a second tap on a %s row sends no second request', async (status, text) => {
+    const { container, calls } = await openRows({
+      download: () => jsonResponse({ status, job_id: JOB }),
+      jobs: () => jsonResponse({ status: 'preparing', job_id: JOB }),
+    });
+    await tap(container, 'Alpha');
+    expect(rowOf(container, 'Alpha').textContent).toContain(text);
+    await tap(container, 'Alpha');
+    await tap(container, 'Alpha');
+    expect(downloadPosts(calls).length).toBe(1);
+  });
+
+  it('two taps in the same tick send one request', async () => {
+    let release;
+    const { container, calls } = await openRows({
+      download: () => new Promise((resolve) => { release = resolve; }),
+    });
+    const button = rowOf(container, 'Alpha').querySelector('button');
+    await act(async () => {
+      fireEvent.click(button);
+      fireEvent.click(button);
+    });
+    expect(downloadPosts(calls).length).toBe(1);
+    await act(async () => {
+      release(jsonResponse({ status: 'started', job_id: JOB }));
+    });
+  });
+
+  it('three rows tapped at once each end in their own state', async () => {
+    const byId = {
+      a: jsonResponse({ status: 'started', job_id: '1'.repeat(16) }),
+      b: jsonResponse({ status: 'rejected', job_id: '2'.repeat(16) }),
+      c: jsonResponse({ status: 'duplicate', job_id: '3'.repeat(16) }),
+    };
+    const { container, calls } = await openRows(
+      { download: (body) => byId[body.result_id] },
+      [row('a', 'Alpha', 50), row('b', 'Beta', 40), row('c', 'Gamma', 30)],
+    );
+    await act(async () => {
+      for (const name of ['Alpha', 'Beta', 'Gamma']) {
+        fireEvent.click(rowOf(container, name).querySelector('button'));
+      }
+    });
+    await tick(0);
+    expect(downloadPosts(calls).length).toBe(3);
+    expect(rowOf(container, 'Alpha').textContent).toContain('Avviato ✓');
+    expect(rowOf(container, 'Beta').textContent).toContain('Questo file non contiene un video.');
+    expect(rowOf(container, 'Gamma').textContent).toContain('Già presente');
+    expect(rowOf(container, 'Beta').textContent).not.toContain('Avviato');
+    expect(rowOf(container, 'Gamma').textContent).not.toContain('Avviato');
+  });
+
+  it('keeps each row state when a later snapshot re-sorts the rows', async () => {
+    const calls = stubPortal({
+      snapshots: [
+        snapshot([row('a', 'Alpha', 50), row('b', 'Beta', 40)], { done: false }),
+        snapshot([row('b', 'Beta', 90), row('a', 'Alpha', 50)]),
+      ],
+      download: () => jsonResponse({ status: 'started', job_id: JOB }),
+    });
+    const { container } = render(<Search />);
+    submitSearch('Sintel');
+    await tick(0);
+    await tick(700);
+    await tap(container, 'Alpha');
+    await tick(700); // re-sorted snapshot, done
+    const items = container.querySelectorAll('li.result');
+    expect(items[0].textContent).toContain('Beta');
+    expect(items[0].textContent).not.toContain('Avviato');
+    expect(items[1].textContent).toContain('Alpha');
+    expect(items[1].textContent).toContain('Avviato ✓');
+    expect(downloadPosts(calls).length).toBe(1);
+  });
+});

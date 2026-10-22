@@ -17,10 +17,10 @@ const base = {
   quality: '1080p',
 };
 
-function renderRow(overrides = {}) {
+function renderRow(overrides = {}, props = {}) {
   return render(
     <ul>
-      <ResultRow result={{ ...base, ...overrides }} type="film" />
+      <ResultRow result={{ ...base, ...overrides }} onDownload={() => {}} {...props} />
     </ul>,
   );
 }
@@ -61,22 +61,105 @@ describe('ResultRow encoding (T-01-28)', () => {
   });
 });
 
-function jsonResponse(body, status = 200) {
-  return { ok: status >= 200 && status < 300, status, json: async () => body };
-}
+// Every outcome a row can show, with its exact Italian text (D-10, D-11, D-13).
+const TEXT = {
+  started: 'Avviato ✓',
+  preparing: 'In preparazione',
+  rejected: 'Questo file non contiene un video. Prova un altro risultato.',
+  unavailable: 'Non disponibile. Prova un altro risultato.',
+  duplicate: 'Già presente',
+  failed: 'Download non riuscito. Riprova.',
+  expired: 'Ricerca scaduta, cerca di nuovo.',
+  notReady: 'Il servizio si sta avviando. Riprova tra poco.',
+  network: 'Server non raggiungibile. Controlla che il computer sia acceso.',
+};
+const NON_STARTED = Object.keys(TEXT).filter((k) => k !== 'started');
 
-describe('ResultRow tracer: Scarica (DOWN-01, SEC-03)', () => {
-  it('posts exactly {result_id, type} and shows "Avviato ✓" for a started job', async () => {
-    const fetchMock = vi.fn(async () => jsonResponse({ status: 'started', job_id: 'a'.repeat(16) }));
-    vi.stubGlobal('fetch', fetchMock);
+describe('ResultRow Scarica button (DOWN-01, D-10)', () => {
+  it('offers an enabled Scarica button and hands the result to onDownload on tap', () => {
+    const onDownload = vi.fn();
+    renderRow({}, { onDownload });
+    const button = screen.getByRole('button', { name: 'Scarica' });
+    expect(button.disabled).toBe(false);
+    fireEvent.click(button);
+    expect(onDownload).toHaveBeenCalledTimes(1);
+    expect(onDownload).toHaveBeenCalledWith(expect.objectContaining({ result_id: 'r1' }));
+  });
+
+  it('disables the button and shows a spinner while the request is pending', () => {
+    const onDownload = vi.fn();
+    const { container } = renderRow({}, { state: 'pending', onDownload });
+    const button = screen.getByRole('button', { name: /Scarica/ });
+    expect(button.disabled).toBe(true);
+    expect(container.querySelector('.spinner')).toBeTruthy();
+    fireEvent.click(button);
+    expect(onDownload).not.toHaveBeenCalled();
+  });
+
+  it.each(['started', 'preparing', 'duplicate'])(
+    'shows %s as a disabled button and a tap does nothing (idempotency)',
+    (state) => {
+      const onDownload = vi.fn();
+      renderRow({}, { state, onDownload });
+      const button = screen.getByRole('button', { name: TEXT[state] });
+      expect(button.disabled).toBe(true);
+      fireEvent.click(button);
+      expect(onDownload).not.toHaveBeenCalled();
+    },
+  );
+
+  it('shows "In preparazione" with a spinner', () => {
+    const { container } = renderRow({}, { state: 'preparing' });
+    expect(container.querySelector('.spinner')).toBeTruthy();
+  });
+
+  it.each(['rejected', 'unavailable', 'failed', 'expired', 'notReady', 'network'])(
+    'shows the plain Italian message for %s on its own row',
+    (state) => {
+      const { container } = renderRow({}, { state });
+      expect(container.querySelector('.row-state').textContent).toBe(TEXT[state]);
+    },
+  );
+
+  it.each(['failed', 'notReady', 'network'])('lets the user retry after %s', (state) => {
+    const onDownload = vi.fn();
+    renderRow({}, { state, onDownload });
+    const button = screen.getByRole('button', { name: 'Scarica' });
+    expect(button.disabled).toBe(false);
+    fireEvent.click(button);
+    expect(onDownload).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['rejected', 'unavailable', 'expired'])('does not offer a retry after %s', (state) => {
+    const onDownload = vi.fn();
+    renderRow({}, { state, onDownload });
+    const button = screen.getByRole('button', { name: 'Scarica' });
+    expect(button.disabled).toBe(true);
+    fireEvent.click(button);
+    expect(onDownload).not.toHaveBeenCalled();
+  });
+
+  it('styles ok, warning and error states with classes only', () => {
+    expect(renderRow({}, { state: 'rejected' }).container.querySelector('.row-state-warn')).toBeTruthy();
+    cleanup();
+    expect(renderRow({}, { state: 'failed' }).container.querySelector('.row-state-error')).toBeTruthy();
+    cleanup();
+    const { container } = renderRow({}, { state: 'started' });
+    expect(container.querySelector('.row-state-ok')).toBeTruthy();
+    expect(container.querySelector('[style]')).toBeNull();
+  });
+});
+
+describe('ResultRow never_success prohibition (T-01-45)', () => {
+  it.each(NON_STARTED)('never_success: state %s never renders "Avviato" or a check mark', (state) => {
+    const { container } = renderRow({}, { state });
+    expect(container.textContent).not.toContain('Avviato');
+    expect(container.textContent).not.toContain('✓');
+    expect(container.querySelector('.row-state-ok')).toBeNull();
+  });
+
+  it('never_success: a row without any state never says Avviato', () => {
     const { container } = renderRow();
-    fireEvent.click(screen.getByRole('button', { name: 'Scarica' }));
-    await screen.findByText('Avviato ✓');
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [path, init] = fetchMock.mock.calls[0];
-    expect(path).toBe('/api/download');
-    expect(init.method).toBe('POST');
-    expect(JSON.parse(init.body)).toEqual({ result_id: 'r1', type: 'film' });
-    expect(container.textContent).toContain('Avviato ✓');
+    expect(container.textContent).not.toContain('Avviato');
   });
 });
