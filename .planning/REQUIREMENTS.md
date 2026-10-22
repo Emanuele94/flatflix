@@ -23,9 +23,9 @@ Requirements for the initial release. Each maps to exactly one roadmap phase.
 
 ### Portal Search
 
-- [ ] **SRCH-01**: User can choose Film or Serie TV and search by keyword; the backend queries the installed qBittorrent search plugins using plugin category `movies` (film) or `tv` (serie). (qbit F1, section 9)
-- [ ] **SRCH-02**: Results show name, size, seeders, leechers and source, normalized and sorted by seeders descending. (qbit F2, section 9)
-- [ ] **SRCH-03**: First results appear within about 2 seconds of submitting a search (results fill in while the qBittorrent search runs), and a search timeout shows a plain-language message instead of an error. (qbit NF2, section 13 code 504)
+- [x] **SRCH-01**: User can choose Film or Serie TV and search by keyword; the backend queries the installed qBittorrent search plugins using plugin category `movies` (film) or `tv` (serie). (qbit F1, section 9)
+- [x] **SRCH-02**: Results show name, size, seeders, leechers and source, normalized and sorted by seeders descending. (qbit F2, section 9)
+- [x] **SRCH-03**: First results appear within about 2 seconds of submitting a search (results fill in while the qBittorrent search runs), and a search timeout shows a plain-language message instead of an error. (qbit NF2, section 13 code 504)
 
 ### Portal Downloads
 
@@ -148,9 +148,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SEC-04 | Phase 1 | Complete |
 | SEC-05 | Phase 2 | Pending |
 | SEC-06 | Phase 2 | Pending |
-| SRCH-01 | Phase 1 | Pending |
-| SRCH-02 | Phase 1 | Pending |
-| SRCH-03 | Phase 1 | Pending |
+| SRCH-01 | Phase 1 | Complete |
+| SRCH-02 | Phase 1 | Complete |
+| SRCH-03 | Phase 1 | Complete |
 | DOWN-01 | Phase 1 | Pending |
 | DOWN-02 | Phase 1 | Pending |
 | DOWN-03 | Phase 1 | Pending |
