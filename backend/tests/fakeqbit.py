@@ -6,15 +6,20 @@ async. Requests without a live session cookie get 403, like the real service.
 """
 
 import asyncio
+import fnmatch
+import hashlib
 import inspect
 import json
 import secrets
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from http.cookies import SimpleCookie
 from urllib.parse import parse_qsl
 
 import httpx
+
+from app.search.filters import infohash
 
 SESSION_COOKIE = "QBT_SID_8088"
 LOGIN_PATH = "/api/v2/auth/login"
@@ -29,6 +34,20 @@ class FakeSearch:
     final_status: str
     polls: int = 0
     stopped: bool = False
+
+
+@dataclass
+class FakeTorrent:
+    """One torrent as qBittorrent keeps it. `files` is None until its metadata is released."""
+
+    hash: str
+    url: str
+    category: str
+    tags: list[str]
+    added_on: float
+    started: bool = False
+    files: list[dict] | None = None
+    polls_left: int = 0  # `torrents/files` answers [] this many more times
 
 
 @dataclass
@@ -85,6 +104,23 @@ class FakeQbit:
         self.register("GET", "/api/v2/search/results", self._search_results)
         self.register("POST", "/api/v2/search/stop", self._search_stop)
         self.register("POST", "/api/v2/search/delete", self._search_delete)
+        # Torrents. `set_metadata` says what a torrent's file list will be and when it arrives.
+        self.torrents: dict[str, FakeTorrent] = {}
+        self.deleted: list[tuple[str, bool]] = []  # (hash, deleteFiles) in call order
+        self.clock: Callable[[], float] = time.time  # `added_on` comes from here
+        self.ignore_prio_ids: set[int] = set()  # filePrio silently skips these file ids
+        self.files_404_calls = 0  # `torrents/files` answers 404 this many times, then normally
+        self.downloader_delay_calls = 0  # `torrents/info` calls before a downloader torrent shows
+        self._metadata: dict[str, tuple[list[dict], int]] = {}
+        self._pending_downloads: list[list] = []  # [remaining_info_calls, FakeTorrent]
+        self.register("POST", "/api/v2/torrents/add", self._torrents_add)
+        self.register("GET", "/api/v2/torrents/info", self._torrents_info)
+        self.register("GET", "/api/v2/torrents/files", self._torrents_files)
+        self.register("POST", "/api/v2/torrents/filePrio", self._torrents_file_prio)
+        self.register("POST", "/api/v2/torrents/start", self._torrents_start)
+        self.register("POST", "/api/v2/torrents/delete", self._torrents_delete)
+        self.register("POST", "/api/v2/torrents/removeTags", self._torrents_remove_tags)
+        self.register("POST", "/api/v2/torrents/deleteTags", self._torrents_delete_tags)
 
     @property
     def transport(self) -> httpx.MockTransport:
@@ -232,6 +268,193 @@ class FakeQbit:
         if search is None:
             return httpx.Response(404, text="Not Found")
         del self.searches[search.qbit_id]
+        return httpx.Response(200)
+
+    @staticmethod
+    def hash_for(url: str) -> str:
+        """Hash qBittorrent would use: the btih of a magnet, else a digest of the URL."""
+        return infohash(url) or hashlib.sha1(url.encode()).hexdigest()
+
+    def set_metadata(
+        self, torrent_hash: str, files: list[tuple[str, int]], delay_polls: int = 0
+    ) -> None:
+        """Say which files `torrents/files` will return, after `delay_polls` empty answers.
+
+        Call it before or after the torrent is added. Files matching the exclusion list in
+        `self.preferences` come out at priority 0, like the real engine does at add.
+        """
+        rows = [
+            {"index": i, "name": name, "size": size, "priority": 1, "progress": 0.0}
+            for i, (name, size) in enumerate(files)
+        ]
+        self._metadata[torrent_hash] = (rows, delay_polls)
+        torrent = self.torrents.get(torrent_hash)
+        if torrent is not None:
+            self._attach_metadata(torrent)
+
+    def _attach_metadata(self, torrent: FakeTorrent) -> None:
+        known = self._metadata.get(torrent.hash)
+        if known is None:
+            return
+        rows, delay = known
+        patterns = []
+        if self.preferences.get("excluded_file_names_enabled"):
+            patterns = [
+                p.strip().casefold() for p in self.preferences["excluded_file_names"].split("\n")
+            ]
+        torrent.files = [
+            dict(row, priority=0)
+            if any(fnmatch.fnmatchcase(row["name"].casefold(), p) for p in patterns if p)
+            else dict(row)
+            for row in rows
+        ]
+        torrent.polls_left = delay
+
+    def _form(self, request: httpx.Request) -> dict[str, str]:
+        return dict(parse_qsl(request.content.decode()))
+
+    def _torrents_add(self, request: httpx.Request) -> httpx.Response:
+        form = self._form(request)
+        url = form.get("urls", "")
+        category = form.get("category", "")
+        if not url:
+            return httpx.Response(400, text="Bad Request")
+        is_magnet = url.lower().startswith("magnet:")
+        torrent_hash = self.hash_for(url)
+        if torrent_hash in self.torrents:
+            return httpx.Response(409, text="Conflict")
+        if category and category not in self.category_table:
+            # The real engine creates any category it is given (research Pitfall 4).
+            self.category_table[category] = {"name": category, "savePath": ""}
+        tags = [t.strip() for t in form.get("tags", "").split(",") if t.strip()]
+        torrent = FakeTorrent(torrent_hash, url, category, tags, self.clock())
+        # A magnet added fully stopped never fetches its metadata (research Pitfall 1).
+        stopped = form.get("stopped", "").lower() == "true"
+        blocked = is_magnet and stopped
+        if not is_magnet:
+            if not form.get("downloader"):
+                # Without the plugin's downloader a page URL never becomes a torrent.
+                return httpx.Response(
+                    202,
+                    json={
+                        "added_torrent_ids": [],
+                        "failure_count": 0,
+                        "pending_count": 1,
+                        "success_count": 0,
+                    },
+                )
+            self._pending_downloads.append([self.downloader_delay_calls, torrent])
+            if not blocked:
+                self._attach_metadata(torrent)
+            return httpx.Response(
+                202,
+                json={
+                    "added_torrent_ids": [],
+                    "failure_count": 0,
+                    "pending_count": 1,
+                    "success_count": 0,
+                },
+            )
+        self.torrents[torrent_hash] = torrent
+        if not blocked:
+            self._attach_metadata(torrent)
+        return httpx.Response(
+            200,
+            json={
+                "added_torrent_ids": [torrent_hash],
+                "failure_count": 0,
+                "pending_count": 0,
+                "success_count": 1,
+            },
+        )
+
+    def _release_downloads(self) -> None:
+        for pending in list(self._pending_downloads):
+            if pending[0] > 0:
+                pending[0] -= 1
+            else:
+                self._pending_downloads.remove(pending)
+                self.torrents[pending[1].hash] = pending[1]
+
+    def _info_row(self, torrent: FakeTorrent) -> dict:
+        return {
+            "hash": torrent.hash,
+            "name": torrent.hash,
+            "category": torrent.category,
+            "tags": ", ".join(torrent.tags),
+            "added_on": int(torrent.added_on),
+            "state": "downloading" if torrent.started else "stoppedDL",
+        }
+
+    def _torrents_info(self, request: httpx.Request) -> httpx.Response:
+        self._release_downloads()
+        params = request.url.params
+        wanted = params.get("hashes")
+        rows = []
+        for torrent in self.torrents.values():
+            if wanted is not None and torrent.hash not in wanted.split("|"):
+                continue
+            if "tag" in params and params["tag"] not in torrent.tags:
+                continue
+            if "category" in params and params["category"] != torrent.category:
+                continue
+            rows.append(self._info_row(torrent))
+        return httpx.Response(200, json=rows)
+
+    def _torrents_files(self, request: httpx.Request) -> httpx.Response:
+        torrent = self.torrents.get(request.url.params.get("hash", ""))
+        if torrent is None or self.files_404_calls > 0:
+            self.files_404_calls = max(0, self.files_404_calls - 1)
+            return httpx.Response(404, text="Not Found")
+        if torrent.files is None:
+            return httpx.Response(200, json=[])
+        if torrent.polls_left > 0:
+            torrent.polls_left -= 1
+            return httpx.Response(200, json=[])
+        return httpx.Response(200, json=torrent.files)
+
+    def _torrents_file_prio(self, request: httpx.Request) -> httpx.Response:
+        form = self._form(request)
+        torrent = self.torrents.get(form.get("hash", ""))
+        if torrent is None:
+            return httpx.Response(404, text="Not Found")
+        ids = [i for i in form.get("id", "").split("|") if i]
+        files = torrent.files or []
+        if not ids or not all(i.isdigit() and int(i) < len(files) for i in ids):
+            return httpx.Response(409, text="File ID is not valid")
+        for raw in ids:
+            if int(raw) not in self.ignore_prio_ids:
+                files[int(raw)]["priority"] = int(form.get("priority", "1"))
+        return httpx.Response(200)
+
+    def _torrents_start(self, request: httpx.Request) -> httpx.Response:
+        for torrent_hash in self._form(request).get("hashes", "").split("|"):
+            if torrent_hash in self.torrents:
+                self.torrents[torrent_hash].started = True
+        return httpx.Response(200)
+
+    def _torrents_delete(self, request: httpx.Request) -> httpx.Response:
+        form = self._form(request)
+        if "deleteFiles" not in form:
+            return httpx.Response(400, text="Bad Request")
+        for torrent_hash in form.get("hashes", "").split("|"):
+            if self.torrents.pop(torrent_hash, None) is not None:
+                self.deleted.append((torrent_hash, form["deleteFiles"] == "true"))
+        return httpx.Response(200)
+
+    def _torrents_remove_tags(self, request: httpx.Request) -> httpx.Response:
+        form = self._form(request)
+        gone = {t.strip() for t in form.get("tags", "").split(",")}
+        for torrent_hash in form.get("hashes", "").split("|"):
+            torrent = self.torrents.get(torrent_hash)
+            if torrent is not None:
+                torrent.tags = [t for t in torrent.tags if t not in gone]
+        return httpx.Response(200)
+
+    def _torrents_delete_tags(self, request: httpx.Request) -> httpx.Response:
+        gone = {t.strip() for t in self._form(request).get("tags", "").split(",")}
+        for torrent in self.torrents.values():
+            torrent.tags = [t for t in torrent.tags if t not in gone]
         return httpx.Response(200)
 
     def calls_to(self, path: str) -> list[Call]:

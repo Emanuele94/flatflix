@@ -88,6 +88,11 @@ class Settings(BaseSettings):
     result_cache_ttl: int = Field(default=900, ge=1)
     max_active_searches: int = Field(default=3, ge=1, le=5)
 
+    # Download pipeline (D-11, D-12). The request waits DOWNLOAD_WAIT_SECONDS for the outcome;
+    # the background job keeps going until METADATA_TIMEOUT seconds after the torrent was added.
+    metadata_timeout: int = Field(default=300, ge=1)
+    download_wait_seconds: float = Field(default=15, ge=0)
+
     # The tested qBittorrent WebAPI floor (D-22); an older server stops bootstrap.
     min_webapi_version: str = "2.15.1"
 

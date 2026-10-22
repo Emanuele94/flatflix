@@ -15,9 +15,11 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from app.auth import SESSION_COOKIE, LoginThrottle
 from app.config import Settings, get_settings
+from app.download.jobs import JobRegistry
+from app.download.pipeline import DownloadPipeline
 from app.qbit.bootstrap import Bootstrapper, Readiness
 from app.qbit.client import QbitClient
-from app.routers import auth, health, search
+from app.routers import auth, download, health, search
 from app.search.service import SearchService
 
 LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s %(message)s"
@@ -39,6 +41,10 @@ def create_app(settings: Settings | None = None, qbit: QbitClient | None = None)
         app.state.settings = settings
         app.state.qbit = qbit or QbitClient.from_settings(settings)
         app.state.search = SearchService(app.state.qbit, settings)
+        app.state.jobs = JobRegistry()
+        app.state.pipeline = DownloadPipeline(
+            app.state.qbit, settings, app.state.search, app.state.jobs
+        )
         # One bootstrap per process; the strong reference keeps the task from being collected.
         app.state.bootstrap_task = asyncio.create_task(
             Bootstrapper(app.state.qbit, settings, app.state.readiness).run_forever()
@@ -49,6 +55,8 @@ def create_app(settings: Settings | None = None, qbit: QbitClient | None = None)
             app.state.bootstrap_task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await app.state.bootstrap_task
+            # Running downloads stop here; whatever is still fx-pending is resumed next start.
+            await app.state.jobs.shutdown()
             # Before the client closes, so running searches do not linger in qBittorrent.
             await app.state.search.close()
             await app.state.qbit.aclose()
@@ -80,4 +88,5 @@ def create_app(settings: Settings | None = None, qbit: QbitClient | None = None)
     app.include_router(auth.router)
     app.include_router(auth.protected)
     app.include_router(search.router)
+    app.include_router(download.router)
     return app

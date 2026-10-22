@@ -8,7 +8,8 @@ never logs or reprs the password.
 import asyncio
 import json
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 
 import httpx
 from pydantic import SecretStr
@@ -37,6 +38,23 @@ class QbitAuthError(QbitError):
 
 class QbitBanned(QbitError):
     """qBittorrent banned this client's IP after too many failed logins."""
+
+
+@dataclass(frozen=True, slots=True)
+class AddResult:
+    """qBittorrent's answer to `torrents/add`.
+
+    `added_ids` holds the hashes of magnets added right away; a downloader-flow add (a plugin
+    page URL) answers 202 with no hash and `pending` 1, so the caller finds it by tag.
+    """
+
+    status_code: int
+    added_ids: tuple[str, ...]
+    pending: int
+
+
+def _pipe(values: str | Sequence[str]) -> str:
+    return values if isinstance(values, str) else "|".join(values)
 
 
 class QbitClient:
@@ -243,6 +261,105 @@ class QbitClient:
             raise QbitError(
                 f"qBittorrent answered HTTP {response.status_code}", status=response.status_code
             )
+
+    # -- torrents --------------------------------------------------------------------------
+    # There is deliberately no method that changes the category of a torrent: the category is
+    # chosen once, from the fixed server map, when the torrent is added (SEC-03).
+
+    async def add_torrent(
+        self,
+        url: str,
+        category: str,
+        tags: Sequence[str],
+        downloader: str | None = None,
+    ) -> AddResult:
+        """Add one URL, stopping itself once its metadata is known (D-23).
+
+        The torrent is added started with `stopCondition=MetadataReceived`: a magnet added
+        fully stopped never fetches its metadata (research Pitfall 1). `autoTMM=true` makes
+        the category's save path apply (Pitfall 2). `downloader` names the search plugin for a
+        URL that is not a magnet (Pitfall 5). Returns the status code without raising for
+        409 (already present) and 415 so the caller can word the outcome.
+        """
+        if "\n" in url or "\r" in url:
+            raise ValueError("a torrent URL must be a single line")
+        form = {
+            "urls": url,
+            "category": category,
+            "autoTMM": "true",
+            "stopCondition": "MetadataReceived",
+            "tags": ",".join(tags),
+        }
+        if downloader is not None:
+            form["downloader"] = downloader
+        response = await self._request("POST", "/api/v2/torrents/add", data=form)
+        added: tuple[str, ...] = ()
+        pending = 0
+        if response.is_success:
+            try:
+                body = response.json()
+                added = tuple(str(h) for h in body.get("added_torrent_ids") or ())
+                pending = int(body.get("pending_count") or 0)
+            except (ValueError, AttributeError, TypeError):
+                pass  # an old or odd body: the caller falls back to finding the torrent by tag
+        return AddResult(response.status_code, added, pending)
+
+    async def torrents_info(
+        self,
+        hashes: str | Sequence[str] | None = None,
+        tag: str | None = None,
+        category: str | None = None,
+    ) -> list[dict]:
+        params: dict[str, str] = {}
+        if hashes is not None:
+            params["hashes"] = _pipe(hashes)
+        if tag is not None:
+            params["tag"] = tag
+        if category is not None:
+            params["category"] = category
+        response = await self._checked("GET", "/api/v2/torrents/info", params=params)
+        return response.json()
+
+    async def torrent_files(self, torrent_hash: str) -> list[dict]:
+        """File rows of a torrent; an empty list means its metadata has not arrived yet."""
+        response = await self._checked(
+            "GET", "/api/v2/torrents/files", params={"hash": torrent_hash}
+        )
+        return response.json()
+
+    async def set_file_priority(self, torrent_hash: str, ids: Sequence[int], priority: int) -> None:
+        if not ids:
+            return
+        await self._checked(
+            "POST",
+            "/api/v2/torrents/filePrio",
+            data={
+                "hash": torrent_hash,
+                "id": "|".join(str(i) for i in ids),
+                "priority": str(priority),
+            },
+        )
+
+    async def start(self, hashes: str | Sequence[str]) -> None:
+        await self._checked("POST", "/api/v2/torrents/start", data={"hashes": _pipe(hashes)})
+
+    async def delete(self, hashes: str | Sequence[str], delete_files: bool) -> None:
+        # `deleteFiles` is always sent: qBittorrent answers 400 without it.
+        await self._checked(
+            "POST",
+            "/api/v2/torrents/delete",
+            data={"hashes": _pipe(hashes), "deleteFiles": "true" if delete_files else "false"},
+        )
+
+    async def remove_tags(self, hashes: str | Sequence[str], tags: Sequence[str]) -> None:
+        await self._checked(
+            "POST",
+            "/api/v2/torrents/removeTags",
+            data={"hashes": _pipe(hashes), "tags": ",".join(tags)},
+        )
+
+    async def delete_tags(self, tags: Sequence[str]) -> None:
+        await self._checked("POST", "/api/v2/torrents/deleteTags", data={"tags": ",".join(tags)})
 
     async def aclose(self) -> None:
         await self._http.aclose()
