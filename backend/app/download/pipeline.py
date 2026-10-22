@@ -35,7 +35,7 @@ from typing import Literal
 from urllib.parse import urlsplit
 
 from app.config import Settings
-from app.content_type import ContentType, qbit_category
+from app.content_type import ContentType, qbit_category, type_for_category
 from app.download.allowlist import TorrentFile, decide
 from app.download.jobs import Job, JobRegistry, JobState
 from app.download.listing import (
@@ -365,7 +365,7 @@ class DownloadPipeline:
             rows = await self._qbit.torrents_info()
             row = find_torrent(rows, download_id, self._settings, secret)
             if row is None:
-                return None
+                return await self._cancel_job_without_torrent(download_id)
             torrent_hash = str(row["hash"])
             job_tag = job_tag_of(tags_of(row))
             deletes = cancel_deletes_files(row)
@@ -373,12 +373,68 @@ class DownloadPipeline:
                 torrent_hash=torrent_hash,
                 job_id=job_tag.removeprefix(TAG_JOB_PREFIX) if job_tag else None,
             )
-            await self._discard(torrent_hash, job_tag, delete_files=deletes)
+            try:
+                await self._discard(torrent_hash, job_tag, delete_files=deletes)
+            except QbitError:
+                if job is not None and job_tag is not None:
+                    # The job is cancelled and its torrent stays hidden from the list, so keep
+                    # trying to delete it for a while instead of leaving it behind.
+                    self._start_sweep(job, job_tag, self._clock() + self._settings.metadata_timeout)
+                raise
             return CancelOutcome(
                 "cancel" if deletes else "remove",
                 display_name(row) or (job.name if job else None),
                 deletes,
             )
+
+    async def _cancel_job_without_torrent(self, job_id: str) -> CancelOutcome | None:
+        """Cancel a Preparing job the browser knows by its job id (no torrent matched the id).
+
+        The torrent may not be in qBittorrent yet (a plugin page result is added a few seconds
+        after the tap), so the job is stopped first, any torrent already under its tag is deleted
+        with its files, and a bounded sweep removes one that shows up later. Any other job state
+        answers None: a job that ended has nothing left to cancel.
+        """
+        job = self._registry.get(job_id)
+        if job is None or job.state is not JobState.PREPARING:
+            return None
+        await self._registry.cancel_for(job_id=job_id)
+        job_tag = TAG_JOB_PREFIX + job_id
+        await self._sweep_once(job_tag)
+        self._start_sweep(job, job_tag, job.created_at + self._settings.metadata_timeout)
+        return CancelOutcome("cancel", job.name, True)
+
+    def _start_sweep(self, job: Job, job_tag: str, deadline: float) -> None:
+        self._registry.spawn_background(
+            self._sweep_cancelled(job_tag, deadline), name=f"cancel-sweep-{job.job_id}"
+        )
+
+    async def _sweep_once(self, job_tag: str) -> None:
+        """Delete every Film or SerieTV torrent that carries a cancelled job's tag.
+
+        The files go only for a torrent the server reads as in progress, like any cancel.
+        """
+        for row in await self._qbit.torrents_info(tag=job_tag):
+            if type_for_category(self._settings, str(row.get("category") or "")) is None:
+                continue
+            await self._discard(str(row["hash"]), None, delete_files=cancel_deletes_files(row))
+
+    async def _sweep_cancelled(self, job_tag: str, deadline: float) -> None:
+        """Until `deadline`, delete a torrent that shows up under a cancelled job's tag.
+
+        A plugin page result is added a few seconds after the tap, so a cancel can come before
+        its torrent exists. A qBittorrent error only skips one round.
+        """
+        while self._clock() < deadline:
+            try:
+                await self._sweep_once(job_tag)
+            except QbitError as exc:
+                logger.warning("cancel sweep failed: %s", type(exc).__name__)
+            await self._sleep(POLL_SECONDS)
+        try:
+            await self._qbit.delete_tags([job_tag])
+        except QbitError as exc:
+            logger.warning("tag cleanup failed after the cancel sweep: %s", type(exc).__name__)
 
     async def reconcile(self) -> None:
         """Finish what a restart interrupted (D-12, FILT-02).

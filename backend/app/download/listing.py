@@ -216,6 +216,10 @@ def build_items(
         torrent_hash = str(row.get("hash") or "")
         job_tag = job_tag_of(tags_of(row))
         tagged_id = job_tag.removeprefix(TAG_JOB_PREFIX) if job_tag else None
+        # The job was cancelled: its torrent is on its way out (a sweep or the next reconcile).
+        cancelled = by_id.get(tagged_id or "")
+        if cancelled is not None and cancelled.state is JobState.CANCELLED:
+            continue
         kept_hashes.add(torrent_hash.lower())
         if tagged_id:
             tagged_job_ids.add(tagged_id)

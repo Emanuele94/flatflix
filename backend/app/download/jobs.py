@@ -65,6 +65,8 @@ class JobRegistry:
         self._clock = clock
         self._jobs: dict[str, Job] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}  # strong references
+        # Housekeeping tasks that are not jobs (the sweep after a cancel): never listed.
+        self._background: set[asyncio.Task[None]] = set()
 
     def get(self, job_id: str) -> Job | None:
         return self._jobs.get(job_id)
@@ -122,6 +124,29 @@ class JobRegistry:
         self._tasks[job.job_id] = task
         return task
 
+    def spawn_background(self, coro: Coroutine[object, object, None], name: str) -> asyncio.Task:
+        """Run a housekeeping coroutine that outlives its request; it is never a job.
+
+        The registry keeps a strong reference until the task ends, logs a crash by class name,
+        and `shutdown` cancels it.
+        """
+        task = asyncio.create_task(self._run_background(coro, name), name=name)
+        self._background.add(task)
+        task.add_done_callback(self._background.discard)
+        # A task cancelled before its first step never awaits `coro`; closing it is a no-op
+        # otherwise and keeps Python from warning about a coroutine nobody awaited.
+        task.add_done_callback(lambda _task: coro.close())
+        return task
+
+    @staticmethod
+    async def _run_background(coro: Coroutine[object, object, None], name: str) -> None:
+        try:
+            await coro
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - a housekeeping task must never take the app down
+            logger.error("background task %s crashed: %s", name, type(exc).__name__)
+
     async def _guard(self, job: Job, coro: Coroutine[object, object, None]) -> None:
         try:
             await self._run(job, coro)
@@ -164,6 +189,7 @@ class JobRegistry:
     async def shutdown(self) -> None:
         """Cancel running jobs (application shutdown); reconcile finishes them next start."""
         tasks = [task for task in self._tasks.values() if not task.done()]
+        tasks += [task for task in self._background if not task.done()]
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
