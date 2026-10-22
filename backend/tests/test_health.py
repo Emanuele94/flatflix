@@ -10,8 +10,6 @@ from app.config import Settings
 from app.main import create_app
 from tests.conftest import QBIT_PASS, QBIT_URL, QBIT_USER
 
-SESSION_COOKIE = "QBT_SID_8088=abc123; HttpOnly; path=/"
-
 
 @pytest.fixture
 def qbit_router() -> Iterator[respx.MockRouter]:
@@ -31,13 +29,10 @@ async def portal(
             yield client
 
 
-async def test_health_ok_when_qbittorrent_login_and_version_succeed(
-    portal: httpx.AsyncClient, qbit_router: respx.MockRouter
+async def test_health_ok_once_qbittorrent_is_reachable_and_bootstrapped(
+    api: httpx.AsyncClient,
 ) -> None:
-    qbit_router.post("/api/v2/auth/login").respond(204, headers={"set-cookie": SESSION_COOKIE})
-    qbit_router.get("/api/v2/app/webapiVersion").respond(200, text="2.15.1")
-
-    response = await portal.get("/api/health")
+    response = await api.get("/api/health")
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok", "qbittorrent": "up"}
@@ -55,12 +50,9 @@ async def test_health_degraded_with_http_200_when_qbittorrent_is_unreachable(
 
 
 async def test_health_body_leaks_no_version_host_or_credentials(
-    portal: httpx.AsyncClient, qbit_router: respx.MockRouter
+    api: httpx.AsyncClient,
 ) -> None:
-    qbit_router.post("/api/v2/auth/login").respond(204, headers={"set-cookie": SESSION_COOKIE})
-    qbit_router.get("/api/v2/app/webapiVersion").respond(200, text="2.15.1")
-
-    response = await portal.get("/api/health")
+    response = await api.get("/api/health")
 
     assert set(response.json()) == {"status", "qbittorrent"}
     for secret in ("2.15.1", "qbittorrent.test", QBIT_PASS, QBIT_USER):
@@ -68,5 +60,5 @@ async def test_health_body_leaks_no_version_host_or_credentials(
 
 
 @pytest.mark.parametrize("path", ["/docs", "/redoc", "/openapi.json"])
-async def test_api_docs_are_not_served(portal: httpx.AsyncClient, path: str) -> None:
-    assert (await portal.get(path)).status_code == 404
+async def test_api_docs_are_not_served(api: httpx.AsyncClient, path: str) -> None:
+    assert (await api.get(path)).status_code == 404

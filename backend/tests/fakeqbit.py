@@ -7,6 +7,7 @@ async. Requests without a live session cookie get 403, like the real service.
 
 import asyncio
 import inspect
+import json
 import secrets
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -40,6 +41,22 @@ class FakeQbit:
         self._sessions: set[str] = set()
         self._routes: dict[tuple[str, str], Callable] = {}
         self.register("GET", "/api/v2/app/webapiVersion", self._serve_version)
+        # Configuration state, as the real service keeps it (see 01-RESEARCH Pattern 7).
+        self.preferences: dict = {
+            "auto_tmm_enabled": False,
+            "category_changed_tmm_enabled": False,
+            "temp_path_enabled": False,
+            "temp_path": "",
+            "excluded_file_names_enabled": False,
+            "excluded_file_names": "",
+        }
+        self.preference_payloads: list[str] = []  # raw `json` form values of setPreferences
+        self.category_table: dict[str, dict] = {}
+        self.register("GET", "/api/v2/app/preferences", self._serve_preferences)
+        self.register("POST", "/api/v2/app/setPreferences", self._set_preferences)
+        self.register("GET", "/api/v2/torrents/categories", self._serve_categories)
+        self.register("POST", "/api/v2/torrents/createCategory", self._create_category)
+        self.register("POST", "/api/v2/torrents/editCategory", self._edit_category)
 
     @property
     def transport(self) -> httpx.MockTransport:
@@ -57,6 +74,41 @@ class FakeQbit:
 
     def _serve_version(self, request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, text=self.webapi_version)
+
+    def _serve_preferences(self, request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=self.preferences)
+
+    def _set_preferences(self, request: httpx.Request) -> httpx.Response:
+        raw = dict(parse_qsl(request.content.decode())).get("json")
+        if raw is None:
+            return httpx.Response(400, text="Bad Request")
+        self.preference_payloads.append(raw)
+        self.preferences.update(json.loads(raw))
+        return httpx.Response(200)
+
+    def _serve_categories(self, request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=self.category_table)
+
+    def _create_category(self, request: httpx.Request) -> httpx.Response:
+        form = dict(parse_qsl(request.content.decode()))
+        name = form.get("category", "")
+        if not name:
+            return httpx.Response(400, text="Bad Request")
+        if name in self.category_table:
+            return httpx.Response(409, text="Unable to create category")
+        self.category_table[name] = {"name": name, "savePath": form.get("savePath", "")}
+        return httpx.Response(200)
+
+    def _edit_category(self, request: httpx.Request) -> httpx.Response:
+        form = dict(parse_qsl(request.content.decode()))
+        name = form.get("category", "")
+        if name not in self.category_table:
+            return httpx.Response(409, text="Unable to edit category")
+        self.category_table[name]["savePath"] = form.get("savePath", "")
+        return httpx.Response(200)
+
+    def calls_to(self, path: str) -> list[Call]:
+        return [call for call in self.calls if call.path == path]
 
     def _has_session(self, request: httpx.Request) -> bool:
         cookie = SimpleCookie(request.headers.get("cookie", ""))

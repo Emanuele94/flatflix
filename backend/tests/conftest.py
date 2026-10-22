@@ -1,5 +1,6 @@
 """Shared fixtures. Settings are built from explicit kwargs, never from the environment."""
 
+import asyncio
 from collections.abc import AsyncIterator
 
 import httpx
@@ -54,9 +55,17 @@ def app(settings: Settings, fake_qbit: FakeQbit) -> FastAPI:
 @pytest.fixture
 async def api(app: FastAPI) -> AsyncIterator[httpx.AsyncClient]:
     async with app.router.lifespan_context(app):
+        await wait_for_bootstrap(app)
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://portal.test") as client:
             yield client
+
+
+async def wait_for_bootstrap(app: FastAPI, seconds: float = 5.0) -> None:
+    """Let the background bootstrap finish so route tests see a configured qBittorrent."""
+    async with asyncio.timeout(seconds):
+        while app.state.readiness.state == "starting":
+            await asyncio.sleep(0.005)
 
 
 async def log_in(client: httpx.AsyncClient) -> httpx.Response:

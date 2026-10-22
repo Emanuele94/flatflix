@@ -27,4 +27,7 @@ async def health(request: Request) -> dict[str, str]:
         # Class name only: the message of a lower-level error could carry a URL.
         logger.warning("qBittorrent health check failed: %s", type(exc).__name__)
         return {"status": "degraded", "qbittorrent": "down"}
+    # "ok" also means qBittorrent is configured (bootstrap done); otherwise downloads are gated.
+    if request.app.state.readiness.state != "ready":
+        return {"status": "degraded", "qbittorrent": "up"}
     return {"status": "ok", "qbittorrent": "up"}

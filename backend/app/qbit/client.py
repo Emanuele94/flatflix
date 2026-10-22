@@ -6,6 +6,7 @@ never logs or reprs the password.
 """
 
 import asyncio
+import json
 import time
 from collections.abc import Callable
 
@@ -141,6 +142,51 @@ class QbitClient:
         if response.status_code != 200:
             raise QbitUnavailable(f"qBittorrent answered HTTP {response.status_code}")
         return response.text.strip()
+
+    async def _checked(self, method: str, path: str, **kwargs) -> httpx.Response:
+        """Like `_request`, but a non-2xx answer raises `QbitError` without its body."""
+        response = await self._request(method, path, **kwargs)
+        if not response.is_success:
+            raise QbitError(f"qBittorrent answered HTTP {response.status_code}")
+        return response
+
+    async def get_preferences(self) -> dict:
+        response = await self._checked("GET", "/api/v2/app/preferences")
+        return response.json()
+
+    async def set_preferences(self, prefs: dict) -> None:
+        await self._checked("POST", "/api/v2/app/setPreferences", data={"json": json.dumps(prefs)})
+
+    async def categories(self) -> dict[str, dict]:
+        response = await self._checked("GET", "/api/v2/torrents/categories")
+        return response.json()
+
+    async def create_category(self, name: str, save_path: str) -> bool:
+        """Create a category; False when qBittorrent says it already exists (HTTP 409)."""
+        response = await self._request(
+            "POST",
+            "/api/v2/torrents/createCategory",
+            data={"category": name, "savePath": save_path},
+        )
+        if response.status_code == 409:
+            return False
+        if not response.is_success:
+            raise QbitError(f"qBittorrent answered HTTP {response.status_code}")
+        return True
+
+    async def edit_category(self, name: str, save_path: str) -> None:
+        await self._checked(
+            "POST",
+            "/api/v2/torrents/editCategory",
+            data={"category": name, "savePath": save_path},
+        )
+
+    async def search_plugins(self) -> list[dict]:
+        response = await self._checked("GET", "/api/v2/search/plugins")
+        return response.json()
+
+    async def install_search_plugin(self, url: str) -> None:
+        await self._checked("POST", "/api/v2/search/installPlugin", data={"sources": url})
 
     async def aclose(self) -> None:
         await self._http.aclose()

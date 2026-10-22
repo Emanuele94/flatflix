@@ -6,11 +6,12 @@ the variable and never echo its value.
 """
 
 import logging
+import re
 from functools import lru_cache
 
 from argon2 import extract_parameters
 from argon2.exceptions import InvalidHashError
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PLACEHOLDER_PREFIX = "change-me"
@@ -20,6 +21,12 @@ BAD_HASH_MESSAGE = (
     "APP_PASS_HASH is not an argon2id hash: generate it with "
     "python -m app.tools.hash_password and keep the single quotes in .env"
 )
+
+
+CATEGORY_NAME = re.compile(r"^[A-Za-z0-9]+$")
+PLUGIN_NAME = re.compile(r"^[a-z0-9_]+$")
+GIT_COMMIT_REF = re.compile(r"^[0-9a-f]{40}$")
+VERSION_NUMBER = re.compile(r"^[0-9]+(\.[0-9]+)*$")
 
 
 def ensure_real_secret(name: str, value: str) -> str:
@@ -49,6 +56,35 @@ class Settings(BaseSettings):
     login_max_attempts: int = Field(default=5, ge=1)
     login_window_minutes: int = Field(default=15, ge=1)
     session_max_age_days: int = Field(default=30, ge=1)
+
+    # qBittorrent layout (DOWN-02, DOWN-03). Names and paths come only from here, never from a
+    # request. SAVE_PATH_* must match the container mounts in docker-compose.yml.
+    category_film: str = "Film"
+    category_tv: str = "SerieTV"
+    save_path_film: str = "/media/Film"
+    save_path_tv: str = "/media/SerieTV"
+    incomplete_path: str = "/incomplete"
+
+    # Official search plugins, fetched from one pinned commit of qbittorrent/search-plugins (D-19).
+    search_plugins: str = (
+        "eztv limetorrents piratebay solidtorrents torlock torrentproject torrentscsv"
+    )
+    search_plugins_ref: str = "2beb5c67b0edbf2387a031a02d1881fab4bec3c3"
+
+    # Seeding policy (D-21): stop at this ratio or this many minutes, whichever comes first.
+    share_ratio_limit: float = Field(default=1.0, gt=0)
+    share_time_limit_minutes: int = Field(default=1440, ge=1)
+
+    # The tested qBittorrent WebAPI floor (D-22); an older server stops bootstrap.
+    min_webapi_version: str = "2.15.1"
+
+    @property
+    def category_paths(self) -> dict[str, str]:
+        return {self.category_film: self.save_path_film, self.category_tv: self.save_path_tv}
+
+    @property
+    def search_plugin_names(self) -> list[str]:
+        return self.search_plugins.split()
 
     @property
     def session_max_age_seconds(self) -> int:
@@ -104,6 +140,51 @@ class Settings(BaseSettings):
     def _check_pass(cls, value: SecretStr) -> SecretStr:
         ensure_real_secret("QBITTORRENT_PASS", value.get_secret_value())
         return value
+
+    @field_validator("category_film", "category_tv")
+    @classmethod
+    def _check_category(cls, value: str, info: ValidationInfo) -> str:
+        if not CATEGORY_NAME.fullmatch(value):
+            raise ValueError(f"{info.field_name.upper()} must match ^[A-Za-z0-9]+$")
+        return value
+
+    @field_validator("save_path_film", "save_path_tv", "incomplete_path")
+    @classmethod
+    def _check_path(cls, value: str, info: ValidationInfo) -> str:
+        name = info.field_name.upper()
+        if not value.startswith("/"):
+            raise ValueError(f"{name} must be an absolute path")
+        if ".." in value.split("/"):
+            raise ValueError(f"{name} must not contain a '..' segment")
+        return value.rstrip("/") or "/"
+
+    @field_validator("search_plugins")
+    @classmethod
+    def _check_plugins(cls, value: str) -> str:
+        for name in value.split():
+            if not PLUGIN_NAME.fullmatch(name):
+                raise ValueError("SEARCH_PLUGINS names must match ^[a-z0-9_]+$")
+        return value
+
+    @field_validator("search_plugins_ref")
+    @classmethod
+    def _check_plugins_ref(cls, value: str) -> str:
+        if not GIT_COMMIT_REF.fullmatch(value):
+            raise ValueError("SEARCH_PLUGINS_REF must be a 40-character lower-case git commit")
+        return value
+
+    @field_validator("min_webapi_version")
+    @classmethod
+    def _check_min_version(cls, value: str) -> str:
+        if not VERSION_NUMBER.fullmatch(value):
+            raise ValueError("MIN_WEBAPI_VERSION must look like 2.15.1")
+        return value
+
+    @model_validator(mode="after")
+    def _check_layout_is_distinct(self) -> "Settings":
+        if self.category_film == self.category_tv:
+            raise ValueError("CATEGORY_FILM and CATEGORY_TV must differ")
+        return self
 
     @field_validator("log_level")
     @classmethod
