@@ -2,7 +2,7 @@ import { useEffect, useState } from 'preact/hooks';
 import { api, ApiError, setUnauthorizedHandler } from './api.js';
 import { Login } from './Login.jsx';
 import { MSG } from './messages.js';
-import { Search } from './Search.jsx';
+import { Search, clearSavedSearch } from './Search.jsx';
 
 export function App() {
   // checking | login | in
@@ -15,6 +15,9 @@ export function App() {
   }, []);
 
   async function logout() {
+    // First, so the saved search is gone even if /api/logout hangs (G-01-3). A session that merely
+    // expires (401) does not clear it: the same person logs in again and finds her search.
+    clearSavedSearch();
     try {
       await api('/api/logout', { method: 'POST' });
     } catch {
