@@ -219,6 +219,74 @@ async def test_a_404_for_the_file_list_right_after_add_is_retried(rig: Rig) -> N
     assert response.json()["status"] == "started"
 
 
+# -- configuration drift (WR-06) -----------------------------------------------------------
+
+SET_PREFS = "/api/v2/app/setPreferences"
+
+
+async def test_a_category_path_changed_behind_the_portal_is_repaired_before_the_add(
+    rig: Rig,
+) -> None:
+    rig.cache()
+    rig.fake.set_metadata(BTIH, SINTEL_FILES)
+    rig.fake.category_table["Film"]["savePath"] = "/somewhere/else"
+
+    response = await rig.post()
+
+    assert response.json()["status"] == "started"
+    assert rig.fake.category_table["Film"]["savePath"] == "/media/Film"
+    assert index_of(rig.fake, "/api/v2/torrents/editCategory", last=True) < index_of(rig.fake, ADD)
+
+
+async def test_a_missing_category_is_created_with_its_save_path_before_the_add(rig: Rig) -> None:
+    rig.cache()
+    rig.fake.set_metadata(BTIH, SINTEL_FILES)
+    del rig.fake.category_table["Film"]  # qBittorrent came back with a fresh config
+
+    await rig.post()
+
+    assert rig.fake.category_table["Film"]["savePath"] == "/media/Film"
+    assert index_of(rig.fake, "/api/v2/torrents/createCategory", last=True) < index_of(
+        rig.fake, ADD
+    )
+
+
+async def test_a_switched_off_exclusion_list_is_switched_on_again_before_the_add(
+    rig: Rig,
+) -> None:
+    rig.cache()
+    rig.fake.set_metadata(BTIH, SINTEL_FILES)
+    rig.fake.preferences["excluded_file_names_enabled"] = False
+    rig.fake.preferences["excluded_file_names"] = ""
+
+    await rig.post()
+
+    assert rig.fake.preferences["excluded_file_names_enabled"] is True
+    assert "*.exe" in rig.fake.preferences["excluded_file_names"].splitlines()
+    assert index_of(rig.fake, SET_PREFS, last=True) < index_of(rig.fake, ADD)
+
+
+async def test_an_untouched_configuration_is_not_rewritten_on_every_download(rig: Rig) -> None:
+    rig.cache()
+    rig.fake.set_metadata(BTIH, SINTEL_FILES)
+    writes_before = len(rig.fake.calls_to(SET_PREFS))
+
+    await rig.post()
+
+    assert len(rig.fake.calls_to(SET_PREFS)) == writes_before
+
+
+async def test_nothing_is_added_when_the_configuration_cannot_be_repaired(rig: Rig) -> None:
+    rig.cache()
+    rig.fake.preferences["auto_tmm_enabled"] = False
+    rig.fake.register("POST", SET_PREFS, lambda request: httpx.Response(500, text="boom"))
+
+    response = await rig.post()
+
+    assert response.json()["status"] == "failed"
+    assert rig.adds() == []
+
+
 # -- rejections (D-13, D-14) ---------------------------------------------------------------
 
 

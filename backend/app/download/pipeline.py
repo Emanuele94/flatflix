@@ -30,6 +30,7 @@ from app.content_type import ContentType, qbit_category
 from app.download.allowlist import TorrentFile, decide
 from app.download.jobs import Job, JobRegistry, JobState
 from app.netutil import resolve_host
+from app.qbit.bootstrap import repair_drift
 from app.qbit.client import QbitClient, QbitError
 from app.search.filters import infohash, is_public_address, is_safe_torrent_url
 from app.search.service import SearchService
@@ -170,6 +171,8 @@ class DownloadPipeline:
             if existing:
                 await self._resume_or_duplicate(job, existing[0])
                 return
+        # The category, folder and exclusion guarantees are re-checked on every add (WR-06).
+        await repair_drift(self._qbit, self._settings)
         job_tag = TAG_JOB_PREFIX + job.job_id
         is_magnet = url.lower().startswith("magnet:")
         added = await self._qbit.add_torrent(

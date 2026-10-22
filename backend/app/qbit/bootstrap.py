@@ -104,6 +104,65 @@ def same_save_path(stored: str, wanted: str) -> bool:
     return strip(stored) == strip(wanted)
 
 
+def config_drifted(prefs: dict, categories: dict[str, dict], settings: Settings) -> bool:
+    """True when qBittorrent no longer holds what the download guarantees rest on (WR-06).
+
+    Checked: the exclusion list (enabled, every required pattern present), automatic torrent
+    management, the incomplete folder, and the two categories with their save paths. A category
+    that is missing is drift: qBittorrent would create it with an empty save path on the next add.
+    """
+    stored = {
+        p.strip().casefold() for p in str(prefs.get("excluded_file_names") or "").splitlines()
+    }
+    if not prefs.get("excluded_file_names_enabled"):
+        return True
+    if any(pattern.casefold() not in stored for pattern in EXCLUDED_FILE_PATTERNS):
+        return True
+    if not prefs.get("auto_tmm_enabled") or not prefs.get("category_changed_tmm_enabled"):
+        return True
+    if not prefs.get("temp_path_enabled") or prefs.get("temp_path") != settings.incomplete_path:
+        return True
+    for name, wanted in settings.category_paths.items():
+        row = categories.get(name)
+        if row is None or not same_save_path(str(row.get("savePath", "")), wanted):
+            return True
+    return False
+
+
+async def sync_categories(qbit: QbitClient, settings: Settings) -> None:
+    existing = await qbit.categories()
+    for name, save_path in settings.category_paths.items():
+        # Names are compared exactly: an existing "film" does not satisfy "Film".
+        stored = existing.get(name)
+        if stored is None:
+            if await qbit.create_category(name, save_path):
+                continue
+            # 409: it appeared since the list was read. Compare its path, never assume.
+            stored = (await qbit.categories()).get(name)
+            if stored is None:
+                raise QbitError("qBittorrent refused to create a category")
+        if not same_save_path(str(stored.get("savePath", "")), save_path):
+            await qbit.edit_category(name, save_path)
+
+
+async def repair_drift(qbit: QbitClient, settings: Settings) -> bool:
+    """Re-apply the portal's qBittorrent settings if they changed since start-up (WR-06).
+
+    Run before every add. A qBittorrent that was recreated with a fresh config, or an admin who
+    changed a category path or switched the exclusion list off in the WebUI, would otherwise
+    lose the folder and exclusion guarantees silently. Returns True when it had to repair.
+    """
+    prefs = await qbit.get_preferences()
+    categories = await qbit.categories()
+    if not config_drifted(prefs, categories, settings):
+        return False
+    logger.warning("qBittorrent settings drifted from the portal's; applying them again")
+    excluded = str(prefs.get("excluded_file_names") or "")
+    await qbit.set_preferences(build_preferences(settings, excluded))
+    await sync_categories(qbit, settings)
+    return True
+
+
 class Bootstrapper:
     def __init__(
         self,
@@ -137,19 +196,7 @@ class Bootstrapper:
             raise QbitIncompatible("qBittorrent WebAPI is older than the tested minimum")
 
     async def _sync_categories(self) -> None:
-        existing = await self._qbit.categories()
-        for name, save_path in self._settings.category_paths.items():
-            # Names are compared exactly: an existing "film" does not satisfy "Film".
-            stored = existing.get(name)
-            if stored is None:
-                if await self._qbit.create_category(name, save_path):
-                    continue
-                # 409: it appeared since the list was read. Compare its path, never assume.
-                stored = (await self._qbit.categories()).get(name)
-                if stored is None:
-                    raise QbitError("qBittorrent refused to create a category")
-            if not same_save_path(str(stored.get("savePath", "")), save_path):
-                await self._qbit.edit_category(name, save_path)
+        await sync_categories(self._qbit, self._settings)
 
     async def _installed_plugin_names(self) -> set[str]:
         return {str(plugin.get("name")) for plugin in await self._qbit.search_plugins()}
