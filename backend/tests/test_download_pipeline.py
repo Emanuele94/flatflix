@@ -359,6 +359,50 @@ async def test_a_qbittorrent_error_midway_fails_the_job_and_keeps_the_pending_ta
     assert rig.fake.torrents[BTIH].started is False
 
 
+async def test_a_tap_after_a_job_failed_midway_finishes_the_torrent_instead_of_saying_duplicate(
+    rig: Rig,
+) -> None:
+    rig.cache()
+    rig.fake.set_metadata(BTIH, SINTEL_FILES)
+    working_start = rig.fake._torrents_start
+    rig.fake.register("POST", START, lambda request: httpx.Response(500, text="boom"))
+    first = await rig.post()
+    assert first.json()["status"] == "failed"
+    assert "fx-pending" in rig.fake.torrents[BTIH].tags
+
+    rig.fake.register("POST", START, working_start)  # qBittorrent recovers
+    second = await rig.post()
+
+    assert second.json()["status"] == "started"
+    assert len(rig.adds()) == 1  # the stranded torrent is finished, not added again
+    assert rig.fake.torrents[BTIH].started is True
+    assert rig.fake.torrents[BTIH].tags == ["fx"]
+    assert rig.fake.deleted == []
+
+
+async def test_a_pending_torrent_a_running_job_owns_is_still_a_duplicate(rig: Rig) -> None:
+    rig.cache()
+    job_id = "cccccccccccccccc"
+    rig.fake.torrents[BTIH] = FakeTorrent(
+        BTIH, MAGNET, "Film", ["fx", "fx-pending", f"fx-job-{job_id}"], rig.clock.now
+    )
+    gate = asyncio.Event()
+
+    async def hold() -> None:
+        await gate.wait()
+
+    from app.download.jobs import Job
+
+    owner = Job(job_id, None, "film", JobState.PREPARING, BTIH, rig.clock.now)
+    rig.app.state.jobs.spawn(owner, hold())
+
+    response = await rig.post()
+    gate.set()
+
+    assert response.json()["status"] == "duplicate"
+    assert rig.fake.calls_to(START) == []
+
+
 async def test_a_url_with_a_line_break_fails_before_any_torrent_call(rig: Rig) -> None:
     rig.cache(url=MAGNET + "\nmagnet:?xt=urn:btih:" + SERIE_BTIH)
 
@@ -521,6 +565,62 @@ async def test_reconcile_deletes_an_expired_pending_torrent_and_resumes_a_fresh_
     assert rig.app.state.jobs.get(JOB_NEW).state is JobState.STARTED
     assert rig.fake.calls_to("/api/v2/torrents/setCategory") == []
     assert rig.adds() == []
+
+
+async def test_reconcile_never_deletes_a_started_torrent_that_kept_its_pending_tag(
+    rig: Rig,
+) -> None:
+    # CR-01: tag cleanup failed after start; the download has been running for an hour.
+    stranded(rig, PENDING_OLD, "Film", JOB_NEW, age=3600)
+    running = rig.fake.torrents[PENDING_OLD]
+    running.started = True
+    running.downloaded = 50 * MB
+    rig.fake.set_metadata(PENDING_OLD, [("Movie/Movie.mkv", 800 * MB), ("Movie/setup.exe", 1000)])
+
+    await rig.app.state.pipeline.reconcile()
+    await finished(rig, JOB_NEW)
+
+    assert rig.fake.deleted == []
+    kept = rig.fake.torrents[PENDING_OLD]
+    assert kept.started is True
+    assert kept.downloaded == 50 * MB
+    assert kept.tags == ["fx"]  # the allowlist ran again and the tag is gone now
+    assert rig.app.state.jobs.get(JOB_NEW).state is JobState.STARTED
+
+
+async def test_reconcile_never_deletes_a_stopped_torrent_that_already_holds_payload(
+    rig: Rig,
+) -> None:
+    stranded(rig, PENDING_OLD, "Film", JOB_NEW, age=3600)
+    rig.fake.torrents[PENDING_OLD].downloaded = 10 * MB  # started once, paused by the household
+    rig.fake.set_metadata(PENDING_OLD, [("Movie/Movie.mkv", 800 * MB)])
+
+    await rig.app.state.pipeline.reconcile()
+    await finished(rig, JOB_NEW)
+
+    assert rig.fake.deleted == []
+    assert PENDING_OLD in rig.fake.torrents
+
+
+async def test_a_failed_tag_cleanup_after_start_is_retried(rig: Rig) -> None:
+    rig.cache()
+    rig.fake.set_metadata(BTIH, SINTEL_FILES)
+    real_remove = rig.fake._torrents_remove_tags
+    attempts = []
+
+    def flaky(request: httpx.Request) -> httpx.Response:
+        attempts.append(1)
+        if len(attempts) < 3:
+            return httpx.Response(500, text="boom")
+        return real_remove(request)
+
+    rig.fake.register("POST", "/api/v2/torrents/removeTags", flaky)
+
+    response = await rig.post()
+
+    assert response.json()["status"] == "started"
+    assert len(attempts) == 3
+    assert rig.fake.torrents[BTIH].tags == ["fx"]
 
 
 async def test_reconcile_never_starts_a_pending_torrent_without_running_the_allowlist(

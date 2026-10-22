@@ -44,6 +44,36 @@ JOB_ID = re.compile(r"^[0-9a-f]{16}$")
 # A second tap on a result whose job already started returns that job for this long; after it,
 # the tap runs again and the btih check answers "already there" (or re-adds a deleted torrent).
 STARTED_DEDUPE_SECONDS = 60
+# qBittorrent states of a torrent that has never run: waiting for metadata, or stopped (v5 says
+# "stopped", v4 "paused"). Any other state means the torrent is, or was, downloading.
+NOT_STARTED_STATES = frozenset({"stoppedDL", "pausedDL", "metaDL", "forcedMetaDL"})
+# Tries to clear the pending tags after a start (a leftover tag costs a re-filter, never a delete).
+TAG_CLEANUP_ATTEMPTS = 3
+
+
+def _tags_of(row: dict) -> list[str]:
+    return [t.strip() for t in str(row.get("tags") or "").split(",") if t.strip()]
+
+
+def _job_tag_of(tags: list[str]) -> str | None:
+    return next((t for t in tags if t.startswith(TAG_JOB_PREFIX)), None)
+
+
+def _has_started(row: dict) -> bool:
+    """True when a torrent is running, finished, or already holds payload bytes.
+
+    A torrent like this must never be deleted just because its `fx-pending` tag is old (CR-01):
+    `added_on` is the time of the add, so a started download looks as old as a stuck one.
+    """
+    if str(row.get("state") or "") not in NOT_STARTED_STATES:
+        return True
+    for key in ("downloaded", "completed", "progress"):
+        try:
+            if float(row.get(key) or 0) > 0:
+                return True
+        except (TypeError, ValueError):
+            return True  # an odd value: do not risk deleting a download
+    return False
 
 
 class ResultExpired(Exception):
@@ -124,9 +154,11 @@ class DownloadPipeline:
         if "\n" in url or "\r" in url:
             raise ValueError("a torrent URL must be a single line")
         digest = infohash(url)
-        if digest is not None and await self._qbit.torrents_info(hashes=digest):
-            job.state = JobState.DUPLICATE
-            return
+        if digest is not None:
+            existing = await self._qbit.torrents_info(hashes=digest)
+            if existing:
+                await self._resume_or_duplicate(job, existing[0])
+                return
         job_tag = TAG_JOB_PREFIX + job.job_id
         is_magnet = url.lower().startswith("magnet:")
         added = await self._qbit.add_torrent(
@@ -155,6 +187,24 @@ class DownloadPipeline:
             return
         job.torrent_hash = torrent_hash
         await self._process(job, torrent_hash, job_tag, deadline)
+
+    async def _resume_or_duplicate(self, job: Job, row: dict) -> None:
+        """The torrent is already in qBittorrent: ours and unfinished, or somebody else's.
+
+        A torrent still tagged `fx-pending` that no running job owns was left by a job that
+        failed after the add (WR-01). It is not "already added": nothing runs. Run it through the
+        allowlist again, which is idempotent, so the next tap can finish it.
+        """
+        tags = _tags_of(row)
+        old_tag = _job_tag_of(tags)
+        owner = self._registry.task(old_tag.removeprefix(TAG_JOB_PREFIX)) if old_tag else None
+        if TAG_PENDING not in tags or (owner is not None and not owner.done()):
+            job.state = JobState.DUPLICATE
+            return
+        torrent_hash = str(row["hash"])
+        job.torrent_hash = torrent_hash
+        deadline = self._clock() + self._settings.metadata_timeout
+        await self._process(job, torrent_hash, old_tag or TAG_JOB_PREFIX, deadline)
 
     async def _find_by_tag(self, job_tag: str, deadline: float) -> str | None:
         while True:
@@ -191,13 +241,25 @@ class DownloadPipeline:
             return
         await self._qbit.start([torrent_hash])
         job.state = JobState.STARTED
-        try:
-            await self._qbit.remove_tags([torrent_hash], [TAG_PENDING, job_tag])
-            await self._qbit.delete_tags([job_tag])
-        except QbitError as exc:
-            # The torrent is filtered and running; a leftover tag only makes the next reconcile
-            # run the same allowlist again.
-            logger.warning("tag cleanup failed after start: %s", type(exc).__name__)
+        await self._clear_pending_tags(torrent_hash, job_tag)
+
+    async def _clear_pending_tags(self, torrent_hash: str, job_tag: str) -> None:
+        """Drop `fx-pending` and the job tag from a started torrent, retrying a few times.
+
+        If every try fails the torrent keeps `fx-pending`. That is safe: `reconcile` sees that it
+        has started and runs the allowlist again instead of deleting it (CR-01).
+        """
+        for attempt in range(1, TAG_CLEANUP_ATTEMPTS + 1):
+            try:
+                await self._qbit.remove_tags([torrent_hash], [TAG_PENDING, job_tag])
+                await self._qbit.delete_tags([job_tag])
+                return
+            except QbitError as exc:
+                logger.warning(
+                    "tag cleanup failed after start (try %s): %s", attempt, type(exc).__name__
+                )
+                if attempt < TAG_CLEANUP_ATTEMPTS:
+                    await self._sleep(POLL_SECONDS)
 
     async def _wait_for_files(self, torrent_hash: str, deadline: float) -> list[dict] | None:
         """The file list, or None when it has not arrived by the deadline."""
@@ -227,8 +289,10 @@ class DownloadPipeline:
         """Finish what a restart interrupted (D-12, FILT-02).
 
         Every portal torrent carries `fx-pending` until it was filtered. One older than
-        METADATA_TIMEOUT is deleted with its files; the others go through the same allowlist
-        and are started only after it. The category qBittorrent holds is never changed.
+        METADATA_TIMEOUT that never started is deleted with its files. The others go through
+        the same allowlist and are started only after it; that includes a torrent that already
+        runs but kept its tag after a failed cleanup, which must never be deleted (CR-01). The
+        category qBittorrent holds is never changed.
         """
         now = self._clock()
         timeout = self._settings.metadata_timeout
@@ -238,16 +302,19 @@ class DownloadPipeline:
         }
         for row in await self._qbit.torrents_info(tag=TAG_PENDING):
             torrent_hash = str(row["hash"])
-            tags = [t.strip() for t in str(row.get("tags") or "").split(",")]
-            job_tag = next((t for t in tags if t.startswith(TAG_JOB_PREFIX)), None)
+            job_tag = _job_tag_of(_tags_of(row))
             known_id = job_tag.removeprefix(TAG_JOB_PREFIX) if job_tag else None
             if known_id is not None and self._registry.get(known_id) is not None:
                 continue  # a job of this process owns the torrent
             added_on = float(row.get("added_on") or 0)
-            if now - added_on > timeout:
+            started = _has_started(row)
+            if now - added_on > timeout and not started:
                 logger.info("reconcile: deleting a pending torrent older than %s s", timeout)
                 await self._discard(torrent_hash, job_tag or TAG_JOB_PREFIX)
                 continue
+            # A started torrent already has its file list; give it the full wait anyway so one
+            # failed read never turns into a delete.
+            deadline = now + timeout if started else added_on + timeout
             job_id = known_id if known_id and JOB_ID.fullmatch(known_id) else secrets.token_hex(8)
             job = Job(
                 job_id=job_id,
@@ -261,6 +328,6 @@ class DownloadPipeline:
                 job,
                 self._settle(
                     job,
-                    self._process(job, torrent_hash, TAG_JOB_PREFIX + job_id, added_on + timeout),
+                    self._process(job, torrent_hash, TAG_JOB_PREFIX + job_id, deadline),
                 ),
             )

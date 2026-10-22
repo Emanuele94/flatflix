@@ -48,6 +48,7 @@ class FakeTorrent:
     started: bool = False
     files: list[dict] | None = None
     polls_left: int = 0  # `torrents/files` answers [] this many more times
+    downloaded: int = 0  # payload bytes fetched so far (a stopped torrent can still hold some)
 
 
 @dataclass
@@ -384,6 +385,7 @@ class FakeQbit:
             "tags": ", ".join(torrent.tags),
             "added_on": int(torrent.added_on),
             "state": "downloading" if torrent.started else "stoppedDL",
+            "downloaded": torrent.downloaded,
         }
 
     def _torrents_info(self, request: httpx.Request) -> httpx.Response:
