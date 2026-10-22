@@ -231,7 +231,9 @@ def build_items(
             "state": state,
             "progress": percent(row, state),
             "eta_seconds": eta_of(row, state),
-            "action": "remove" if state == "ready" else "cancel",
+            # The button must name what DELETE then does: "cancel" deletes the partial files,
+            # "remove" keeps them, and the server decides with the same function (D-32, D-33).
+            "action": "cancel" if cancel_deletes_files(row) else "remove",
         }
         kept.append(((0 if state in ACTIVE_PLAIN_STATES else 1, -stamp, item_id), item))
     for job in jobs:

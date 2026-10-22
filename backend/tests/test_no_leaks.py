@@ -223,6 +223,13 @@ async def test_no_response_carries_a_secret_path_magnet_or_category(
     listing = seen.record("downloads list", await client.get("/api/downloads"))
     assert listing.status_code == 200
     assert listing.json()["items"], "the canary torrent never reached the downloads list"
+    # Cancelling it: the opaque id is the only thing the browser sends; the answer is an empty 204.
+    cancel = seen.record(
+        "downloads cancel",
+        await client.delete(f"/api/downloads/{listing.json()['items'][0]['id']}"),
+    )
+    assert cancel.status_code == 204
+    assert fake.deleted, "the cancel never reached qBittorrent"
 
     # The fake really received the torrent in the canary category: the data was in play.
     (add,) = fake.calls_to("/api/v2/torrents/add")
