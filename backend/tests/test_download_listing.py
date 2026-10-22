@@ -333,6 +333,37 @@ def test_cancel_deletes_files_only_for_a_known_in_progress_state_below_one(
     assert cancel_deletes_files({"state": state, "progress": progress}) is expected
 
 
+@pytest.mark.parametrize("state", ["checkingResumeData", "checkingDL", "queuedDL", "error"])
+@pytest.mark.parametrize("completion_on", [int(NOW) - 86400, float(int(NOW) - 86400), "1700000000"])
+def test_a_torrent_that_finished_once_never_has_its_files_deleted(
+    state: str, completion_on: object
+) -> None:
+    # qBittorrent reports progress 0 for a finished film while it loads resume data or rechecks.
+    torrent = row(state=state, progress=0, completion_on=completion_on)
+
+    assert cancel_deletes_files(torrent) is False
+    (item,) = items_of([torrent])
+    assert item["action"] == "remove"
+
+
+@pytest.mark.parametrize("completion_on", [-1, 0, None, ""])
+def test_a_torrent_with_no_completion_time_is_still_cancelled_with_its_files(
+    completion_on: object,
+) -> None:
+    torrent = row(state="downloading", progress=0.4, completion_on=completion_on)
+
+    assert cancel_deletes_files(torrent) is True
+
+
+@pytest.mark.parametrize("completion_on", ["not-a-number", float("nan"), float("inf")])
+def test_a_completion_time_that_is_not_a_usable_number_reads_as_finished(
+    completion_on: object,
+) -> None:
+    torrent = row(state="downloading", progress=0.4, completion_on=completion_on)
+
+    assert cancel_deletes_files(torrent) is False
+
+
 def test_active_rows_come_first_then_newest_first_inside_each_group() -> None:
     old_active = row("1" * 40, added_on=int(NOW) - 5000)
     new_active = row("2" * 40, added_on=int(NOW) - 100)

@@ -88,15 +88,22 @@ def plain_state(row: dict) -> str:
 
 
 def cancel_deletes_files(row: dict) -> bool:
-    """True when cancelling this torrent deletes its files: a known in-progress state below 100 %.
+    """True when cancelling this torrent deletes its files: it never finished and is below 100 %.
 
-    Decided on the server from the row it just read, never from the browser. A confirm tap on a
-    row that finished a second ago keeps the film (D-33), and a moving, completed or unrecognised
-    torrent keeps its files too. A progress that is not a number reads as finished.
+    Decided on the server from the row it just read, never from the browser. The files go only on
+    positive evidence that the film never completed: a known in-progress state, a progress below
+    100 % and no completion time. qBittorrent reports `completion_on` as -1 until a torrent first
+    completes, while a finished film that is being re-checked, or has not loaded its resume data
+    yet after a restart, can read as progress 0. So a torrent that finished once keeps its files,
+    and so does a moving, completed or unrecognised one (D-33). A progress or a completion time
+    that is not a number reads as finished.
     """
     if str(row.get("state") or "") not in IN_PROGRESS_RAW_STATES:
         return False
     try:
+        completed_at = row.get("completion_on")
+        if completed_at not in (None, "") and not float(completed_at) <= 0:
+            return False  # it finished at least once (and a non-finite value reads as finished)
         progress = float(row.get("progress") or 0)
     except (TypeError, ValueError):
         return False

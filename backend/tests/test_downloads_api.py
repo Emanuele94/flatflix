@@ -217,8 +217,10 @@ async def test_the_list_action_and_the_delete_agree_on_what_happens_to_the_files
     progress: float,
     deletes: bool,
 ) -> None:
+    # qBittorrent reports no completion time (-1) until a torrent first finishes.
+    finished_at = int(time.time()) - 60 if progress >= 1 else -1
     fake_qbit.add_torrent_row(
-        HASH, category="Film", state=state, progress=progress, completion_on=int(time.time()) - 60
+        HASH, category="Film", state=state, progress=progress, completion_on=finished_at
     )
     (item,) = (await user_api.get("/api/downloads")).json()["items"]
 
