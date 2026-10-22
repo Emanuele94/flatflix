@@ -10,7 +10,15 @@ const JOB_GIVE_UP_MS = 330000; // METADATA_TIMEOUT is 5 min; stop asking after 5
 // A row in one of these states can be tapped again; every other state ignores taps.
 const RETRYABLE = new Set(['failed', 'notReady', 'network', 'lost']);
 // Backend job statuses that map to a row state. Anything else is a failure, never a success.
-const JOB_STATES = new Set(['started', 'preparing', 'rejected', 'unavailable', 'duplicate', 'failed']);
+const JOB_STATES = new Set([
+  'started',
+  'preparing',
+  'rejected',
+  'unsupported',
+  'unavailable',
+  'duplicate',
+  'failed',
+]);
 
 // The current search survives a page reload (G-01-3 c, D-11): sessionStorage, this tab only.
 // It holds only the query, the type, opaque ids, the rows the API already showed and row states.

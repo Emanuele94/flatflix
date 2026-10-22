@@ -26,6 +26,7 @@ export const MSG = {
   started: 'Started ✓',
   preparing: 'Preparing',
   rejected: 'This file doesn’t contain a video. Try another result.',
+  unsupportedFormat: 'This video format isn’t supported. Try another result.',
   unavailable: 'Not available. Try another result.',
   duplicate: 'Already added',
   downloadFailed: 'Download failed. Try again.',

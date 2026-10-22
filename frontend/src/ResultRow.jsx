@@ -2,7 +2,7 @@ import { MSG } from './messages.js';
 
 // Row states (kept by Search, keyed by result_id):
 //   undefined | pending | started | preparing | duplicate
-//   | rejected | unavailable | failed | expired | notReady | network | lost
+//   | rejected | unsupported | unavailable | failed | expired | notReady | network | lost
 // "Started" is rendered for `started` only: the backend returns it after the allowlist ran,
 // priorities were verified and torrents/start succeeded. Nothing else ever looks like success.
 
@@ -16,6 +16,7 @@ const LOCKED_LABEL = {
 // States shown as a message under the button.
 const MESSAGE = {
   rejected: { text: MSG.rejected, tone: 'warn', retry: false },
+  unsupported: { text: MSG.unsupportedFormat, tone: 'warn', retry: false },
   unavailable: { text: MSG.unavailable, tone: 'warn', retry: false },
   expired: { text: MSG.searchExpired, tone: 'warn', retry: false },
   failed: { text: MSG.downloadFailed, tone: 'error', retry: true },
