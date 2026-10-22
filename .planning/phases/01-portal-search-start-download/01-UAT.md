@@ -1,9 +1,9 @@
 ---
-status: complete
+status: diagnosed
 phase: 01-portal-search-start-download
 source: [01-VERIFICATION.md]
 started: 2026-10-22T12:27:12Z
-updated: 2026-10-22T13:45:46.403Z
+updated: 2026-10-22T13:50:47Z
 ---
 
 ## Current Test
@@ -66,5 +66,23 @@ blocked: 0
   reason: "User reported: [screenshot: piratebay webm -> 'This file doesn't contain a video'; limetorrents webm stuck in Preparing] i then refreshed during preparing but i lost browser memory"
   severity: major
   test: 3
-  artifacts: []
-  missing: []
+  root_cause: "(a) pipeline.py adds page-URL results with stopped=true (WR-04); the limetorrents/torrentproject downloader resolves to a magnet that inherits addStopped and never fetches metadata, so the job ends UNAVAILABLE after 300 s. (b) .webm is outside the FILT-02 allowlist, and the single 'rejected' status shows the D-13 text 'doesn't contain a video'. (c) Search.jsx keeps rows and job ids only in component state, so a reload loses them while the server job keeps running."
+  artifacts:
+    - path: "backend/app/download/pipeline.py"
+      issue: "stopped=not is_magnet decided from the search URL, not from what the downloader resolves (lines 178-187)"
+    - path: "backend/app/qbit/client.py"
+      issue: "stopped keyword and docstring encode the WR-04 assumption (lines 269-314)"
+    - path: "backend/tests/fakeqbit.py"
+      issue: "downloader adds always modeled as .torrent with metadata; stop condition assumed not to hold such a torrent (opposite of qBittorrent source)"
+    - path: "backend/tests/test_download_pipeline.py"
+      issue: "asserts stopped=true for page URLs (lines 517-576)"
+    - path: "frontend/src/Search.jsx"
+      issue: "rows, jobs, query, type, search id live only in useState/useRef; nothing persisted"
+    - path: "frontend/src/messages.js"
+      issue: "MSG.rejected (D-13) cannot distinguish 'no video' from 'video format not accepted'"
+  missing:
+    - "Send stopCondition=MetadataReceived on every add and never stopped=true (qBittorrent pauses a torrent that has metadata at add time under that stop condition)"
+    - "Fake: model a downloader that resolves to a magnet; a stop condition on a torrent with metadata keeps it stopped; flip tests 517-576; add a downloader->magnet case that reaches STARTED with downloaded==0; real-engine test of the limetorrents route"
+    - "Persist {type, q, search_id, rows, jobs} to sessionStorage in Search.jsx; on mount restore and resume pollJob for preparing jobs; clear on new search and logout"
+    - "webm (user decision 2026-10-22, option B): keep the FILT-02 allowlist; give a rejected-for-format torrent a distinct status/reason and show \"This video format isn't supported. Try another result.\" (amends D-13 copy)"
+  debug_session: ".planning/debug/download-preparing-gap.md
