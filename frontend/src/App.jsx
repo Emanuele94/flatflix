@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { api, ApiError, setUnauthorizedHandler } from './api.js';
+import { Downloads, clearDownloadsCache } from './Downloads.jsx';
 import { Login } from './Login.jsx';
 import { MSG } from './messages.js';
 import { Search, clearSavedSearch } from './Search.jsx';
@@ -8,9 +9,15 @@ export function App() {
   // checking | login | in
   const [view, setView] = useState('checking');
   const [health, setHealth] = useState(null);
+  // search | downloads. In memory only: after a reload Search is shown (D-26).
+  const [tab, setTab] = useState('search');
+  const tabRefs = { search: useRef(null), downloads: useRef(null) };
 
   useEffect(() => {
-    setUnauthorizedHandler(() => setView('login'));
+    setUnauthorizedHandler(() => {
+      setTab('search');
+      setView('login');
+    });
     return () => setUnauthorizedHandler(null);
   }, []);
 
@@ -18,12 +25,32 @@ export function App() {
     // First, so the saved search is gone even if /api/logout hangs (G-01-3). A session that merely
     // expires (401) does not clear it: the same person logs in again and finds her search.
     clearSavedSearch();
+    clearDownloadsCache();
     try {
       await api('/api/logout', { method: 'POST' });
     } catch {
       // Whatever happened, the user asked to leave: show the login screen.
     }
+    setTab('search');
     setView('login');
+  }
+
+  function selectTab(name) {
+    setTab(name);
+    tabRefs[name].current?.focus();
+  }
+
+  function onTabKeyDown(e) {
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      e.preventDefault();
+      selectTab(tab === 'search' ? 'downloads' : 'search');
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      selectTab('search');
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      selectTab('downloads');
+    }
   }
 
   useEffect(() => {
@@ -56,7 +83,14 @@ export function App() {
 
   let content = null;
   if (view === 'login') {
-    content = <Login onLoggedIn={() => setView('in')} />;
+    content = (
+      <Login
+        onLoggedIn={() => {
+          setTab('search');
+          setView('in');
+        }}
+      />
+    );
   } else if (view === 'in') {
     content = (
       <>
@@ -67,7 +101,52 @@ export function App() {
           </button>
         </header>
         <main class="app">
-          <Search />
+          <div class="tabs" role="tablist">
+            <button
+              ref={tabRefs.search}
+              class="tab"
+              type="button"
+              role="tab"
+              id="tab-search"
+              aria-controls="panel-search"
+              aria-selected={tab === 'search' ? 'true' : 'false'}
+              tabIndex={tab === 'search' ? 0 : -1}
+              onClick={() => setTab('search')}
+              onKeyDown={onTabKeyDown}
+            >
+              {MSG.tabSearch}
+            </button>
+            <button
+              ref={tabRefs.downloads}
+              class="tab"
+              type="button"
+              role="tab"
+              id="tab-downloads"
+              aria-controls="panel-downloads"
+              aria-selected={tab === 'downloads' ? 'true' : 'false'}
+              tabIndex={tab === 'downloads' ? 0 : -1}
+              onClick={() => setTab('downloads')}
+              onKeyDown={onTabKeyDown}
+            >
+              {MSG.tabDownloads}
+            </button>
+          </div>
+          <section
+            id="panel-search"
+            role="tabpanel"
+            aria-labelledby="tab-search"
+            hidden={tab !== 'search'}
+          >
+            <Search />
+          </section>
+          <section
+            id="panel-downloads"
+            role="tabpanel"
+            aria-labelledby="tab-downloads"
+            hidden={tab !== 'downloads'}
+          >
+            {tab === 'downloads' && <Downloads onGoToSearch={() => setTab('search')} />}
+          </section>
         </main>
       </>
     );

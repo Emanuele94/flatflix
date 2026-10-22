@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/preact';
 import { api, setUnauthorizedHandler } from '../api.js';
 import { App } from '../App.jsx';
+import { clearDownloadsCache } from '../Downloads.jsx';
+import { MSG } from '../messages.js';
 import { SAVED_SEARCH_KEY } from '../Search.jsx';
 
 function jsonResponse(body, status = 200) {
@@ -13,12 +15,19 @@ function jsonResponse(body, status = 200) {
 }
 
 // Route fetch by path so session and health can be controlled independently.
-function stubApi({ session = jsonResponse({ logged_in: true }), health } = {}) {
+function stubApi({
+  session = jsonResponse({ logged_in: true }),
+  health,
+  downloads = jsonResponse({ items: [] }),
+} = {}) {
   const okHealth = jsonResponse({ status: 'ok', qbittorrent: 'up' });
   vi.stubGlobal(
     'fetch',
     vi.fn(async (path) => {
-      const r = path === '/api/session' ? session : (health ?? okHealth);
+      let r;
+      if (path === '/api/session') r = session;
+      else if (path === '/api/downloads') r = downloads;
+      else r = health ?? okHealth;
       if (r instanceof Error) throw r;
       return r;
     }),
@@ -29,6 +38,7 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   sessionStorage.clear();
+  clearDownloadsCache();
 });
 
 describe('App session gate', () => {
@@ -45,6 +55,70 @@ describe('App session gate', () => {
     render(<App />);
     expect(await screen.findByRole('button', { name: 'Search' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Log out' })).toBeTruthy();
+  });
+});
+
+describe('App tabs (D-26)', () => {
+  const ITEMS = {
+    items: [
+      {
+        id: 'a'.repeat(16),
+        name: 'Sintel.2010.1080p',
+        type: 'film',
+        state: 'downloading',
+        progress: 42,
+        eta_seconds: 600,
+        action: 'cancel',
+      },
+    ],
+  };
+
+  it('shows Search and Downloads tabs with Search selected', async () => {
+    stubApi();
+    render(<App />);
+    await screen.findByRole('button', { name: 'Search' });
+    const tabs = screen.getAllByRole('tab');
+    expect(tabs.map((t) => t.textContent)).toEqual([MSG.tabSearch, MSG.tabDownloads]);
+    expect(screen.getByRole('tab', { name: MSG.tabSearch }).getAttribute('aria-selected')).toBe(
+      'true',
+    );
+    expect(screen.getByRole('tab', { name: MSG.tabDownloads }).getAttribute('aria-selected')).toBe(
+      'false',
+    );
+    expect(screen.getAllByRole('button', { name: 'Search' })).toHaveLength(1);
+  });
+
+  it('lists the downloads when the Downloads tab is opened', async () => {
+    stubApi({ downloads: jsonResponse(ITEMS) });
+    render(<App />);
+    await screen.findByRole('button', { name: 'Search' });
+    fireEvent.click(screen.getByRole('tab', { name: MSG.tabDownloads }));
+    expect(await screen.findByText('Sintel.2010.1080p')).toBeTruthy();
+    expect(screen.getByRole('tab', { name: MSG.tabDownloads }).getAttribute('aria-selected')).toBe(
+      'true',
+    );
+  });
+
+  it('keeps what was typed in Search when switching to Downloads and back', async () => {
+    stubApi({ downloads: jsonResponse(ITEMS) });
+    render(<App />);
+    await screen.findByRole('button', { name: 'Search' });
+    fireEvent.input(screen.getByLabelText('Movie or series title'), { target: { value: 'Sintel' } });
+    fireEvent.click(screen.getByRole('tab', { name: MSG.tabDownloads }));
+    await screen.findByText('Sintel.2010.1080p');
+    fireEvent.click(screen.getByRole('tab', { name: MSG.tabSearch }));
+    expect(screen.getByLabelText('Movie or series title').value).toBe('Sintel');
+  });
+
+  it('ArrowRight on the Search tab selects Downloads', async () => {
+    stubApi({ downloads: jsonResponse(ITEMS) });
+    render(<App />);
+    await screen.findByRole('button', { name: 'Search' });
+    fireEvent.keyDown(screen.getByRole('tab', { name: MSG.tabSearch }), { key: 'ArrowRight' });
+    expect(screen.getByRole('tab', { name: MSG.tabDownloads }).getAttribute('aria-selected')).toBe(
+      'true',
+    );
+    expect(await screen.findByText('Sintel.2010.1080p')).toBeTruthy();
   });
 });
 
