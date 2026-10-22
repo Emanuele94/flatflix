@@ -2,17 +2,17 @@
 gsd_state_version: "1.0"
 current_phase: 01
 current_phase_name: Portal Search & Start Download
-status: verifying
-stopped_at: Completed 01-09-PLAN.md
-last_updated: "2026-10-22T11:29:35.500Z"
+status: executing
+stopped_at: Completed 01-14-PLAN.md
+last_updated: "2026-10-22T14:43:19.681Z"
 last_activity: 2026-10-22
 last_activity_desc: Phase 01 execution started
-state_head: 638ef84b7d6b4b0a4d14ad52ee1f5f257992b2fa
+state_head: ce871baa1a038992804cb1948c7630d20802371a
 progress:
   total_phases: 7
   completed_phases: 0
-  total_plans: 13
-  completed_plans: 13
+  total_plans: 16
+  completed_plans: 14
   percent: 0
 ---
 
@@ -28,8 +28,8 @@ See: .planning/PROJECT.md (updated 2026-10-21)
 ## Current Position
 
 Phase: 01 (Portal Search & Start Download) — EXECUTING
-Plan: 13 of 13
-Status: Phase complete — ready for verification
+Plan: 15 of 16
+Status: Ready to execute
 Last activity: 2026-10-22 — Phase 01 execution started
 
 Progress: [░░░░░░░░░░] 0%
@@ -69,6 +69,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P08 | 18 min | 2 tasks | 14 files |
 | Phase 01 P13 | 25 min | 2 tasks | 6 files |
 | Phase 01 P09 | 40 min | 3 tasks | 10 files |
+| Phase 01 P14 | 9 min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -104,6 +105,7 @@ Recent decisions affecting current work:
 - [Phase 01]: 01-13: download POST and job polling live in Search (row state map keyed by result_id); ResultRow is a pure view
 - [Phase 01]: 01-13: rows send the type of the search that produced them, captured at submit, not the live toggle
 - [Phase 01]: 01-09: doctor --torrents is a separate list mode; every smoke subcommand ends with the leak scan; smoke downloads only Blender open movies
+- [Phase 01]: 01-14: every torrents/add sends stopCondition=MetadataReceived and never the stopped field (reverts WR-04); qBittorrent 5.2.4 pauses a metadata-complete torrent under that condition
 
 ### Pending Todos
 
@@ -133,6 +135,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-22T11:29:35.352Z
-Stopped at: Completed 01-09-PLAN.md
+Last session: 2026-10-22T14:43:19.547Z
+Stopped at: Completed 01-14-PLAN.md
 Resume file: None
