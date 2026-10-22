@@ -2,17 +2,17 @@
 gsd_state_version: "1.0"
 current_phase: 01
 current_phase_name: Portal Search & Start Download
-status: executing
-stopped_at: Completed 01-15-PLAN.md
-last_updated: "2026-10-22T14:50:31.314Z"
+status: verifying
+stopped_at: Completed 01-16-PLAN.md
+last_updated: "2026-10-22T14:57:07.686Z"
 last_activity: 2026-10-22
 last_activity_desc: Phase 01 execution started
-state_head: 3f4304dba5c953b13ea2d58f161e404f96a66949
+state_head: 6cbb57f15f280289598b1a1d5525cf7a0b4eaeee
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 16
-  completed_plans: 15
+  completed_plans: 16
   percent: 0
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-10-21)
 
 Phase: 01 (Portal Search & Start Download) — EXECUTING
 Plan: 16 of 16
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-10-22 — Phase 01 execution started
 
 Progress: [░░░░░░░░░░] 0%
@@ -71,6 +71,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P09 | 40 min | 3 tasks | 10 files |
 | Phase 01 P14 | 9 min | 3 tasks | 5 files |
 | Phase 01 P15 | 8 min | 3 tasks | 4 files |
+| Phase 01 P16 | 6 min | 3 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -108,6 +109,8 @@ Recent decisions affecting current work:
 - [Phase 01]: 01-09: doctor --torrents is a separate list mode; every smoke subcommand ends with the leak scan; smoke downloads only Blender open movies
 - [Phase 01]: 01-14: every torrents/add sends stopCondition=MetadataReceived and never the stopped field (reverts WR-04); qBittorrent 5.2.4 pauses a metadata-complete torrent under that condition
 - [Phase 01]: 01-15: search persisted in sessionStorage (Search.jsx only); logout and a new search clear it, a 401 does not; saved ids must match 16 hex and a future startedAt is rejected
+- [Phase 01]: 01-16: FILT-02 allowlist unchanged; non-allowlisted video formats (.webm etc.) give status unsupported with their own text (D-13 amended)
+- [Phase 01]: 01-16: D-24 reload persistence via sessionStorage recorded; D-23 re-affirmed for plugin-printed magnets
 
 ### Pending Todos
 
@@ -137,6 +140,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-22T14:50:31.199Z
-Stopped at: Completed 01-15-PLAN.md
+Last session: 2026-10-22T14:57:07.565Z
+Stopped at: Completed 01-16-PLAN.md
 Resume file: None
