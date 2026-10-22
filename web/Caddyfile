@@ -32,8 +32,22 @@
 		respond "Not available yet" 404
 	}
 
+	# Hashed Vite assets never change, so they are cached for a year, and only for 2xx.
+	# No try_files: a missing asset must answer 404, never an HTML page cached for a year (D-42).
+	handle /assets/* {
+		root * /srv/portal
+		header {
+			match status 2xx
+			Cache-Control "public, max-age=31536000, immutable"
+		}
+		file_server
+	}
+
+	# index.html and the SPA fallback must be revalidated on every load, so a redeploy
+	# reaches phones without clearing their cache (D-42).
 	handle {
 		root * /srv/portal
+		header Cache-Control "no-cache"
 		try_files {path} /index.html
 		file_server
 	}

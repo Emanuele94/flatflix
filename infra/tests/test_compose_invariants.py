@@ -296,3 +296,45 @@ def test_backend_does_not_trust_forwarded_for_from_every_peer():
 def test_caddy_sets_forwarded_for_from_the_address_it_saw():
     caddyfile = (ROOT / "web" / "Caddyfile").read_text(encoding="utf-8")
     assert "header_up X-Forwarded-For {remote_host}" in caddyfile
+
+
+# -- Caddy cache rules: a redeploy must reach the phones (D-42) -------------------------------
+
+
+def _caddy_handle_blocks() -> list[str]:
+    """Top-level `handle` blocks of the site, each as its own text, found by counting braces."""
+    lines = (ROOT / "web" / "Caddyfile").read_text(encoding="utf-8").splitlines()
+    blocks: list[list[str]] = []
+    current: list[str] | None = None
+    depth = 0
+    for line in lines:
+        stripped = line.strip()
+        if current is None and depth == 1 and stripped.startswith("handle"):
+            current = []
+            blocks.append(current)
+        if current is not None:
+            current.append(line)
+        depth += line.count("{") - line.count("}")
+        if current is not None and depth == 1:
+            current = None
+    return ["\n".join(block) for block in blocks]
+
+
+def test_hashed_assets_are_immutable_only_for_2xx_and_never_fall_back():
+    blocks = [b for b in _caddy_handle_blocks() if b.lstrip().startswith("handle /assets/*")]
+    assert len(blocks) == 1
+    block = blocks[0]
+    assert "immutable" in block
+    assert "max-age=31536000" in block
+    assert "match status 2xx" in block
+    assert "file_server" in block
+    assert "try_files" not in block
+
+
+def test_index_and_spa_fallback_are_revalidated():
+    blocks = _caddy_handle_blocks()
+    catch_all = blocks[-1]
+    assert catch_all.lstrip().startswith("handle {")
+    assert 'Cache-Control "no-cache"' in catch_all
+    assert "try_files {path} /index.html" in catch_all
+    assert "immutable" not in catch_all

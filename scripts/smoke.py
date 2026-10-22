@@ -5,6 +5,7 @@ Usage:
     python3 scripts/smoke.py [--base URL] login
     python3 scripts/smoke.py [--base URL] search --q TEXT --type film|serie [--expect-results]
     python3 scripts/smoke.py [--base URL] download --q TEXT --type film|serie
+    python3 scripts/smoke.py [--base URL] cache
     python3 scripts/smoke.py [--base URL] all
 
 Steps of `login` (one `OK <step>` line each, exit 1 with `FAIL <step>: <reason>`):
@@ -22,6 +23,11 @@ start it with POST /api/download and poll the job until started or duplicate. No
 prints `SKIP` and exits 2: nothing else is ever started. `all` runs login, a search and then
 `download` for "Big Buck Bunny", "Sintel" and "Tears of Steel" until one does not skip.
 
+Steps of `cache` (no login): cache-index-no-cache (GET / revalidates), cache-spa-fallback-no-cache
+(GET /downloads revalidates), cache-asset-immutable (the hashed JS asset index.html references is
+cached for a year, immutable), cache-missing-asset-404 (a missing hashed asset is a plain 404, never
+immutable and never the index page).
+
 Every response any step receives is scanned for leaks at the end (qBittorrent password, session
 secret, password hash, qBittorrent host, save paths, category names, magnet and plugin URLs): a
 hit prints `FAIL leak: <marker name>` and never the value.
@@ -37,6 +43,7 @@ import argparse
 import http.cookiejar
 import json
 import re
+import secrets
 import sys
 import time
 import urllib.error
@@ -363,6 +370,45 @@ def run_download(base: str, query: str, content_type: str) -> int:
     return 0 if matched else SKIP_EXIT
 
 
+def _header(headers: dict[str, list[str]], name: str) -> str:
+    return ", ".join(headers.get(name, [])).lower()
+
+
+def run_cache(base: str) -> None:
+    """Cache-Control through Caddy: a redeploy reaches phones, hashed assets are cached long (D-42)."""
+    probe = Probe(base)
+
+    status, headers, body = probe.request("GET", "/")
+    expect("cache-index-no-cache", status, 200)
+    if "no-cache" not in _header(headers, "cache-control"):
+        raise Fail("cache-index-no-cache", "GET / is not served with Cache-Control: no-cache")
+    step_ok("cache-index-no-cache")
+
+    status, headers, fallback = probe.request("GET", "/downloads")
+    expect("cache-spa-fallback-no-cache", status, 200)
+    if b"<html" not in fallback.lower():
+        raise Fail("cache-spa-fallback-no-cache", "GET /downloads did not return the index page")
+    if "no-cache" not in _header(headers, "cache-control"):
+        raise Fail("cache-spa-fallback-no-cache", "the SPA fallback is not served with no-cache")
+    step_ok("cache-spa-fallback-no-cache")
+
+    match = re.search(rb'/assets/[A-Za-z0-9._-]+\.js', body)
+    if not match:
+        raise Fail("cache-asset-immutable", "index.html references no /assets/*.js file")
+    status, headers, _ = probe.request("GET", match.group(0).decode("ascii"))
+    expect("cache-asset-immutable", status, 200)
+    cache_control = _header(headers, "cache-control")
+    if "immutable" not in cache_control or "max-age=31536000" not in cache_control:
+        raise Fail("cache-asset-immutable", "the hashed asset is not cached for a year as immutable")
+    step_ok("cache-asset-immutable")
+
+    status, headers, _ = probe.request("GET", f"/assets/smoke-missing-{secrets.token_hex(4)}.js")
+    expect("cache-missing-asset-404", status, 404)
+    if "immutable" in _header(headers, "cache-control"):
+        raise Fail("cache-missing-asset-404", "a missing asset carries an immutable Cache-Control")
+    step_ok("cache-missing-asset-404")
+
+
 def run_all(base: str) -> int:
     run_login(base)
     probe = login_probe(base)
@@ -447,6 +493,7 @@ def main(argv: list[str]) -> int:
     )
     download.add_argument("--q", required=True, help="search text")
     download.add_argument("--type", required=True, choices=["film", "serie"])
+    sub.add_parser("cache", help="Cache-Control of index.html, SPA paths and hashed assets")
     sub.add_parser(
         "all", help="login, search, download an open-licensed film, leak scan"
     )
@@ -460,6 +507,8 @@ def main(argv: list[str]) -> int:
             run_search(args.base, args.q, args.type, args.expect_results)
         elif args.command == "download":
             code = run_download(args.base, args.q, args.type)
+        elif args.command == "cache":
+            run_cache(args.base)
         elif args.command == "all":
             code = run_all(args.base)
         leak_code = report_leaks()
