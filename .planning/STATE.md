@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 01
 current_phase_name: Portal Search & Start Download
 status: executing
-stopped_at: Completed 01-05-PLAN.md
-last_updated: "2026-10-22T10:30:54.127Z"
+stopped_at: Completed 01-11-PLAN.md
+last_updated: "2026-10-22T10:35:10.862Z"
 last_activity: 2026-10-22
 last_activity_desc: Phase 01 execution started
-state_head: fb2dfd559755b2b25b41679672a14c1acfec17fe
+state_head: 4f256b00e11c11a52e680150278d25534f32c9d9
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 13
-  completed_plans: 6
+  completed_plans: 7
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-21)
 ## Current Position
 
 Phase: 01 (Portal Search & Start Download) — EXECUTING
-Plan: 7 of 13
+Plan: 8 of 13
 Status: Ready to execute
 Last activity: 2026-10-22 — Phase 01 execution started
 
@@ -62,6 +62,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P02 | 4 min | 2 tasks | 13 files |
 | Phase 01 P04 | 8min | 2 tasks | 14 files |
 | Phase 01 P05 | 10min | 3 tasks | 14 files |
+| Phase 01 P11 | 10min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -84,6 +85,7 @@ Recent decisions affecting current work:
 - [Phase 01]: 01-04: CSP default-src 'self' at Caddy, so no inline style attributes or third-party URLs in the portal
 - [Phase 01]: 01-05: route-enumeration guard uses fastapi.routing.iter_route_contexts (FastAPI 0.159 nests included routers); every feature router must use protected_router()
 - [Phase 01]: 01-05: LoginThrottle reserves the attempt slot synchronously before argon2 verify and lives on app.state.login_throttle (built in create_app)
+- [Phase 01]: 01-11: login errors other than 401/429 render the serverUnreachable message so nothing technical reaches the screen
 
 ### Pending Todos
 
@@ -113,6 +115,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-22T10:30:54.084Z
-Stopped at: Completed 01-05-PLAN.md
+Last session: 2026-10-22T10:35:10.799Z
+Stopped at: Completed 01-11-PLAN.md
 Resume file: None

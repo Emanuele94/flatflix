@@ -35,7 +35,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   5. One documented laptop port map (Caddy, portal frontend, qBittorrent WebUI if published, Jellyfin 8096) and one media-folder contract (host paths, owner IDs, separate incomplete-downloads folder) exist, and no two services collide on a port.
   6. A torrent whose file list has no allowed video file is rejected before any data is downloaded, with a plain message to the user; in an accepted torrent, executables, scripts, shortcuts, archives and every other non-video, non-subtitle file are never downloaded (qBittorrent exclusion list plus per-file priority 0).
 
-**Plans**: 6/13 plans executed (12 waves; listed in execution order, so plan numbers are not sequential)
+**Plans**: 7/13 plans executed (12 waves; listed in execution order, so plan numbers are not sequential)
 
 Plans:
 **Wave 1**
@@ -55,7 +55,7 @@ Plans:
 - [x] 01-05-PLAN.md — Tracer: login API with 30-day session through Caddy; deny-by-default routes; brute-force limit; hash helper (wave 5)
 
 **Wave 6** *(blocked on Wave 5 completion)*
-- [ ] 01-11-PLAN.md — Tracer: Italian login screen and logged-in shell; expired-session handling and plain messages (wave 6)
+- [x] 01-11-PLAN.md — Tracer: Italian login screen and logged-in shell; expired-session handling and plain messages (wave 6)
 
 **Wave 7** *(blocked on Wave 6 completion)*
 - [ ] 01-06-PLAN.md — Tracer: qBittorrent bootstrap (categories, paths, exclusions, pinned plugins, seeding limits) + doctor CLI (wave 7)
@@ -169,7 +169,7 @@ Phases execute in numeric order: 1 → 2 → 2.1 → 3 → 4 → 5 → 6 (Phases
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Portal Search & Start Download | 6/13 | In Progress | - |
+| 1. Portal Search & Start Download | 7/13 | In Progress | - |
 | 2. Portal Download Management & Hardening | 0/TBD | Not started | - |
 | 2.1 Download Quarantine & Firecracker Validation | 0/TBD | Not started | - |
 | 3. Jellyfin Server & TV Playback Gate | 0/TBD | Not started | - |

@@ -13,7 +13,7 @@ Requirements for the initial release. Each maps to exactly one roadmap phase.
 
 ### Portal Access & Security
 
-- [ ] **AUTH-01**: User must log in with the portal's own username and password (separate from qBittorrent) before any search, download or status page or API endpoint is reachable; unauthenticated visits go to the login page. (qbit F8, section 10)
+- [x] **AUTH-01**: User must log in with the portal's own username and password (separate from qBittorrent) before any search, download or status page or API endpoint is reachable; unauthenticated visits go to the login page. (qbit F8, section 10)
 - [ ] **SEC-01**: qBittorrent credentials and session cookie live only in the backend; they never appear in any page, script or response the browser receives. (qbit NF3)
 - [x] **SEC-02**: qBittorrent's WebUI is reachable only from the backend over the internal container network; if published at all for admin setup it is bound to the laptop's loopback only, never to the LAN or Internet. (qbit NF4, section 10)
 - [ ] **SEC-03**: The backend accepts only `type` = `film` or `serie` (strict validation) and never accepts a file path or category name from the browser. (qbit sections 6, 10)
@@ -39,7 +39,7 @@ Requirements for the initial release. Each maps to exactly one roadmap phase.
 ### Portal Interface
 
 - [x] **PUI-01**: The portal interface is responsive and fully usable on a smartphone. (qbit NF1)
-- [ ] **PUI-02**: The end user never sees qBittorrent, save paths, category names or credentials; the main flow is a search followed by a single Download button. (qbit sections 1, 2, 15 closing note)
+- [x] **PUI-02**: The end user never sees qBittorrent, save paths, category names or credentials; the main flow is a search followed by a single Download button. (qbit sections 1, 2, 15 closing note)
 
 ### Download Filtering & Validation
 
@@ -141,7 +141,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| AUTH-01 | Phase 1 | Pending |
+| AUTH-01 | Phase 1 | Complete |
 | SEC-01 | Phase 1 | Pending |
 | SEC-02 | Phase 1 | Complete |
 | SEC-03 | Phase 1 | Pending |
@@ -158,7 +158,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DOWN-05 | Phase 2 | Pending |
 | DOWN-06 | Phase 2 | Pending |
 | PUI-01 | Phase 1 | Complete |
-| PUI-02 | Phase 1 | Pending |
+| PUI-02 | Phase 1 | Complete |
 | INFRA-01 | Phase 1 | Pending |
 | INFRA-02 | Phase 1 | Complete |
 | INFRA-03 | Phase 3 | Pending |
