@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 02
 current_phase_name: Portal Download Management & Hardening
 status: executing
-stopped_at: Completed 02-01-PLAN.md
-last_updated: "2026-10-22T19:58:03.226Z"
+stopped_at: Completed 02-02-PLAN.md
+last_updated: "2026-10-22T20:01:27.237Z"
 last_activity: 2026-10-22
 last_activity_desc: Phase 02 execution started
-state_head: 939cabc56a58dc8e1030b67b67931be95798d9e4
+state_head: dbc0bd6132e3332e7b171fe7ea838591c7be701e
 progress:
   total_phases: 7
   completed_phases: 1
   total_plans: 27
-  completed_plans: 17
+  completed_plans: 18
   percent: 14
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-21)
 ## Current Position
 
 Phase: 02 (Portal Download Management & Hardening) — EXECUTING
-Plan: 2 of 11
+Plan: 3 of 11
 Status: Ready to execute
 Last activity: 2026-10-22 — Phase 02 execution started
 
@@ -73,6 +73,7 @@ Progress: [█░░░░░░░░░] 14%
 | Phase 01 P15 | 8 min | 3 tasks | 4 files |
 | Phase 01 P16 | 6 min | 3 tasks | 11 files |
 | Phase 02 P01 | 25 min | 3 tasks | 10 files |
+| Phase 02 P02 | 9 min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -114,6 +115,7 @@ Recent decisions affecting current work:
 - [Phase 01]: 01-16: D-24 reload persistence via sessionStorage recorded; D-23 re-affirmed for plugin-printed magnets
 - [Phase 02]: Downloads list route is read-only and not behind require_ready, so it keeps working while bootstrap retries
 - [Phase 02]: A torrent is the primary identity of a list row (HMAC id of the info-hash); jobs are only a detail for rows with no torrent
+- [Phase 02]: 02-02: sample ratio measured against the largest non-sample video of any format (10 %, inclusive); 415 from torrents/add is unavailable
 
 ### Pending Todos
 
@@ -143,6 +145,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-22T19:58:03.082Z
-Stopped at: Completed 02-01-PLAN.md
+Last session: 2026-10-22T20:01:27.110Z
+Stopped at: Completed 02-02-PLAN.md
 Resume file: None
