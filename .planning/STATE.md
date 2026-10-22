@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 02
 current_phase_name: Portal Download Management & Hardening
 status: executing
-stopped_at: Completed 02-09-PLAN.md
-last_updated: "2026-10-22T20:38:50.999Z"
+stopped_at: Completed 02-10-PLAN.md
+last_updated: "2026-10-22T20:43:46.831Z"
 last_activity: 2026-10-22
 last_activity_desc: Phase 02 execution started
-state_head: c0c20e22e71225d6a55d4f918d13706dfe805bfe
+state_head: 44e95b07093480fd10b331c72bc106ccdfa17120
 progress:
   total_phases: 7
   completed_phases: 1
   total_plans: 27
-  completed_plans: 25
+  completed_plans: 26
   percent: 14
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-21)
 ## Current Position
 
 Phase: 02 (Portal Download Management & Hardening) — EXECUTING
-Plan: 10 of 11
+Plan: 11 of 11
 Status: Ready to execute
 Last activity: 2026-10-22 — Phase 02 execution started
 
@@ -81,6 +81,7 @@ Progress: [█░░░░░░░░░] 14%
 | Phase 02 P07 | 8min | 3 tasks | 8 files |
 | Phase 02 P08 | 10 min | 2 tasks | 4 files |
 | Phase 02 P09 | 25min | 3 tasks | 8 files |
+| Phase 02 P10 | 30min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -135,6 +136,7 @@ Recent decisions affecting current work:
 - [Phase 02]: 02-08: cancelled is a JOB_STATES member (backend status, stops polling); throttled is a client-side ROW_STATES member; both retryable and restorable
 - [Phase 02]: 02-09: failed logins audit outcome and address only, never the attempted username; download_done is written only for jobs that were not cancelled
 - [Phase 02]: 02-09: RedactingFilter keeps record.args structure and is installed on root and uvicorn handlers (RESEARCH A3 confirmed: uvicorn handlers do not propagate)
+- [Phase 02]: 02-10: Cancel and Remove share one id-only DELETE handler; a removed row is remembered with the poll number so an older poll cannot resurrect it
 
 ### Pending Todos
 
@@ -164,6 +166,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-22T20:38:50.849Z
-Stopped at: Completed 02-09-PLAN.md
+Last session: 2026-10-22T20:43:46.682Z
+Stopped at: Completed 02-10-PLAN.md
 Resume file: None
