@@ -15,9 +15,9 @@ Requirements for the initial release. Each maps to exactly one roadmap phase.
 
 - [ ] **AUTH-01**: User must log in with the portal's own username and password (separate from qBittorrent) before any search, download or status page or API endpoint is reachable; unauthenticated visits go to the login page. (qbit F8, section 10)
 - [ ] **SEC-01**: qBittorrent credentials and session cookie live only in the backend; they never appear in any page, script or response the browser receives. (qbit NF3)
-- [ ] **SEC-02**: qBittorrent's WebUI is reachable only from the backend over the internal container network; if published at all for admin setup it is bound to the laptop's loopback only, never to the LAN or Internet. (qbit NF4, section 10)
+- [x] **SEC-02**: qBittorrent's WebUI is reachable only from the backend over the internal container network; if published at all for admin setup it is bound to the laptop's loopback only, never to the LAN or Internet. (qbit NF4, section 10)
 - [ ] **SEC-03**: The backend accepts only `type` = `film` or `serie` (strict validation) and never accepts a file path or category name from the browser. (qbit sections 6, 10)
-- [ ] **SEC-04**: All configuration (qBittorrent URL/user/password, categories, portal user/password, session key) comes from environment variables, with a committed `.env.example` holding placeholders only; the repo contains no secrets, LAN IPs or real credentials. (qbit NF5, section 12; user constraint)
+- [x] **SEC-04**: All configuration (qBittorrent URL/user/password, categories, portal user/password, session key) comes from environment variables, with a committed `.env.example` holding placeholders only; the repo contains no secrets, LAN IPs or real credentials. (qbit NF5, section 12; user constraint)
 - [ ] **SEC-05**: Search and download endpoints are rate limited, so repeated rapid requests are throttled with a clear message. (qbit section 10)
 - [ ] **SEC-06**: The backend writes essential logs for debugging and audit (logins, searches, downloads, cancels, errors) and no log line contains credentials. (qbit NF6, section 10)
 
@@ -38,7 +38,7 @@ Requirements for the initial release. Each maps to exactly one roadmap phase.
 
 ### Portal Interface
 
-- [ ] **PUI-01**: The portal interface is responsive and fully usable on a smartphone. (qbit NF1)
+- [x] **PUI-01**: The portal interface is responsive and fully usable on a smartphone. (qbit NF1)
 - [ ] **PUI-02**: The end user never sees qBittorrent, save paths, category names or credentials; the main flow is a search followed by a single Download button. (qbit sections 1, 2, 15 closing note)
 
 ### Download Filtering & Validation
@@ -54,14 +54,14 @@ Requirements for the initial release. Each maps to exactly one roadmap phase.
 ### Shared Infrastructure
 
 - [ ] **INFRA-01**: The portal stack (frontend, backend, qBittorrent) starts with a single `docker compose up` on the laptop and `GET /api/health` reports service status. (qbit section 7, 11)
-- [ ] **INFRA-02**: One laptop-wide port map, documented in one place, assigns host ports for Caddy, the portal frontend, the qBittorrent WebUI (only if published) and Jellyfin 8096 without collisions; qBittorrent's WebUI port differs from the portal frontend's and `QBITTORRENT_URL` matches. (W3)
+- [x] **INFRA-02**: One laptop-wide port map, documented in one place, assigns host ports for Caddy, the portal frontend, the qBittorrent WebUI (only if published) and Jellyfin 8096 without collisions; qBittorrent's WebUI port differs from the portal frontend's and `QBITTORRENT_URL` matches. (W3)
 - [ ] **INFRA-03**: Caddy and Jellyfin run according to the port map; the portal and Jellyfin/Caddy stacks share a Docker network or one compose project; whether Caddy also fronts the portal is decided and recorded; the TV reaches Jellyfin only through Caddy's single address. (W3, ht architecture)
 - [ ] **INFRA-04**: A DHCP reservation keeps the laptop on the same LAN IP, so the TV address does not change after reboots. (ht setup)
 - [ ] **INFRA-05**: The whole stack (portal, Firecracker validation runner, Jellyfin, Caddy) comes up on a fresh Ubuntu Server machine from the repo using documented steps and a `.env` built from `.env.example`; moving to another machine changes only the host address. (ht architecture, derived)
 
 ### Shared Media & Naming
 
-- [ ] **MEDIA-01**: Host media folders for Film and SerieTV are defined once (host paths, owner UID/GID), writable by qBittorrent, and qBittorrent keeps incomplete downloads in a separate folder so the final folders contain only completed files. (W2, qbit sections 6, 11)
+- [x] **MEDIA-01**: Host media folders for Film and SerieTV are defined once (host paths, owner UID/GID), writable by qBittorrent, and qBittorrent keeps incomplete downloads in a separate folder so the final folders contain only completed files. (W2, qbit sections 6, 11)
 - [ ] **MEDIA-02**: Jellyfin mounts both media folders read-only with matching permissions and has two libraries, Film and SerieTV, pointing at them. (W2, ht setup)
 - [ ] **MEDIA-03**: When a download completes, the Jellyfin library is refreshed automatically (rescan trigger or schedule) so the item appears without admin action; partially downloaded files are never scanned. (W2)
 - [ ] **NAME-01**: The owner of the Jellyfin naming layout is decided and recorded in PROJECT.md Key Decisions (portal post-download step, external library manager, or relaxed requirement), backed by a Jellyfin scan test using raw torrent-style names; this is resolved before the two parts are integrated. (W1)
@@ -143,9 +143,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 |-------------|-------|--------|
 | AUTH-01 | Phase 1 | Pending |
 | SEC-01 | Phase 1 | Pending |
-| SEC-02 | Phase 1 | Pending |
+| SEC-02 | Phase 1 | Complete |
 | SEC-03 | Phase 1 | Pending |
-| SEC-04 | Phase 1 | Pending |
+| SEC-04 | Phase 1 | Complete |
 | SEC-05 | Phase 2 | Pending |
 | SEC-06 | Phase 2 | Pending |
 | SRCH-01 | Phase 1 | Pending |
@@ -157,14 +157,14 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DOWN-04 | Phase 2 | Pending |
 | DOWN-05 | Phase 2 | Pending |
 | DOWN-06 | Phase 2 | Pending |
-| PUI-01 | Phase 1 | Pending |
+| PUI-01 | Phase 1 | Complete |
 | PUI-02 | Phase 1 | Pending |
 | INFRA-01 | Phase 1 | Pending |
-| INFRA-02 | Phase 1 | Pending |
+| INFRA-02 | Phase 1 | Complete |
 | INFRA-03 | Phase 3 | Pending |
 | INFRA-04 | Phase 3 | Pending |
 | INFRA-05 | Phase 6 | Pending |
-| MEDIA-01 | Phase 1 | Pending |
+| MEDIA-01 | Phase 1 | Complete |
 | FILT-01 | Phase 1 | Pending |
 | FILT-02 | Phase 1 | Pending |
 | QUAR-01 | Phase 2.1 | Pending |
