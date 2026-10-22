@@ -1,4 +1,7 @@
-"""Pure file-decision rules for FILT-01/FILT-02 (RED skeleton: behaviour not implemented yet)."""
+"""Pure file-decision rules for FILT-01/FILT-02.
+
+No I/O and no framework imports: the pipeline (01-08) feeds it qBittorrent file rows.
+"""
 
 from __future__ import annotations
 
@@ -18,7 +21,12 @@ class TorrentFile:
 
     @classmethod
     def from_qbit(cls, row: dict) -> TorrentFile:
-        return cls(index=-1, name="", size=0, priority=0)
+        return cls(
+            index=int(row["index"]),
+            name=str(row["name"]),
+            size=int(row["size"]),
+            priority=int(row["priority"]),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,8 +38,14 @@ class FileDecision:
 
 
 def final_extension(path: str) -> str:
-    return ""
+    """Final suffix (with dot) of the last '/'-separated component, lower-cased; '' if none."""
+    base = path.rsplit("/", 1)[-1].lower()
+    dot = base.rfind(".")
+    return "" if dot == -1 else base[dot:]
 
 
 def decide(files: Sequence[TorrentFile]) -> FileDecision:
-    return FileDecision(accept=False, keep_ids=(), zero_ids=(), reason="not_implemented")
+    allowed = VIDEO_EXTENSIONS | SUBTITLE_EXTENSIONS
+    keep = sorted(f.index for f in files if final_extension(f.name) in allowed)
+    zero = sorted(f.index for f in files if final_extension(f.name) not in allowed)
+    return FileDecision(accept=True, keep_ids=tuple(keep), zero_ids=tuple(zero), reason=None)
