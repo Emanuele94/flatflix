@@ -115,7 +115,9 @@ Out of this phase: download list, cancel, audit logs and full rate limiting (Pha
 <deferred>
 ## Deferred Ideas
 
-None — discussion stayed within phase scope. (Caddy was pulled forward from Phase 3 into Phase 1 by user choice; Phase 3 still owns the Jellyfin/TV routes.)
+The discussion itself stayed within phase scope. (Caddy was pulled forward from Phase 3 into Phase 1 by user choice; Phase 3 still owns the Jellyfin/TV routes.)
+
+- **Unofficial, Italian-language or series-focused search plugins (and Jackett)** — deferred at planning time (2026-10-22, default approved by the user). Phase 1 installs only the official plugins pinned by D-19; research (A10) found series coverage thin with them. Revisit after testing series search on the real laptop; the admin can add plugins manually through the loopback WebUI (docs/setup.md).
 
 </deferred>
 

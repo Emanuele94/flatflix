@@ -35,7 +35,19 @@ Decimal phases appear between their surrounding integers in numeric order.
   5. One documented laptop port map (Caddy, portal frontend, qBittorrent WebUI if published, Jellyfin 8096) and one media-folder contract (host paths, owner IDs, separate incomplete-downloads folder) exist, and no two services collide on a port.
   6. A torrent whose file list has no allowed video file is rejected before any data is downloaded, with a plain message to the user; in an accepted torrent, executables, scripts, shortcuts, archives and every other non-video, non-subtitle file are never downloaded (qBittorrent exclusion list plus per-file priority 0).
 
-**Plans**: TBD
+**Plans**: 9 plans
+
+Plans:
+- [ ] 01-01-PLAN.md — Toolchain and host gate: manifests, lockfiles, package-legitimacy review, Docker Desktop WSL check (wave 1)
+- [ ] 01-02-PLAN.md — Tracer: backend in compose logs into pinned qBittorrent 5.2.4; hardened client; media folders (wave 2)
+- [ ] 01-03-PLAN.md — Pure content rules, test-first: file allowlist (FILT-02) and search-result filters (SRCH-02) (wave 2)
+- [ ] 01-04-PLAN.md — Tracer: portal through Caddy on port 80; port map + media contract doc; compose and repo-hygiene invariants (wave 3)
+- [ ] 01-05-PLAN.md — Tracer: login with 30-day session; deny-by-default routes; brute-force limit; hash helper (wave 4)
+- [ ] 01-06-PLAN.md — Tracer: qBittorrent bootstrap (categories, paths, exclusions, pinned plugins, seeding limits) + doctor CLI (wave 5)
+- [ ] 01-07-PLAN.md — Tracer: Film/Serie search with live filtered results; strict input, timeout, cleanup; phone UI (wave 6)
+- [ ] 01-08-PLAN.md — Tracer: one-tap download with stopCondition=MetadataReceived, allowlist before start, real-engine guard; row states (wave 7)
+- [ ] 01-09-PLAN.md — Tracer: household flow end to end with leak scan; setup guide; CLAUDE.md/REQUIREMENTS.md aligned; phone check (wave 8)
+
 **UI hint**: yes
 
 ### Phase 2: Portal Download Management & Hardening
@@ -130,7 +142,7 @@ Phases execute in numeric order: 1 → 2 → 2.1 → 3 → 4 → 5 → 6 (Phases
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Portal Search & Start Download | 0/TBD | Not started | - |
+| 1. Portal Search & Start Download | 0/9 | Planned | - |
 | 2. Portal Download Management & Hardening | 0/TBD | Not started | - |
 | 2.1 Download Quarantine & Firecracker Validation | 0/TBD | Not started | - |
 | 3. Jellyfin Server & TV Playback Gate | 0/TBD | Not started | - |
