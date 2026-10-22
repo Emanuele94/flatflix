@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/preact';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/preact';
 import { DownloadRow } from '../DownloadRow.jsx';
 import { MSG } from '../messages.js';
 
@@ -134,5 +134,88 @@ describe('partial data and safety', () => {
       expect(container.querySelectorAll('[style]')).toHaveLength(0);
       cleanup();
     }
+  });
+});
+
+describe('Cancel download (D-32)', () => {
+  const handlers = () => ({
+    onAskCancel: vi.fn(),
+    onCancel: vi.fn(),
+    onKeep: vi.fn(),
+    onRemove: vi.fn(),
+  });
+
+  it.each(['preparing', 'downloading', 'stalled', 'problem'])(
+    '%s row with action cancel shows the Cancel button and no confirm text',
+    (state) => {
+      const h = handlers();
+      renderRow({ state }, h);
+      fireEvent.click(screen.getByRole('button', { name: MSG.cancelDownload }));
+      expect(h.onAskCancel).toHaveBeenCalledWith(base.id);
+      expect(screen.queryByText(MSG.cancelConfirmTitle)).toBeNull();
+      expect(h.onCancel).not.toHaveBeenCalled();
+    },
+  );
+
+  it('the open panel replaces the button in place and focuses "No, keep it"', () => {
+    renderRow({}, { ...handlers(), confirming: true });
+    expect(screen.getByText(MSG.cancelConfirmTitle)).toBeTruthy();
+    expect(screen.getByText(MSG.cancelConfirmBody)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: MSG.cancelDownload })).toBeNull();
+    expect(screen.getByRole('button', { name: MSG.cancelConfirmYes })).toBeTruthy();
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: MSG.cancelConfirmNo }));
+  });
+
+  it('is an inline panel, not a dialog', () => {
+    const { container } = renderRow({}, { ...handlers(), confirming: true });
+    expect(container.querySelector('dialog, [role="dialog"], [aria-modal]')).toBeNull();
+  });
+
+  it('"No, keep it" asks the parent to close; closing returns focus to "Cancel download"', () => {
+    const h = handlers();
+    const view = renderRow({}, { ...h, confirming: true });
+    fireEvent.click(screen.getByRole('button', { name: MSG.cancelConfirmNo }));
+    expect(h.onKeep).toHaveBeenCalledWith(base.id);
+    expect(h.onCancel).not.toHaveBeenCalled();
+    view.rerender(
+      <ul>
+        <DownloadRow item={base} {...h} confirming={false} />
+      </ul>,
+    );
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: MSG.cancelDownload }));
+  });
+
+  it('Escape in the panel asks the parent to close', () => {
+    const h = handlers();
+    renderRow({}, { ...h, confirming: true });
+    fireEvent.keyDown(screen.getByRole('button', { name: MSG.cancelConfirmNo }), { key: 'Escape' });
+    expect(h.onKeep).toHaveBeenCalledWith(base.id);
+  });
+
+  it('"Yes, cancel" calls onCancel with the opaque id', () => {
+    const h = handlers();
+    renderRow({}, { ...h, confirming: true });
+    fireEvent.click(screen.getByRole('button', { name: MSG.cancelConfirmYes }));
+    expect(h.onCancel).toHaveBeenCalledWith(base.id);
+  });
+
+  it('while cancelling both buttons are disabled and "Cancelling…" shows with a spinner', () => {
+    const h = handlers();
+    const { container } = renderRow({}, { ...h, confirming: true, busy: 'cancel' });
+    const yes = screen.getByRole('button', { name: MSG.cancelling });
+    expect(yes.disabled).toBe(true);
+    expect(yes.querySelector('.spinner')).not.toBeNull();
+    expect(screen.getByRole('button', { name: MSG.cancelConfirmNo }).disabled).toBe(true);
+    expect(container.textContent).not.toContain(MSG.cancelConfirmYes);
+  });
+
+  it('a ready row (action remove) shows no Cancel button', () => {
+    renderRow({ state: 'ready', progress: 100, action: 'remove' }, handlers());
+    expect(screen.queryByRole('button', { name: MSG.cancelDownload })).toBeNull();
+  });
+
+  it('a failed-job row (action null) has no button at all', () => {
+    const { container } = renderRow({ state: 'failed', action: null }, handlers());
+    expect(container.querySelector('button')).toBeNull();
   });
 });

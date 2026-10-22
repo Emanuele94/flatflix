@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { api, ApiError } from './api.js';
 import { DownloadRow } from './DownloadRow.jsx';
 import { MSG } from './messages.js';
@@ -21,6 +21,30 @@ function pageHidden() {
 export function Downloads({ onGoToSearch }) {
   const [items, setItems] = useState(cachedItems); // null until a list was ever received
   const [problem, setProblem] = useState(null); // null | 'down' | 'refused'
+  const [confirmId, setConfirmId] = useState(null); // the one row with an open confirm panel
+  const [busy, setBusy] = useState({}); // id -> 'cancel' | 'remove' while a DELETE is in flight
+  const busyRef = useRef({}); // synchronous twin of `busy`: a second tap in the same tick sends nothing
+
+  async function cancel(id) {
+    if (busyRef.current[id]) return;
+    busyRef.current[id] = 'cancel';
+    setBusy({ ...busyRef.current });
+    try {
+      await api(`/api/downloads/${id}`, { method: 'DELETE' });
+      removeRow(id);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) removeRow(id); // already gone: success
+    } finally {
+      delete busyRef.current[id];
+      setBusy({ ...busyRef.current });
+    }
+  }
+
+  function removeRow(id) {
+    if (cachedItems) cachedItems = cachedItems.filter((i) => i.id !== id);
+    setItems((prev) => (prev ? prev.filter((i) => i.id !== id) : prev));
+    setConfirmId((cur) => (cur === id ? null : cur));
+  }
 
   useEffect(() => {
     let alive = true;
@@ -105,7 +129,16 @@ export function Downloads({ onGoToSearch }) {
     body = (
       <ul class={problem ? 'downloads is-stale' : 'downloads'}>
         {items.map((item) => (
-          <DownloadRow key={item.id} item={item} stale={Boolean(problem)} />
+          <DownloadRow
+            key={item.id}
+            item={item}
+            stale={Boolean(problem)}
+            confirming={confirmId === item.id}
+            busy={busy[item.id] || null}
+            onAskCancel={setConfirmId}
+            onKeep={() => setConfirmId(null)}
+            onCancel={cancel}
+          />
         ))}
       </ul>
     );

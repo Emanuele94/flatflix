@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'preact/hooks';
 import { formatEta } from './eta.js';
 import { MSG } from './messages.js';
 
@@ -24,12 +25,36 @@ const STATES = {
 const BADGE = { film: MSG.typeFilm, serie: MSG.typeSerie };
 
 // One download. Names are attacker-controlled text: only ever rendered as text children.
-// `stale` is accepted now; the row actions of plan 02-10 use it to disable their buttons.
-export function DownloadRow({ item }) {
+// The action area follows the backend's `action` field: 'cancel' (asks once, in the row, D-32),
+// 'remove' (one tap, the files stay, D-33) or null (no control, D-29). `stale` disables it (D-36).
+export function DownloadRow({
+  item,
+  stale = false,
+  confirming = false,
+  busy = null,
+  onAskCancel,
+  onCancel,
+  onKeep,
+  onRemove,
+}) {
   const state = STATES[item.state];
   const badge = BADGE[item.type];
   const eta = item.state === 'downloading' ? formatEta(item.eta_seconds) : null;
   const value = item.state === 'ready' ? 100 : Math.round(item.progress);
+
+  const cancelRef = useRef(null);
+  const keepRef = useRef(null);
+  const panelWasOpen = useRef(false);
+  const showPanel = item.action === 'cancel' && (confirming || busy === 'cancel');
+
+  // Focus: the safe choice when the panel opens; back on "Cancel download" when it closes.
+  useEffect(() => {
+    if (showPanel && !panelWasOpen.current && keepRef.current) keepRef.current.focus();
+    if (!showPanel && panelWasOpen.current && cancelRef.current) cancelRef.current.focus();
+    panelWasOpen.current = showPanel;
+  }, [showPanel]);
+
+  const locked = stale || busy !== null;
   return (
     <li class="download">
       <div class="download-name">{item.name || MSG.unnamedDownload}</div>
@@ -64,6 +89,51 @@ export function DownloadRow({ item }) {
             <span class="download-percent muted" aria-hidden="true">
               {value}%
             </span>
+          )}
+        </div>
+      )}
+      {item.action === 'cancel' && (
+        <div class="download-action">
+          {showPanel ? (
+            <div
+              class="confirm"
+              onKeyDown={(e) => {
+                if (e.key === 'Escape' && !locked) onKeep(item.id);
+              }}
+            >
+              <p class="confirm-title">{MSG.cancelConfirmTitle}</p>
+              <p class="muted">{MSG.cancelConfirmBody}</p>
+              <div class="confirm-actions">
+                <button
+                  class="btn btn-destructive"
+                  type="button"
+                  disabled={locked}
+                  onClick={() => onCancel(item.id)}
+                >
+                  {busy === 'cancel' && <span class="spinner" aria-hidden="true" />}
+                  {busy === 'cancel' ? MSG.cancelling : MSG.cancelConfirmYes}
+                </button>
+                <button
+                  class="btn"
+                  type="button"
+                  ref={keepRef}
+                  disabled={locked}
+                  onClick={() => onKeep(item.id)}
+                >
+                  {MSG.cancelConfirmNo}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              class="btn"
+              type="button"
+              ref={cancelRef}
+              disabled={locked}
+              onClick={() => onAskCancel(item.id)}
+            >
+              {MSG.cancelDownload}
+            </button>
           )}
         </div>
       )}

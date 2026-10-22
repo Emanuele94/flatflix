@@ -285,3 +285,89 @@ describe('outage (D-36, DOWN-06)', () => {
     }
   });
 });
+
+// A route-aware stub: the list answers come from `list`, every DELETE takes the next `del`
+// answer. Each call is recorded with its path, method and body.
+function stubApi({ list = [LIST_A], del = [jsonResponse(null, 204)] } = {}) {
+  const calls = [];
+  let lists = 0;
+  let dels = 0;
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((path, init = {}) => {
+      calls.push({ path, method: init.method, body: init.body });
+      const isDelete = init.method === 'DELETE';
+      const answers = isDelete ? del : list;
+      const n = isDelete ? dels++ : lists++;
+      const a = answers[Math.min(n, answers.length - 1)];
+      return a instanceof Error ? Promise.reject(a) : Promise.resolve(a);
+    }),
+  );
+  return {
+    calls,
+    deletes: () => calls.filter((c) => c.method === 'DELETE'),
+  };
+}
+
+const NO_CONTENT = { ok: true, status: 204, json: async () => null };
+
+describe('cancel from the list (D-32, D-35)', () => {
+  it('Cancel, then "Yes, cancel" sends exactly one DELETE with the id and no body, and the row goes at once', async () => {
+    const net = stubApi({ del: [NO_CONTENT] });
+    render(<Downloads onGoToSearch={() => {}} />);
+    await tick(0);
+    fireEvent.click(screen.getByRole('button', { name: MSG.cancelDownload }));
+    expect(screen.getByText(MSG.cancelConfirmTitle)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: MSG.cancelConfirmYes }));
+    await tick(0);
+    expect(net.deletes()).toEqual([
+      { path: `/api/downloads/${'a'.repeat(16)}`, method: 'DELETE', body: undefined },
+    ]);
+    expect(screen.queryByText('Sintel.2010')).toBeNull();
+    expect(screen.queryByText(MSG.cancelConfirmTitle)).toBeNull();
+  });
+
+  it('a 404 (already gone) removes the row like a 204, with no message', async () => {
+    stubApi({ del: [jsonResponse({ detail: 'download_not_found' }, 404)] });
+    render(<Downloads onGoToSearch={() => {}} />);
+    await tick(0);
+    fireEvent.click(screen.getByRole('button', { name: MSG.cancelDownload }));
+    fireEvent.click(screen.getByRole('button', { name: MSG.cancelConfirmYes }));
+    await tick(0);
+    expect(screen.queryByText('Sintel.2010')).toBeNull();
+    expect(document.body.textContent).not.toMatch(/404|download_not_found/);
+    expect(screen.queryByText(MSG.actionFailed)).toBeNull();
+  });
+
+  it('"No, keep it" closes the panel, sends nothing and returns focus to Cancel', async () => {
+    const net = stubApi();
+    render(<Downloads onGoToSearch={() => {}} />);
+    await tick(0);
+    fireEvent.click(screen.getByRole('button', { name: MSG.cancelDownload }));
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: MSG.cancelConfirmNo }));
+    fireEvent.click(screen.getByRole('button', { name: MSG.cancelConfirmNo }));
+    await tick(0);
+    expect(screen.queryByText(MSG.cancelConfirmTitle)).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: MSG.cancelDownload }));
+    expect(net.deletes()).toHaveLength(0);
+  });
+
+  it('while the DELETE is pending both buttons are disabled, "Cancelling…" shows and a second tap sends nothing', async () => {
+    const pending = deferred();
+    const net = stubApi({ del: [pending.promise] });
+    render(<Downloads onGoToSearch={() => {}} />);
+    await tick(0);
+    fireEvent.click(screen.getByRole('button', { name: MSG.cancelDownload }));
+    fireEvent.click(screen.getByRole('button', { name: MSG.cancelConfirmYes }));
+    await tick(0);
+    const busyButton = screen.getByRole('button', { name: MSG.cancelling });
+    expect(busyButton.disabled).toBe(true);
+    expect(screen.getByRole('button', { name: MSG.cancelConfirmNo }).disabled).toBe(true);
+    fireEvent.click(busyButton);
+    await tick(0);
+    expect(net.deletes()).toHaveLength(1);
+    pending.resolve(NO_CONTENT);
+    await tick(0);
+    expect(screen.queryByText('Sintel.2010')).toBeNull();
+  });
+});
