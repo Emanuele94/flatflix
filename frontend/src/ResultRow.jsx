@@ -1,23 +1,34 @@
-import { useState } from 'preact/hooks';
-import { api } from './api.js';
 import { MSG } from './messages.js';
 
-// One search result. Names are attacker-controlled text: only ever rendered as text children.
-// Tracer: the row posts only {result_id, type}; the backend owns everything else.
-export function ResultRow({ result, type }) {
-  const [started, setStarted] = useState(false);
+// Row states (kept by Search, keyed by result_id):
+//   undefined | pending | started | preparing | duplicate
+//   | rejected | unavailable | failed | expired | notReady | network
+// "Avviato" is rendered for `started` only: the backend returns it after the allowlist ran,
+// priorities were verified and torrents/start succeeded. Nothing else ever looks like success.
 
-  async function download() {
-    try {
-      const res = await api('/api/download', {
-        method: 'POST',
-        body: { result_id: result.result_id, type },
-      });
-      if (res && res.status === 'started') setStarted(true);
-    } catch {
-      // Other outcomes are handled by the row states.
-    }
-  }
+// States shown as a disabled button carrying the text itself.
+const LOCKED_LABEL = {
+  started: { text: MSG.started, tone: 'ok' },
+  preparing: { text: MSG.preparing, tone: 'warn', spinner: true },
+  duplicate: { text: MSG.duplicate, tone: 'warn' },
+};
+
+// States shown as a message under the button.
+const MESSAGE = {
+  rejected: { text: MSG.rejected, tone: 'warn', retry: false },
+  unavailable: { text: MSG.unavailable, tone: 'warn', retry: false },
+  expired: { text: MSG.searchExpired, tone: 'warn', retry: false },
+  failed: { text: MSG.downloadFailed, tone: 'error', retry: true },
+  notReady: { text: MSG.notReady, tone: 'warn', retry: true },
+  network: { text: MSG.serverUnreachable, tone: 'error', retry: true },
+};
+
+// One search result. Names are attacker-controlled text: only ever rendered as text children.
+export function ResultRow({ result, state, onDownload }) {
+  const locked = LOCKED_LABEL[state];
+  const message = MESSAGE[state];
+  const pending = state === 'pending';
+  const disabled = pending || Boolean(message && !message.retry);
 
   return (
     <li class="result">
@@ -32,13 +43,33 @@ export function ResultRow({ result, type }) {
       <div class="result-meta muted">
         {result.leechers} {MSG.leechUnit} · {result.source}
       </div>
-      {started ? (
-        <span class="row-state row-state-ok">{MSG.started}</span>
-      ) : (
-        <button class="btn btn-primary" type="button" onClick={download}>
-          {MSG.download}
-        </button>
-      )}
+      <div class="result-action">
+        {locked ? (
+          <button class={`btn row-state row-state-${locked.tone}`} type="button" disabled>
+            {locked.spinner && <span class="spinner" aria-hidden="true" />}
+            {locked.text}
+          </button>
+        ) : (
+          <>
+            <button
+              class="btn btn-primary"
+              type="button"
+              disabled={disabled}
+              onClick={() => {
+                if (!disabled) onDownload(result);
+              }}
+            >
+              {pending && <span class="spinner" aria-hidden="true" />}
+              {MSG.download}
+            </button>
+            {message && (
+              <p class={`row-state row-state-${message.tone}`} role="status">
+                {message.text}
+              </p>
+            )}
+          </>
+        )}
+      </div>
     </li>
   );
 }

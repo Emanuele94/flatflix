@@ -224,3 +224,58 @@ select {
 .result-meta {
   margin-top: 0.15rem;
 }
+
+/* Download button and row states (D-10, D-11, D-13) */
+.result-action {
+  margin-top: 0.5rem;
+}
+
+.result-action .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  min-height: 48px;
+  font-weight: 600;
+}
+
+.btn:disabled {
+  cursor: default;
+}
+
+.btn-primary:disabled {
+  opacity: 0.7;
+}
+
+.btn-primary .spinner {
+  border-color: rgba(255, 255, 255, 0.5);
+  border-top-color: #fff;
+}
+
+.row-state {
+  margin: 0.5rem 0 0;
+}
+
+button.row-state {
+  margin: 0;
+}
+
+.row-state-ok {
+  border-color: #1d7a3a;
+  background: #e6f4ea;
+  color: #14532d;
+}
+
+.row-state-warn {
+  color: #7a5200;
+}
+
+button.row-state-warn {
+  border-color: #c99a1e;
+  background: #fff3cd;
+}
+
+.row-state-error {
+  color: #7a0e16;
+}

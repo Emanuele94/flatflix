@@ -24,6 +24,12 @@ export const MSG = {
   searchFailed: 'Qualcosa è andato storto. Riprova.',
   download: 'Scarica',
   started: 'Avviato ✓',
+  preparing: 'In preparazione',
+  rejected: 'Questo file non contiene un video. Prova un altro risultato.',
+  unavailable: 'Non disponibile. Prova un altro risultato.',
+  duplicate: 'Già presente',
+  downloadFailed: 'Download non riuscito. Riprova.',
+  searchExpired: 'Ricerca scaduta, cerca di nuovo.',
   seedUnit: 'seed',
   leechUnit: 'in download',
 };
