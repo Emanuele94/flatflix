@@ -150,10 +150,26 @@ Only raise `MIN_WEBAPI_VERSION` and the tag together after it passes.
 
 ### Login lockout
 
-Five wrong logins within 15 minutes lock the portal for 15 minutes (per source
-address). Through Docker Desktop every phone on the LAN may reach the backend
-from the same source address, so five wrong attempts can lock the whole
-household. To unlock immediately:
+Two limits protect the one shared password, both counted over a 15-minute window
+(`LOGIN_WINDOW_MINUTES`):
+
+- **Per address:** five wrong logins (`LOGIN_MAX_ATTEMPTS`) from one source address block
+  that address for the rest of the window. A correct login clears that address.
+- **For everyone:** 20 wrong logins (`LOGIN_GLOBAL_MAX_ATTEMPTS`) from all addresses together
+  block every address for the rest of the window. This keeps guesses spread over many
+  addresses bounded, and it is the price of the trade-off: someone on the LAN who fails 20
+  times locks the household out for up to 15 minutes. The login screen then says to wait.
+
+The per-address limit only protects individual people when the backend sees each
+client's real address. Caddy passes it in `X-Forwarded-For` and the backend believes that
+header only from the `web` container (`TRUSTED_PROXY_HOSTS`); other containers are throttled
+under their own address. When the host hides the real address (Docker Desktop and WSL2
+userland proxying, a NAT in front of the box), every phone looks like the same address, and
+five wrong attempts from anyone block the whole household. After the first start on the
+Ubuntu server, check that separate phones get separate counters: fail five logins from one
+phone and confirm another phone can still sign in.
+
+To unlock immediately:
 
 ```
 docker compose restart backend

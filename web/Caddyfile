@@ -16,7 +16,10 @@
 	}
 
 	handle /api/* {
-		reverse_proxy backend:8000
+		reverse_proxy backend:8000 {
+			# Always the address Caddy saw, never a value the client sent (WR-02).
+			header_up X-Forwarded-For {remote_host}
+		}
 	}
 
 	# Reserved: replaced by the TV app in Phase 5.

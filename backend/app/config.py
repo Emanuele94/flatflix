@@ -56,7 +56,13 @@ class Settings(BaseSettings):
     app_pass_hash: SecretStr
     secret_key: SecretStr
     login_max_attempts: int = Field(default=5, ge=1)
+    # Ceiling across all addresses, so guesses spread over many addresses stay bounded (WR-07).
+    login_global_max_attempts: int = Field(default=20, ge=1)
     login_window_minutes: int = Field(default=15, ge=1)
+    # Hosts (space separated, resolved through the compose network's DNS) whose
+    # `X-Forwarded-For` header is believed. Any other peer is throttled under its own address
+    # (WR-02). Empty trusts no header at all.
+    trusted_proxy_hosts: str = "web"
     session_max_age_days: int = Field(default=30, ge=1)
 
     # qBittorrent layout (DOWN-02, DOWN-03). Names and paths come only from here, never from a
@@ -107,6 +113,10 @@ class Settings(BaseSettings):
             term.strip().casefold() for term in self.suspicious_terms.split(",") if term.strip()
         )
         return terms or DEFAULT_SUSPICIOUS_TERMS
+
+    @property
+    def trusted_proxy_host_list(self) -> list[str]:
+        return self.trusted_proxy_hosts.split()
 
     @property
     def search_plugin_names(self) -> list[str]:

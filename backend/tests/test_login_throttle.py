@@ -134,3 +134,59 @@ def test_throttle_unit_slots_and_retry_seconds() -> None:
     assert throttle.try_acquire("b") is None
     throttle.reset("a")
     assert throttle.try_acquire("a") is None
+
+
+# -- the ceiling across all addresses (WR-07) ----------------------------------------------
+
+
+def test_guesses_spread_over_many_addresses_hit_the_global_ceiling() -> None:
+    now = [0.0]
+    throttle = LoginThrottle(
+        max_attempts=5, window_seconds=100, clock=lambda: now[0], global_max_attempts=8
+    )
+
+    allowed = [throttle.try_acquire(f"client-{n}") is None for n in range(12)]
+
+    assert allowed == [True] * 8 + [False] * 4
+    wait = throttle.try_acquire("client-new")
+    assert wait == pytest.approx(100)
+    now[0] = 101
+    assert throttle.try_acquire("client-new") is None  # the window passed
+
+
+def test_the_global_ceiling_bounds_the_state_it_keeps() -> None:
+    throttle = LoginThrottle(max_attempts=5, window_seconds=100, global_max_attempts=8)
+
+    for n in range(1000):
+        throttle.try_acquire(f"spoofed-{n}")
+
+    assert len(throttle._attempts) <= 8
+    assert len(throttle._all) <= 8
+
+
+def test_a_correct_login_gives_its_slots_back_to_the_global_ceiling() -> None:
+    throttle = LoginThrottle(max_attempts=5, window_seconds=100, global_max_attempts=3)
+    for _ in range(3):
+        assert throttle.try_acquire("household") is None
+    assert throttle.try_acquire("other") is not None  # ceiling reached
+
+    throttle.reset("household")  # the right password was typed
+
+    assert throttle.try_acquire("other") is None
+
+
+def test_the_per_address_limit_still_applies_below_the_ceiling() -> None:
+    throttle = LoginThrottle(max_attempts=2, window_seconds=100, global_max_attempts=50)
+    assert throttle.try_acquire("a") is None
+    assert throttle.try_acquire("a") is None
+    assert throttle.try_acquire("a") is not None
+    assert throttle.try_acquire("b") is None
+
+
+async def test_the_app_wires_the_global_ceiling_from_the_settings(
+    app: FastAPI, api: httpx.AsyncClient
+) -> None:
+    assert (
+        app.state.login_throttle.global_max_attempts == app.state.settings.login_global_max_attempts
+    )
+    assert app.state.settings.login_global_max_attempts > app.state.settings.login_max_attempts

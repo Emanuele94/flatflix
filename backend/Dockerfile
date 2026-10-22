@@ -22,4 +22,6 @@ USER flatflix
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]
+# uvicorn's own proxy handling is off: app.proxy.TrustedProxyHeaders believes X-Forwarded-For
+# only from the reverse proxy container, never from other containers on the `qbit` network.
+CMD ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--no-proxy-headers"]

@@ -17,6 +17,7 @@ from app.auth import SESSION_COOKIE, LoginThrottle
 from app.config import Settings, get_settings
 from app.download.jobs import JobRegistry
 from app.download.pipeline import DownloadPipeline
+from app.proxy import TrustedProxyHeaders
 from app.qbit.bootstrap import Bootstrapper, Readiness
 from app.qbit.client import QbitClient
 from app.routers import auth, download, health, search
@@ -79,6 +80,7 @@ def create_app(settings: Settings | None = None, qbit: QbitClient | None = None)
     app.state.login_throttle = LoginThrottle(
         max_attempts=settings.login_max_attempts,
         window_seconds=settings.login_window_seconds,
+        global_max_attempts=settings.login_global_max_attempts,
     )
     app.add_middleware(
         SessionMiddleware,
@@ -90,6 +92,8 @@ def create_app(settings: Settings | None = None, qbit: QbitClient | None = None)
         https_only=False,
         path="/",
     )
+    # Added last so it runs first: the client address is settled before anything reads it.
+    app.add_middleware(TrustedProxyHeaders, hosts=settings.trusted_proxy_host_list)
     app.include_router(health.router)
     app.include_router(auth.router)
     app.include_router(auth.protected)

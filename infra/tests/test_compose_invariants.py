@@ -280,3 +280,19 @@ def test_images_are_pinned_and_compose_is_versionless(base):
             if ref in stages:
                 continue
             assert ":" in ref and not ref.endswith(":latest"), f"{dockerfile}: {ref}"
+
+
+# -- the backend must not trust X-Forwarded-For from every container (WR-02) -----------------
+
+
+def test_backend_does_not_trust_forwarded_for_from_every_peer():
+    dockerfile = (ROOT / "backend" / "Dockerfile").read_text(encoding="utf-8")
+    command = next(line for line in dockerfile.splitlines() if line.startswith("CMD"))
+    assert "--forwarded-allow-ips" not in command
+    assert "--proxy-headers" not in command.replace("--no-proxy-headers", "")
+    assert "--no-proxy-headers" in command
+
+
+def test_caddy_sets_forwarded_for_from_the_address_it_saw():
+    caddyfile = (ROOT / "web" / "Caddyfile").read_text(encoding="utf-8")
+    assert "header_up X-Forwarded-For {remote_host}" in caddyfile

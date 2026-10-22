@@ -25,7 +25,7 @@ class LoginRequest(BaseModel):
 async def login(body: LoginRequest, request: Request) -> Response:
     settings = request.app.state.settings
     throttle = request.app.state.login_throttle
-    # Behind Caddy, uvicorn --proxy-headers makes this the forwarded client address.
+    # Behind Caddy this is the forwarded client address (app.proxy); any other peer is itself.
     ip = request.client.host if request.client else "unknown"
     # The slot is reserved before the (slow) password check so concurrent guesses are counted.
     retry_in = throttle.try_acquire(ip)

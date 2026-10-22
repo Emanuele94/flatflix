@@ -21,7 +21,6 @@ import asyncio
 import logging
 import re
 import secrets
-import socket
 import time
 from collections.abc import Awaitable, Callable
 from urllib.parse import urlsplit
@@ -30,6 +29,7 @@ from app.config import Settings
 from app.content_type import ContentType, qbit_category
 from app.download.allowlist import TorrentFile, decide
 from app.download.jobs import Job, JobRegistry, JobState
+from app.netutil import resolve_host
 from app.qbit.client import QbitClient, QbitError
 from app.search.filters import infohash, is_public_address, is_safe_torrent_url
 from app.search.service import SearchService
@@ -54,12 +54,6 @@ TAG_CLEANUP_ATTEMPTS = 3
 
 
 Resolver = Callable[[str], Awaitable[list[str]]]
-
-
-async def resolve_host(host: str) -> list[str]:
-    """Every IP address a host name resolves to (a literal address resolves to itself)."""
-    infos = await asyncio.get_running_loop().getaddrinfo(host, None, type=socket.SOCK_STREAM)
-    return [str(info[4][0]) for info in infos]
 
 
 def _tags_of(row: dict) -> list[str]:
