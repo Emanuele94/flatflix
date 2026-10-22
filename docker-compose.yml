@@ -1,6 +1,5 @@
 # Flatflix stack. The one port map and the media-folder contract live in
 # docs/ports-and-media.md; keep this file in line with it.
-# 01-04 adds service `web`.
 name: flatflix
 
 services:
@@ -62,8 +61,26 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    # The ONLY published port of the stack (D-04).
+    ports:
+      - "${WEB_PORT:-80}:80"
+    networks: [edge]
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+    restart: unless-stopped
+
 networks:
-  # Backend and the web service (01-04) only.
+  # Backend and the web service only.
   edge: {}
   # Not internal: search plugins and peers need Internet egress.
   qbit: {}

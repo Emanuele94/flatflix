@@ -1,0 +1,55 @@
+/* Mobile-first, system fonts only: nothing is loaded from outside the origin. */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: 18px;
+  line-height: 1.4;
+  color: #1b1b1f;
+  background: #fafafa;
+}
+
+main.app {
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+h1 {
+  margin: 0 0 1rem;
+  font-size: 1.75rem;
+}
+
+button,
+input,
+select {
+  min-height: 48px;
+  font-size: 1rem;
+  max-width: 100%;
+}
+
+.btn {
+  padding: 0 1.25rem;
+  border: 1px solid #888;
+  border-radius: 0.5rem;
+  background: #fff;
+  color: inherit;
+}
+
+.btn-primary {
+  border-color: #b3141f;
+  background: #b3141f;
+  color: #fff;
+}
+
+.status {
+  margin: 0;
+}
+
+.muted {
+  font-size: 0.85rem;
+  color: #666;
+}

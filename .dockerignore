@@ -1,0 +1,8 @@
+# Allowlist: the web image build context is the repo root, so everything is
+# excluded except what the build needs. Keeps the local env file,
+# qbittorrent/config, data/ and backend sources out of the image.
+*
+!frontend/
+!web/Caddyfile
+frontend/node_modules
+frontend/dist

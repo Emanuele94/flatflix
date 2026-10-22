@@ -1,0 +1,37 @@
+# Single origin for the household: portal, API, and (later) TV app and Jellyfin.
+{
+	admin off
+	auto_https off
+}
+
+:80 {
+	encode zstd gzip
+
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		X-Frame-Options DENY
+		-Server
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+	}
+
+	handle /api/* {
+		reverse_proxy backend:8000
+	}
+
+	# Reserved: replaced by the TV app in Phase 5.
+	handle /tv/* {
+		respond "Non ancora disponibile" 404
+	}
+
+	# Reserved: replaced by the Jellyfin reverse proxy in Phase 3.
+	handle /jellyfin/* {
+		respond "Non ancora disponibile" 404
+	}
+
+	handle {
+		root * /srv/portal
+		try_files {path} /index.html
+		file_server
+	}
+}
