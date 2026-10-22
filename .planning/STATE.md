@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 01
 current_phase_name: Portal Search & Start Download
 status: executing
-stopped_at: Completed 01-06-PLAN.md
-last_updated: "2026-10-22T10:44:23.529Z"
+stopped_at: Completed 01-07-PLAN.md
+last_updated: "2026-10-22T10:54:39.179Z"
 last_activity: 2026-10-22
 last_activity_desc: Phase 01 execution started
-state_head: 820d35a2deb6ae644fcaa91e3295fa3450309f2a
+state_head: 2600698a939d5f8f0f37ca65365f943098d052f8
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 13
-  completed_plans: 8
+  completed_plans: 9
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-21)
 ## Current Position
 
 Phase: 01 (Portal Search & Start Download) — EXECUTING
-Plan: 9 of 13
+Plan: 10 of 13
 Status: Ready to execute
 Last activity: 2026-10-22 — Phase 01 execution started
 
@@ -64,6 +64,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P05 | 10min | 3 tasks | 14 files |
 | Phase 01 P11 | 10min | 2 tasks | 7 files |
 | Phase 01 P06 | 6 min | 3 tasks | 12 files |
+| Phase 01 P07 | 7 min | 2 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -89,6 +90,8 @@ Recent decisions affecting current work:
 - [Phase 01]: 01-11: login errors other than 401/429 render the serverUnreachable message so nothing technical reaches the screen
 - [Phase 01]: 01-06: bootstrap stops for good on auth, ban or WebAPI below 2.15.1 (readiness failed, one ERROR line) and retries other qBittorrent errors with min(2 ** n, 30) s backoff; a createCategory 409 requires the category to appear in a re-read list, never an edit on a guess
 - [Phase 01]: 01-06: downloads gated by require_ready (503 not_ready) until setPreferences and categories succeeded; search plugins install after categories and never block readiness
+- [Phase 01]: 01-07: a cut-short search (timeout, eviction, shutdown) is done with timed_out true only when no row passed the filters; a non-empty SUSPICIOUS_TERMS replaces the built-in list — A timeout is an ordinary end, never an error; one documented rule for the term list
+- [Phase 01]: 01-07: search_start 409 frees tracked searches and sweeps untracked leftovers, then retries once; qBittorrent failures answer 503 search_unavailable — A crashed backend must not block search permanently, and no qBittorrent body reaches the browser
 
 ### Pending Todos
 
@@ -118,6 +121,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-22T10:44:23.478Z
-Stopped at: Completed 01-06-PLAN.md
+Last session: 2026-10-22T10:54:39.043Z
+Stopped at: Completed 01-07-PLAN.md
 Resume file: None
