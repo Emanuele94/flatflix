@@ -95,7 +95,7 @@ Plans:
   3. When qBittorrent is down, a torrent is invalid or a category path is wrong, the user sees a plain-language message (with automatic retry when qBittorrent is unreachable), never a raw error.
   4. Rapid repeated search or download requests are throttled, and the logs record logins, searches, downloads, cancels and errors without any credentials.
 
-**Plans**: 4/11 plans executed in 5 waves
+**Plans**: 5/11 plans executed in 5 waves
 
 Plans:
 **Wave 1**
@@ -105,7 +105,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 - [x] 02-04-PLAN.md — Tracer: failed attempts (24 h) and torrent-less Preparing jobs in the list; every download appears once (wave 2)
-- [ ] 02-05-PLAN.md — Tracer: search 10/min and download 20/min per address, 429 too_many_requests; generic sliding-window limiter (wave 2)
+- [x] 02-05-PLAN.md — Tracer: search 10/min and download 20/min per address, 429 too_many_requests; generic sliding-window limiter (wave 2)
 - [ ] 02-06-PLAN.md — Tracer: Search | Downloads tabs, live list polled every 5 s while visible, outage banner, row states, ETA, styling contract (wave 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
@@ -200,7 +200,7 @@ Phases execute in numeric order: 1 → 2 → 2.1 → 3 → 4 → 5 → 6 (Phases
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Portal Search & Start Download | 16/16 | Complete    | 2026-10-22 |
-| 2. Portal Download Management & Hardening | 4/11 | In Progress | - |
+| 2. Portal Download Management & Hardening | 5/11 | In Progress | - |
 | 2.1 Download Quarantine & Firecracker Validation | 0/TBD | Not started | - |
 | 3. Jellyfin Server & TV Playback Gate | 0/TBD | Not started | - |
 | 4. Library Hand-off | 0/TBD | Not started | - |

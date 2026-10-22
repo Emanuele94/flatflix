@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 02
 current_phase_name: Portal Download Management & Hardening
 status: executing
-stopped_at: Completed 02-04-PLAN.md
-last_updated: "2026-10-22T20:08:51.388Z"
+stopped_at: Completed 02-05-PLAN.md
+last_updated: "2026-10-22T20:13:26.609Z"
 last_activity: 2026-10-22
 last_activity_desc: Phase 02 execution started
-state_head: 1056a3d44b2200ea6b67b62705065eb0b31f81b5
+state_head: d535cd491995e4e18eb0b937d4a3e94651e66649
 progress:
   total_phases: 7
   completed_phases: 1
   total_plans: 27
-  completed_plans: 20
+  completed_plans: 21
   percent: 14
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-21)
 ## Current Position
 
 Phase: 02 (Portal Download Management & Hardening) — EXECUTING
-Plan: 5 of 11
+Plan: 6 of 11
 Status: Ready to execute
 Last activity: 2026-10-22 — Phase 02 execution started
 
@@ -76,6 +76,7 @@ Progress: [█░░░░░░░░░] 14%
 | Phase 02 P02 | 9 min | 2 tasks | 4 files |
 | Phase 02 P03 | 8 min | 2 tasks | 4 files |
 | Phase 02 P04 | 12 min | 2 tasks | 6 files |
+| Phase 02 P05 | 20 min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -122,6 +123,7 @@ Recent decisions affecting current work:
 - [Phase 02]: Logs stay on stdout through Docker json-file 10m x 5 via one x-logging anchor; no log volume (D-40)
 - [Phase 02]: 02-04: finished_at is stamped in a finally around the whole job task so a long Preparing job ages from its end, not its start
 - [Phase 02]: 02-04: a failed job row is listed next to its torrent row; the torrent still appears once, and a hash-named job name is never shown
+- [Phase 02]: 02-05: search and download throttles are per address only (no global ceiling); LoginThrottle kept as an alias of SlidingWindowThrottle
 
 ### Pending Todos
 
@@ -151,6 +153,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-22T20:08:51.258Z
-Stopped at: Completed 02-04-PLAN.md
+Last session: 2026-10-22T20:13:26.471Z
+Stopped at: Completed 02-05-PLAN.md
 Resume file: None
