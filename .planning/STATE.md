@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 01
 current_phase_name: Portal Search & Start Download
 status: executing
-stopped_at: Completed 01-08-PLAN.md
-last_updated: "2026-10-22T11:15:02.707Z"
+stopped_at: Completed 01-13-PLAN.md
+last_updated: "2026-10-22T11:21:15.267Z"
 last_activity: 2026-10-22
 last_activity_desc: Phase 01 execution started
-state_head: 7e8a53e18331f0a610692056c6aa939bf57e82f6
+state_head: 08c88e1b1e64aad16e5b96994b8d26d6797a8cfe
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 13
-  completed_plans: 11
+  completed_plans: 12
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-21)
 ## Current Position
 
 Phase: 01 (Portal Search & Start Download) — EXECUTING
-Plan: 12 of 13
+Plan: 13 of 13
 Status: Ready to execute
 Last activity: 2026-10-22 — Phase 01 execution started
 
@@ -67,6 +67,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P07 | 7 min | 2 tasks | 12 files |
 | Phase 01 P12 | 15min | 2 tasks | 8 files |
 | Phase 01 P08 | 18 min | 2 tasks | 14 files |
+| Phase 01 P13 | 25 min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -99,6 +100,8 @@ Recent decisions affecting current work:
 - [Phase 01]: A 404 from torrents/files right after a magnet add is retried like an empty list, bounded by METADATA_TIMEOUT
 - [Phase 01]: Bootstrapper on_ready hook runs reconcile after readiness; reconciled jobs reuse the id from their fx-job tag
 - [Phase 01]: A non-magnet torrent that never appears becomes unavailable; a late arrival keeps fx-pending and the next reconcile removes it
+- [Phase 01]: 01-13: download POST and job polling live in Search (row state map keyed by result_id); ResultRow is a pure view
+- [Phase 01]: 01-13: rows send the type of the search that produced them, captured at submit, not the live toggle
 
 ### Pending Todos
 
@@ -128,6 +131,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-22T11:15:02.633Z
-Stopped at: Completed 01-08-PLAN.md
+Last session: 2026-10-22T11:21:15.205Z
+Stopped at: Completed 01-13-PLAN.md
 Resume file: None

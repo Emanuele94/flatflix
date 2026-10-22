@@ -16,7 +16,7 @@ Requirements for the initial release. Each maps to exactly one roadmap phase.
 - [x] **AUTH-01**: User must log in with the portal's own username and password (separate from qBittorrent) before any search, download or status page or API endpoint is reachable; unauthenticated visits go to the login page. (qbit F8, section 10)
 - [ ] **SEC-01**: qBittorrent credentials and session cookie live only in the backend; they never appear in any page, script or response the browser receives. (qbit NF3)
 - [x] **SEC-02**: qBittorrent's WebUI is reachable only from the backend over the internal container network; if published at all for admin setup it is bound to the laptop's loopback only, never to the LAN or Internet. (qbit NF4, section 10)
-- [ ] **SEC-03**: The backend accepts only `type` = `film` or `serie` (strict validation) and never accepts a file path or category name from the browser. (qbit sections 6, 10)
+- [x] **SEC-03**: The backend accepts only `type` = `film` or `serie` (strict validation) and never accepts a file path or category name from the browser. (qbit sections 6, 10)
 - [x] **SEC-04**: All configuration (qBittorrent URL/user/password, categories, portal user/password, session key) comes from environment variables, with a committed `.env.example` holding placeholders only; the repo contains no secrets, LAN IPs or real credentials. (qbit NF5, section 12; user constraint)
 - [ ] **SEC-05**: Search and download endpoints are rate limited, so repeated rapid requests are throttled with a clear message. (qbit section 10)
 - [ ] **SEC-06**: The backend writes essential logs for debugging and audit (logins, searches, downloads, cancels, errors) and no log line contains credentials. (qbit NF6, section 10)
@@ -29,7 +29,7 @@ Requirements for the initial release. Each maps to exactly one roadmap phase.
 
 ### Portal Downloads
 
-- [ ] **DOWN-01**: User can start the download of a search result with one tap on Download. (qbit F3)
+- [x] **DOWN-01**: User can start the download of a search result with one tap on Download. (qbit F3)
 - [x] **DOWN-02**: The download is automatically assigned to category `Film` (film) or `SerieTV` (serie) by the backend; the user never picks a category. (qbit F4)
 - [ ] **DOWN-03**: Each category saves to its predefined path (`Film` -> `/media/Film`, `SerieTV` -> `/media/SerieTV`): categories are created through the API at startup if missing, "Append category name to save path" is disabled, and the browser sends no path. (qbit F5, section 6)
 - [ ] **DOWN-04**: User can see downloads in progress and completed (Film and SerieTV only) with their state and progress, refreshed about every 5 seconds. (qbit F6, section 5.3)
@@ -144,14 +144,14 @@ Which phases cover which requirements. Updated during roadmap creation.
 | AUTH-01 | Phase 1 | Complete |
 | SEC-01 | Phase 1 | Pending |
 | SEC-02 | Phase 1 | Complete |
-| SEC-03 | Phase 1 | Pending |
+| SEC-03 | Phase 1 | Complete |
 | SEC-04 | Phase 1 | Complete |
 | SEC-05 | Phase 2 | Pending |
 | SEC-06 | Phase 2 | Pending |
 | SRCH-01 | Phase 1 | Complete |
 | SRCH-02 | Phase 1 | Complete |
 | SRCH-03 | Phase 1 | Complete |
-| DOWN-01 | Phase 1 | Pending |
+| DOWN-01 | Phase 1 | Complete |
 | DOWN-02 | Phase 1 | Complete |
 | DOWN-03 | Phase 1 | Pending |
 | DOWN-04 | Phase 2 | Pending |
