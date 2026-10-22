@@ -1,0 +1,11 @@
+# Admin-only override: publishes the qBittorrent WebUI on the laptop's loopback
+# so the admin can open it from the laptop itself, and nowhere else (SEC-02).
+#
+#   docker compose -f docker-compose.yml -f docker-compose.admin.yml up -d
+#
+# Return to the base stack afterwards with `docker compose up -d`.
+# Never publish 8088 on any other address; see docs/ports-and-media.md.
+services:
+  qbittorrent:
+    ports:
+      - "127.0.0.1:8088:8088"
