@@ -32,6 +32,9 @@ class JobState(str, Enum):
     UNAVAILABLE = "unavailable"  # no metadata before METADATA_TIMEOUT: deleted (D-12)
     DUPLICATE = "duplicate"  # qBittorrent already has it
     FAILED = "failed"  # anything else: nothing was started
+    # Cancelled or removed from the downloads list. Never active, never listed, never a failure
+    # row; the job stays registered so a poll answers "cancelled" instead of "not found".
+    CANCELLED = "cancelled"
 
 
 ACTIVE_STATES = frozenset({JobState.PREPARING, JobState.STARTED})
@@ -78,6 +81,37 @@ class JobRegistry:
         for job in reversed(self._jobs.values()):
             if job.result_id == result_id and job.state in ACTIVE_STATES:
                 return job
+        return None
+
+    async def cancel_for(
+        self, *, torrent_hash: str | None = None, job_id: str | None = None
+    ) -> Job | None:
+        """Stop the newest active job of a torrent (or of a job id) and mark it cancelled.
+
+        The task is cancelled and awaited first and the state is set only after it has ended, so
+        no pipeline path can overwrite CANCELLED with an outcome (research Pitfall 1). Returns
+        None when no active job matches.
+        """
+        if torrent_hash is None and job_id is None:
+            return None
+        wanted_hash = torrent_hash.lower() if torrent_hash else None
+        for job in reversed(list(self._jobs.values())):
+            if job.state not in ACTIVE_STATES:
+                continue
+            by_id = job_id is not None and job.job_id == job_id
+            by_hash = (
+                wanted_hash is not None
+                and job.torrent_hash is not None
+                and job.torrent_hash.lower() == wanted_hash
+            )
+            if not (by_id or by_hash):
+                continue
+            task = self._tasks.get(job.job_id)
+            if task is not None and not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+            job.state = JobState.CANCELLED
+            return job
         return None
 
     def spawn(self, job: Job, coro: Coroutine[object, object, None]) -> asyncio.Task[None]:

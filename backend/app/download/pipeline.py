@@ -30,13 +30,24 @@ import re
 import secrets
 import time
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from typing import Literal
 from urllib.parse import urlsplit
 
 from app.config import Settings
 from app.content_type import ContentType, qbit_category
 from app.download.allowlist import TorrentFile, decide
 from app.download.jobs import Job, JobRegistry, JobState
-from app.download.listing import TAG_JOB_PREFIX, TAG_PENDING, TAG_PORTAL, job_tag_of, tags_of
+from app.download.listing import (
+    TAG_JOB_PREFIX,
+    TAG_PENDING,
+    TAG_PORTAL,
+    cancel_deletes_files,
+    display_name,
+    find_torrent,
+    job_tag_of,
+    tags_of,
+)
 from app.netutil import resolve_host
 from app.qbit.bootstrap import repair_drift
 from app.qbit.client import QbitClient, QbitError
@@ -83,6 +94,15 @@ def _has_started(row: dict) -> bool:
     return False
 
 
+@dataclass(frozen=True, slots=True)
+class CancelOutcome:
+    """What a cancel did, for the audit event: `cancel` deleted the files, `remove` kept them."""
+
+    action: Literal["cancel", "remove"]
+    name: str | None
+    deleted_files: bool
+
+
 class ResultExpired(Exception):
     """The result is not in the server-side cache (unknown id, or the search expired)."""
 
@@ -111,6 +131,8 @@ class DownloadPipeline:
         self._clock = clock
         self._sleep = sleep
         self._resolver = resolver
+        # One cancel at a time: two taps on one id send one torrents/delete (idempotent cancel).
+        self._cancel_lock = asyncio.Lock()
 
     def submit(self, result_id: str, content_type: ContentType) -> Job:
         """Create a job for a cached result and start it; returns at once.
@@ -314,13 +336,49 @@ class DownloadPipeline:
                 return None
             await self._sleep(POLL_SECONDS)
 
-    async def _discard(self, torrent_hash: str, job_tag: str) -> None:
-        """Delete a torrent with its files; the job tag is cleaned up on a best-effort basis."""
-        await self._qbit.delete([torrent_hash], True)
+    async def _discard(
+        self, torrent_hash: str, job_tag: str | None, delete_files: bool = True
+    ) -> None:
+        """Delete a torrent, with its files unless told otherwise; the job tag is cleaned up
+        on a best-effort basis (a torrent without a job tag has nothing to clean)."""
+        await self._qbit.delete([torrent_hash], delete_files)
+        if job_tag is None:
+            return
         try:
             await self._qbit.delete_tags([job_tag])
         except QbitError as exc:
             logger.warning("tag cleanup failed after delete: %s", type(exc).__name__)
+
+    async def cancel(self, download_id: str) -> CancelOutcome | None:
+        """Cancel or remove one download by its opaque id; None when the id names nothing.
+
+        The order matters. The torrent is read and checked here (category and in-progress state
+        come from the live row, never from the browser), then the job behind it is stopped and
+        marked cancelled, and only then does `torrents/delete` go out. Deleting first would let a
+        job that still waits for metadata run into `METADATA_TIMEOUT` and show a "Not available"
+        row for a download the household cancelled (research Pitfall 1), and a job left active
+        would swallow the next tap on the same result for a minute (Pitfall 2).
+        Files are deleted only for a torrent the server reads as in progress (D-32, D-33).
+        """
+        secret = self._settings.secret_key.get_secret_value()
+        async with self._cancel_lock:
+            rows = await self._qbit.torrents_info()
+            row = find_torrent(rows, download_id, self._settings, secret)
+            if row is None:
+                return None
+            torrent_hash = str(row["hash"])
+            job_tag = job_tag_of(tags_of(row))
+            deletes = cancel_deletes_files(row)
+            job = await self._registry.cancel_for(
+                torrent_hash=torrent_hash,
+                job_id=job_tag.removeprefix(TAG_JOB_PREFIX) if job_tag else None,
+            )
+            await self._discard(torrent_hash, job_tag, delete_files=deletes)
+            return CancelOutcome(
+                "cancel" if deletes else "remove",
+                display_name(row) or (job.name if job else None),
+                deletes,
+            )
 
     async def reconcile(self) -> None:
         """Finish what a restart interrupted (D-12, FILT-02).

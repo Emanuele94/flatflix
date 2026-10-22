@@ -35,6 +35,18 @@ PREPARING_STATES = frozenset(
 PROBLEM_STATES = frozenset({"error", "missingFiles"})
 STOPPED_DL_STATES = frozenset({"stoppedDL", "pausedDL"})
 
+# Raw states of a torrent that has not finished and that the portal treats as in progress: the only
+# ones whose partial files a cancel deletes (D-32). `moving` is a finished torrent on its way to
+# its final folder, so it is left out; so is every `...UP` state and any state qBittorrent adds
+# later, which keep their files (D-33).
+IN_PROGRESS_RAW_STATES = (
+    (DOWNLOADING_STATES - {"moving"})
+    | PREPARING_STATES
+    | STOPPED_DL_STATES
+    | PROBLEM_STATES
+    | {"stalledDL"}
+)
+
 # The job states that get a row of their own while young: the plain state is the job state value.
 FAILED_JOB_STATES = frozenset(state.value for state in FAILED_STATES)
 
@@ -75,6 +87,22 @@ def plain_state(row: dict) -> str:
     return "stalled"  # stalledDL and anything unknown: never claim "ready"
 
 
+def cancel_deletes_files(row: dict) -> bool:
+    """True when cancelling this torrent deletes its files: a known in-progress state below 100 %.
+
+    Decided on the server from the row it just read, never from the browser. A confirm tap on a
+    row that finished a second ago keeps the film (D-33), and a moving, completed or unrecognised
+    torrent keeps its files too. A progress that is not a number reads as finished.
+    """
+    if str(row.get("state") or "") not in IN_PROGRESS_RAW_STATES:
+        return False
+    try:
+        progress = float(row.get("progress") or 0)
+    except (TypeError, ValueError):
+        return False
+    return math.isfinite(progress) and progress < 1
+
+
 def download_id(secret: str, torrent_hash: str) -> str:
     """Opaque id of a torrent: the browser never holds an info-hash (D-35).
 
@@ -87,6 +115,21 @@ def download_id(secret: str, torrent_hash: str) -> str:
         hashlib.sha256,
     )
     return mac.hexdigest()[:16]
+
+
+def find_torrent(
+    rows: Iterable[dict], wanted_id: str, settings: Settings, secret: str
+) -> dict | None:
+    """The Film or SerieTV torrent whose opaque id is `wanted_id`, or None (D-35).
+
+    A row in any other category (Other, Film/Extra) never matches, whatever id was sent.
+    """
+    for row in rows:
+        if type_for_category(settings, str(row.get("category") or "")) is None:
+            continue
+        if hmac.compare_digest(download_id(secret, str(row.get("hash") or "")), wanted_id):
+            return row
+    return None
 
 
 def display_name(row: dict) -> str | None:
