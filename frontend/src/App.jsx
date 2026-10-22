@@ -2,6 +2,7 @@ import { useEffect, useState } from 'preact/hooks';
 import { api, ApiError, setUnauthorizedHandler } from './api.js';
 import { Login } from './Login.jsx';
 import { MSG } from './messages.js';
+import { Search } from './Search.jsx';
 
 export function App() {
   // checking | login | in
@@ -63,7 +64,7 @@ export function App() {
           </button>
         </header>
         <main class="app">
-          <p class="status">{MSG.loggedIn}</p>
+          <Search />
         </main>
       </>
     );

@@ -41,7 +41,7 @@ describe('App session gate', () => {
   it('shows the logged-in shell when the session is 200', async () => {
     stubApi();
     render(<App />);
-    expect(await screen.findByText('Accesso effettuato.')).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'Cerca' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Esci' })).toBeTruthy();
   });
 });
@@ -56,7 +56,7 @@ describe('App health banner', () => {
   it('shows no banner when the backend is ok', async () => {
     stubApi();
     render(<App />);
-    await screen.findByText('Accesso effettuato.');
+    await screen.findByRole('button', { name: 'Cerca' });
     expect(screen.queryByText('Servizio in avvio. Riprova tra poco.')).toBeNull();
   });
 
@@ -122,7 +122,7 @@ describe('App session lifecycle', () => {
     fireEvent.input(screen.getByLabelText('Nome utente'), { target: { value: 'casa' } });
     fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'giusta' } });
     fireEvent.click(screen.getByRole('button', { name: 'Entra' }));
-    await screen.findByText('Accesso effettuato.');
+    await screen.findByRole('button', { name: 'Cerca' });
   }
 
   it('Esci posts /api/logout and returns to the login screen', async () => {

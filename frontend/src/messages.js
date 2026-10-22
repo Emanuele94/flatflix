@@ -12,4 +12,8 @@ export const MSG = {
   loggedIn: 'Accesso effettuato.',
   loginFailed: 'Nome utente o password errati.',
   loginThrottled: 'Troppi tentativi. Riprova tra qualche minuto.',
+  typeFilm: 'Film',
+  typeSerie: 'Serie TV',
+  queryPlaceholder: 'Titolo del film o della serie',
+  searchButton: 'Cerca',
 };
