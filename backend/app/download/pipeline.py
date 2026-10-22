@@ -2,9 +2,11 @@
 
 Order of one job, with the reason for each step:
 
-1. `torrents/add` with `stopCondition=MetadataReceived` on every route (D-23). A magnet, direct
-   or printed by a plugin downloader, fetches its file list and then stops by itself; a torrent
-   that already has its metadata at add is added paused by qBittorrent under the same condition.
+1. `torrents/add` with `stopCondition=MetadataReceived` on every route (D-23). The add answers 409
+   for a duplicate and 415 for a result that is not a valid torrent (unavailable); any other
+   refusal fails the job. A magnet, direct or printed by a plugin downloader, fetches its file
+   list and then stops by itself; a torrent that already has its metadata at add is added paused
+   by qBittorrent under the same condition.
    Never a fully stopped add: a plugin downloader may print a magnet, and a stopped magnet never
    gets its metadata (G-01-3). Tags `fx`, `fx-pending` and `fx-job-<id>` mark it as ours and
    unfinished.
@@ -48,6 +50,10 @@ TAG_JOB_PREFIX = "fx-job-"
 POLL_SECONDS = 1
 HTTP_NOT_FOUND = 404
 HTTP_CONFLICT = 409
+# qBittorrent answers 415 "is not a valid torrent file" for an add it cannot parse
+# (APIErrorType::BadData). Retrying the same result cannot help, so the household reads
+# "Not available. Try another result." (DOWN-06).
+HTTP_UNSUPPORTED_MEDIA = 415
 JOB_ID = re.compile(r"^[0-9a-f]{16}$")
 # A second tap on a result whose job already started returns that job for this long; after it,
 # the tap runs again and the btih check answers "already there" (or re-adds a deleted torrent).
@@ -188,6 +194,10 @@ class DownloadPipeline:
         )
         if added.status_code == HTTP_CONFLICT:
             job.state = JobState.DUPLICATE
+            return
+        if added.status_code == HTTP_UNSUPPORTED_MEDIA:
+            logger.warning("download job %s: add answered HTTP %s", job.job_id, added.status_code)
+            job.state = JobState.UNAVAILABLE
             return
         if not 200 <= added.status_code < 300:
             logger.warning("download job %s: add answered HTTP %s", job.job_id, added.status_code)
