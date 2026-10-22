@@ -272,17 +272,16 @@ class QbitClient:
         category: str,
         tags: Sequence[str],
         downloader: str | None = None,
-        *,
-        stopped: bool = False,
     ) -> AddResult:
         """Add one URL, with nothing downloaded before the caller has filtered it (D-23).
 
-        A magnet is added started with `stopCondition=MetadataReceived`: added fully stopped it
-        never fetches its metadata (research Pitfall 1), and the condition stops it the moment
-        the file list is known. A URL whose torrent file qBittorrent fetches itself already has
-        its metadata when it is added, so whether that condition still stops it before the first
-        piece request is not proven (WR-04). The caller passes `stopped=True` for those: the
-        torrent is added stopped, its file list is readable, and nothing runs until `start`.
+        One form serves every route: `stopCondition=MetadataReceived`, never the stopped field.
+        A magnet (direct, or printed by a plugin downloader, which reuses the add params of this
+        request) fetches its file list and then stops itself. A torrent that already has its
+        metadata at add (a .torrent the downloader or qBittorrent fetched) is added paused by
+        qBittorrent itself under this condition (5.2.4 sessionimpl.cpp:2794-2801). A fully
+        stopped add is never used: a plugin downloader may print a magnet, and a stopped magnet
+        never fetches its metadata (research Pitfall 1, UAT gap G-01-3).
         `autoTMM=true` makes the category's save path apply (Pitfall 2). `downloader` names the
         search plugin for a URL that is not a magnet (Pitfall 5). Returns the status code
         without raising for 409 (already present) and 415 so the caller can word the outcome.
@@ -294,11 +293,8 @@ class QbitClient:
             "category": category,
             "autoTMM": "true",
             "tags": ",".join(tags),
+            "stopCondition": "MetadataReceived",
         }
-        if stopped:
-            form["stopped"] = "true"
-        else:
-            form["stopCondition"] = "MetadataReceived"
         if downloader is not None:
             form["downloader"] = downloader
         response = await self._request("POST", "/api/v2/torrents/add", data=form)

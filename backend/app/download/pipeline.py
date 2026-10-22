@@ -2,10 +2,12 @@
 
 Order of one job, with the reason for each step:
 
-1. `torrents/add` with `stopCondition=MetadataReceived`, so a magnet fetches its file list and
-   then stops by itself with no payload requested (D-23; a magnet added fully stopped never gets
-   its metadata). A result that is not a magnet is added `stopped` instead: its .torrent file
-   already holds the metadata, so no stop condition is needed or trusted (WR-04). Tags `fx`, `fx-pending` and `fx-job-<id>` mark it as ours and unfinished.
+1. `torrents/add` with `stopCondition=MetadataReceived` on every route (D-23). A magnet, direct
+   or printed by a plugin downloader, fetches its file list and then stops by itself; a torrent
+   that already has its metadata at add is added paused by qBittorrent under the same condition.
+   Never a fully stopped add: a plugin downloader may print a magnet, and a stopped magnet never
+   gets its metadata (G-01-3). Tags `fx`, `fx-pending` and `fx-job-<id>` mark it as ours and
+   unfinished.
 2. Poll `torrents/files` until it is non-empty (an empty list means no metadata yet), but never
    longer than METADATA_TIMEOUT after the add (D-12).
 3. `decide()` splits the files into keep and zero ids; a torrent with no usable video is deleted.
@@ -181,9 +183,6 @@ class DownloadPipeline:
             qbit_category(self._settings, job.type),
             [TAG_PORTAL, TAG_PENDING, job_tag],
             downloader=None if is_magnet else engine,
-            # A magnet stops itself at its metadata; a fetched .torrent already has it, so that
-            # one is added stopped and only `start` lets it run (WR-04).
-            stopped=not is_magnet,
         )
         if added.status_code == HTTP_CONFLICT:
             job.state = JobState.DUPLICATE

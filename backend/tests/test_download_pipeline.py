@@ -5,6 +5,7 @@ sent (call log) or what the fake ended up holding, never about internal calls.
 """
 
 import asyncio
+import inspect
 import socket
 from dataclasses import dataclass, field
 
@@ -514,7 +515,7 @@ async def test_add_torrent_refuses_a_multi_line_url_before_any_request(
     await client.aclose()
 
 
-async def test_add_torrent_sends_a_stop_condition_or_stopped_never_both_nor_neither(
+async def test_add_torrent_always_sends_the_stop_condition_and_never_stopped(
     settings: Settings, fake_qbit: FakeQbit
 ) -> None:
     client = QbitClient(
@@ -524,12 +525,17 @@ async def test_add_torrent_sends_a_stop_condition_or_stopped_never_both_nor_neit
         transport=fake_qbit.transport,
     )
     await client.add_torrent(MAGNET, "Film", ["fx"])
-    await client.add_torrent(PAGE_URL, "Film", ["fx"], downloader="limetorrents", stopped=True)
-    magnet_form, page_form = (call.form for call in fake_qbit.calls_to(ADD))
-    assert magnet_form["stopCondition"] == "MetadataReceived"
-    assert "stopped" not in magnet_form
-    assert page_form["stopped"] == "true"
-    assert "stopCondition" not in page_form
+    await client.add_torrent(PAGE_URL, "Film", ["fx"], downloader="limetorrents")
+    await client.add_torrent(
+        "https://torlock.example/tor/12345.torrent", "Film", ["fx"], downloader="torlock"
+    )
+    forms = [call.form for call in fake_qbit.calls_to(ADD)]
+    assert len(forms) == 3
+    for form in forms:
+        assert form["stopCondition"] == "MetadataReceived"
+        assert "stopped" not in form
+    # No way to ask for a stopped add: a stopped magnet never fetches its metadata (G-01-3).
+    assert "stopped" not in inspect.signature(QbitClient.add_torrent).parameters
     await client.aclose()
 
 
@@ -573,10 +579,10 @@ async def test_a_non_magnet_result_is_added_with_its_downloader_and_found_by_tag
     (add,) = rig.adds()
     assert add.form["downloader"] == "limetorrents"
     assert add.form["category"] == "Film"
-    # WR-04: its metadata exists at add, so nothing may rely on a stop condition; it is added
-    # stopped, and no payload was requested before the allowlist ran.
-    assert add.form["stopped"] == "true"
-    assert "stopCondition" not in add.form
+    # Every route sends the stop condition (D-23); qBittorrent pauses a torrent that has its
+    # metadata at add, so no payload was requested before the allowlist ran.
+    assert add.form["stopCondition"] == "MetadataReceived"
+    assert "stopped" not in add.form
     assert rig.fake.torrents[page_hash].downloaded == 0
     lookups = rig.fake.calls_to("/api/v2/torrents/info")
     assert any(call.params.get("tag") == f"fx-job-{body['job_id']}" for call in lookups)
