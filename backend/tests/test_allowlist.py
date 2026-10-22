@@ -3,6 +3,9 @@
 from app.download.allowlist import (
     EXCLUDED_FILE_PATTERNS,
     SAMPLE_SIZE_RATIO,
+    OTHER_VIDEO_EXTENSIONS,
+    SUBTITLE_EXTENSIONS,
+    VIDEO_EXTENSIONS,
     FileDecision,
     TorrentFile,
     decide,
@@ -151,6 +154,46 @@ def test_samples_only_torrent_is_rejected_with_every_index_zeroed():
     decision = decide(_files(("Movie.Sample.mkv", 50 * MB), ("sample/clip.mp4", 40 * MB)))
 
     assert decision == FileDecision(accept=False, keep_ids=(), zero_ids=(0, 1), reason="no_video")
+
+
+def test_a_webm_film_is_rejected_as_video_format_with_every_index_zeroed():
+    decision = decide(_files(("Movie.webm", 1200 * MB), ("Movie.en.srt", 40_000)))
+
+    assert decision == FileDecision(
+        accept=False, keep_ids=(), zero_ids=(0, 1), reason="video_format"
+    )
+
+
+def test_an_upper_case_webm_extension_is_rejected_as_video_format():
+    assert decide(_files(("Movie.WEBM", GB))).reason == "video_format"
+
+
+def test_a_webm_film_with_only_a_sample_beside_it_is_rejected_as_video_format():
+    decision = decide(_files(("Movie.webm", 2 * GB), ("Sample/sample.mkv", 30 * MB)))
+
+    assert decision.accept is False
+    assert decision.reason == "video_format"
+
+
+def test_a_webm_sample_alone_is_rejected_as_no_video():
+    assert decide(_files(("Movie.sample.webm", 30 * MB))).reason == "no_video"
+
+
+def test_a_mixed_mkv_and_webm_torrent_keeps_only_the_mkv():
+    decision = decide(_files(("Movie.mkv", 2 * GB), ("Movie.webm", 2 * GB)))
+
+    assert decision == FileDecision(accept=True, keep_ids=(0,), zero_ids=(1,), reason=None)
+
+
+def test_the_filt02_video_list_is_unchanged_and_webm_is_never_in_it():
+    assert VIDEO_EXTENSIONS == {".mkv", ".mp4", ".avi", ".m4v"}
+    assert ".webm" not in VIDEO_EXTENSIONS
+
+
+def test_the_other_video_formats_only_name_a_rejection_and_overlap_no_allowed_list():
+    assert ".webm" in OTHER_VIDEO_EXTENSIONS
+    assert OTHER_VIDEO_EXTENSIONS.isdisjoint(VIDEO_EXTENSIONS)
+    assert OTHER_VIDEO_EXTENSIONS.isdisjoint(SUBTITLE_EXTENSIONS)
 
 
 def test_single_main_video_is_accepted_with_nothing_zeroed():

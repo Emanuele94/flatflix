@@ -307,6 +307,29 @@ async def test_a_torrent_without_a_video_is_deleted_with_its_files_and_never_sta
     assert BTIH not in rig.fake.torrents
 
 
+async def test_a_webm_only_torrent_is_unsupported_deleted_and_never_started(rig: Rig) -> None:
+    rig.cache()
+    rig.fake.set_metadata(
+        BTIH,
+        [
+            ("Tears of Steel/tears_of_steel_1080p.webm", 1200 * MB),
+            ("Tears of Steel/tears_of_steel.en.srt", 40_000),
+        ],
+    )
+
+    response = await rig.post()
+
+    body = response.json()
+    assert body["status"] == "unsupported"
+    assert set(body) == {"status", "job_id"}
+    assert rig.fake.deleted == [(BTIH, True)]
+    assert rig.fake.calls_to(START) == []
+    assert rig.fake.calls_to(FILE_PRIO) == []
+    assert BTIH not in rig.fake.torrents
+    fetched = await rig.api.get(f"/api/download/{body['job_id']}")
+    assert fetched.json() == body
+
+
 async def test_a_torrent_holding_only_samples_is_rejected(rig: Rig) -> None:
     rig.cache()
     rig.fake.set_metadata(
