@@ -21,12 +21,12 @@
 
 	# Reserved: replaced by the TV app in Phase 5.
 	handle /tv/* {
-		respond "Non ancora disponibile" 404
+		respond "Not available yet" 404
 	}
 
 	# Reserved: replaced by the Jellyfin reverse proxy in Phase 3.
 	handle /jellyfin/* {
-		respond "Non ancora disponibile" 404
+		respond "Not available yet" 404
 	}
 
 	handle {

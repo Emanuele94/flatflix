@@ -38,7 +38,7 @@ def main(argv: list[str] | None = None) -> int:
         password = sys.stdin.readline().rstrip("\r\n")
     else:
         password = getpass.getpass("Password: ")
-        if getpass.getpass("Ripeti la password: ") != password:
+        if getpass.getpass("Repeat the password: ") != password:
             return _fail("the two passwords differ")
 
     if len(password) < MIN_LENGTH:
