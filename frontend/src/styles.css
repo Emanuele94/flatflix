@@ -53,3 +53,44 @@ select {
   font-size: 0.85rem;
   color: #666;
 }
+
+.banner {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  background: #fff3cd;
+  color: #5c4400;
+  text-align: center;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 0.5rem 1rem;
+}
+
+.app-header h1 {
+  margin: 0;
+}
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.field input {
+  width: 100%;
+  padding: 0 0.75rem;
+  border: 1px solid #888;
+  border-radius: 0.5rem;
+}

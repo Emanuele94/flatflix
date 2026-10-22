@@ -1,34 +1,68 @@
 import { useEffect, useState } from 'preact/hooks';
 import { api, ApiError } from './api.js';
+import { Login } from './Login.jsx';
 import { MSG } from './messages.js';
 
 export function App() {
-  const [status, setStatus] = useState(null);
+  // checking | login | in
+  const [view, setView] = useState('checking');
+  const [health, setHealth] = useState(null);
 
   useEffect(() => {
     let alive = true;
-    api('/api/health')
-      .then((data) => {
-        if (alive) setStatus(data && data.status === 'ok' ? 'ok' : 'degraded');
+    api('/api/session')
+      .then(() => {
+        if (alive) setView('in');
       })
       .catch((err) => {
         if (!alive) return;
-        setStatus(err instanceof ApiError ? 'unreachable' : 'degraded');
+        if (err instanceof ApiError && err.status === 0) setHealth('unreachable');
+        setView('login');
+      });
+    api('/api/health')
+      .then((data) => {
+        if (alive && !(data && data.status === 'ok')) setHealth('degraded');
+      })
+      .catch((err) => {
+        if (!alive) return;
+        setHealth(err instanceof ApiError && err.status === 0 ? 'unreachable' : 'degraded');
       });
     return () => {
       alive = false;
     };
   }, []);
 
-  let text = '';
-  if (status === 'ok') text = MSG.healthOk;
-  else if (status === 'degraded') text = MSG.healthDegraded;
-  else if (status === 'unreachable') text = MSG.serverUnreachable;
+  let banner = null;
+  if (health === 'degraded') banner = MSG.healthDegraded;
+  else if (health === 'unreachable') banner = MSG.serverUnreachable;
+
+  let content = null;
+  if (view === 'login') {
+    content = <Login onLoggedIn={() => setView('in')} />;
+  } else if (view === 'in') {
+    content = (
+      <>
+        <header class="app-header">
+          <h1>{MSG.appTitle}</h1>
+          <button class="btn" type="button">
+            {MSG.logout}
+          </button>
+        </header>
+        <main class="app">
+          <p class="status">{MSG.loggedIn}</p>
+        </main>
+      </>
+    );
+  }
 
   return (
-    <main class="app">
-      <h1>{MSG.appTitle}</h1>
-      <p class="status">{text}</p>
-    </main>
+    <>
+      {banner && (
+        <p class="banner" role="status">
+          {banner}
+        </p>
+      )}
+      {content}
+    </>
   );
 }

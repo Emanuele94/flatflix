@@ -4,4 +4,10 @@ export const MSG = {
   healthOk: 'Portale pronto',
   healthDegraded: 'Servizio in avvio. Riprova tra poco.',
   serverUnreachable: 'Server non raggiungibile. Controlla che il computer sia acceso.',
+  loginTitle: 'Accedi',
+  username: 'Nome utente',
+  password: 'Password',
+  loginButton: 'Entra',
+  logout: 'Esci',
+  loggedIn: 'Accesso effettuato.',
 };
