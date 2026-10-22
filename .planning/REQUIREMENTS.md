@@ -43,7 +43,7 @@ Requirements for the initial release. Each maps to exactly one roadmap phase.
 
 ### Download Filtering & Validation
 
-- [ ] **FILT-01**: At startup the backend sets qBittorrent's global excluded-file-names list (executables, scripts, shortcuts, archives, disk images, e.g. `*.exe`, `*.bat`, `*.cmd`, `*.ps1`, `*.scr`, `*.lnk`, `*.msi`, `*.zip`, `*.rar`, `*.7z`, `*.iso`), so such files are never downloaded. (user)
+- [x] **FILT-01**: At startup the backend sets qBittorrent's global excluded-file-names list (executables, scripts, shortcuts, archives, disk images, e.g. `*.exe`, `*.bat`, `*.cmd`, `*.ps1`, `*.scr`, `*.lnk`, `*.msi`, `*.zip`, `*.rar`, `*.7z`, `*.iso`), so such files are never downloaded. (user)
 - [ ] **FILT-02**: The backend adds every torrent stopped, waits for its metadata and reads the file list against an allowlist (video: `.mkv`, `.mp4`, `.avi`, `.m4v`; subtitles: `.srt`, `.ass`, `.ssa`, `.sub`, `.idx`). A torrent with no allowed video file is removed before any data is downloaded and the user sees a plain message; in an accepted torrent every non-allowed file gets priority 0; only then is the torrent started. (user)
 - [ ] **QUAR-01**: Completed downloads are saved to a quarantine folder (per category) outside the media folders that Jellyfin reads; no file moves to a media folder without passing validation. (user)
 - [ ] **QUAR-02**: Each completed video file is probed with ffprobe inside a fresh Firecracker microVM: no network device, the file attached read-only, fixed vCPU and memory limits, a hard wall-clock timeout, and the VM destroyed after the check; a crash or timeout counts as a failure. (user)
@@ -165,7 +165,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INFRA-04 | Phase 3 | Pending |
 | INFRA-05 | Phase 6 | Pending |
 | MEDIA-01 | Phase 1 | Complete |
-| FILT-01 | Phase 1 | Pending |
+| FILT-01 | Phase 1 | Complete |
 | FILT-02 | Phase 1 | Pending |
 | QUAR-01 | Phase 2.1 | Pending |
 | QUAR-02 | Phase 2.1 | Pending |
