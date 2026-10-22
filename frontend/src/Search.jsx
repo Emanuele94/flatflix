@@ -21,7 +21,7 @@ function downloadErrorState(err) {
   return 'failed';
 }
 
-// Only MSG strings ever reach the screen: no status code, JSON or English text.
+// Only MSG strings ever reach the screen: no status code, JSON or raw backend text.
 function searchErrorMessage(err) {
   if (err instanceof ApiError) {
     if (err.status === 401) return ''; // the App shows the login screen
@@ -109,7 +109,7 @@ export function Search() {
         if (epoch !== jobEpoch.current) return;
         // The job is unknown or the session is gone: asking again will not help.
         if (err instanceof ApiError && (err.status === 404 || err.status === 401)) return;
-        // Anything else (network blip, 5xx) keeps the row on "In preparazione" and retries.
+        // Anything else (network blip, 5xx) keeps the row on "Preparing" and retries.
       }
       if (Date.now() - startedAt < JOB_GIVE_UP_MS) pollJob(id, epoch, jobId, startedAt);
     }, JOB_POLL_MS);

@@ -3,7 +3,7 @@ import { MSG } from './messages.js';
 // Row states (kept by Search, keyed by result_id):
 //   undefined | pending | started | preparing | duplicate
 //   | rejected | unavailable | failed | expired | notReady | network
-// "Avviato" is rendered for `started` only: the backend returns it after the allowlist ran,
+// "Started" is rendered for `started` only: the backend returns it after the allowlist ran,
 // priorities were verified and torrents/start succeeded. Nothing else ever looks like success.
 
 // States shown as a disabled button carrying the text itself.

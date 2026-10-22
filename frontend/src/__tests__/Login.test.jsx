@@ -14,9 +14,9 @@ describe('Login form', () => {
     const onLoggedIn = vi.fn();
     render(<Login onLoggedIn={onLoggedIn} />);
 
-    fireEvent.input(screen.getByLabelText('Nome utente'), { target: { value: 'casa' } });
+    fireEvent.input(screen.getByLabelText('Username'), { target: { value: 'casa' } });
     fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'segreta' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Entra' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Log in' }));
 
     await waitFor(() => expect(onLoggedIn).toHaveBeenCalledTimes(1));
     const [path, init] = fetchMock.mock.calls[0];
@@ -29,9 +29,9 @@ describe('Login form', () => {
     vi.stubGlobal('fetch', vi.fn(fetchImpl));
     const onLoggedIn = vi.fn();
     const { container } = render(<Login onLoggedIn={onLoggedIn} />);
-    fireEvent.input(screen.getByLabelText('Nome utente'), { target: { value: 'casa' } });
+    fireEvent.input(screen.getByLabelText('Username'), { target: { value: 'casa' } });
     fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'sbagliata' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Entra' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Log in' }));
     return { onLoggedIn, container };
   }
 
@@ -41,7 +41,7 @@ describe('Login form', () => {
       status: 401,
       json: async () => ({ detail: 'bad_credentials' }),
     }));
-    expect(await screen.findByText('Nome utente o password errati.')).toBeTruthy();
+    expect(await screen.findByText('Wrong username or password.')).toBeTruthy();
     expect(onLoggedIn).not.toHaveBeenCalled();
     expect(container.textContent).not.toMatch(/401|bad_credentials|detail|\{/);
   });
@@ -52,7 +52,7 @@ describe('Login form', () => {
       status: 429,
       json: async () => ({ detail: 'too_many_attempts' }),
     }));
-    expect(await screen.findByText('Troppi tentativi. Riprova tra qualche minuto.')).toBeTruthy();
+    expect(await screen.findByText('Too many attempts. Try again in a few minutes.')).toBeTruthy();
     expect(container.textContent).not.toMatch(/429|too_many_attempts/);
   });
 
@@ -61,7 +61,7 @@ describe('Login form', () => {
       throw new TypeError('Failed to fetch');
     });
     expect(
-      await screen.findByText('Server non raggiungibile. Controlla che il computer sia acceso.'),
+      await screen.findByText('Can’t reach the server. Check that the computer is turned on.'),
     ).toBeTruthy();
   });
 
@@ -71,7 +71,7 @@ describe('Login form', () => {
       status: 401,
       json: async () => ({ detail: 'bad_credentials' }),
     }));
-    await screen.findByText('Nome utente o password errati.');
+    await screen.findByText('Wrong username or password.');
     expect(screen.getByLabelText('Password').value).toBe('');
   });
 });

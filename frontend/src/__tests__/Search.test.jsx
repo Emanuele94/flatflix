@@ -36,8 +36,8 @@ function stubSearch({ start = { search_id: 's1' }, snapshots }) {
 }
 
 function submitSearch(q) {
-  fireEvent.input(screen.getByLabelText('Titolo del film o della serie'), { target: { value: q } });
-  fireEvent.click(screen.getByRole('button', { name: 'Cerca' }));
+  fireEvent.input(screen.getByLabelText('Movie or series title'), { target: { value: q } });
+  fireEvent.click(screen.getByRole('button', { name: 'Search' }));
 }
 
 async function tick(ms) {
@@ -57,11 +57,11 @@ afterEach(() => {
 });
 
 describe('Search flow', () => {
-  it('posts exactly {q, type: film} by default and offers the Film and Serie TV toggle', async () => {
+  it('posts exactly {q, type: film} by default and offers the Film and TV Series toggle', async () => {
     const calls = stubSearch({ snapshots: [jsonResponse({ search_id: 's1', done: true, timed_out: false, results: [] })] });
     render(<Search />);
-    expect(screen.getByLabelText('Film').checked).toBe(true);
-    expect(screen.getByLabelText('Serie TV').checked).toBe(false);
+    expect(screen.getByLabelText('Movie').checked).toBe(true);
+    expect(screen.getByLabelText('TV Series').checked).toBe(false);
     submitSearch('Sintel');
     await tick(0);
     const post = calls.find((c) => c.method === 'POST');
@@ -69,10 +69,10 @@ describe('Search flow', () => {
     expect(JSON.parse(post.body)).toEqual({ q: 'Sintel', type: 'film' });
   });
 
-  it('posts type serie when Serie TV is chosen', async () => {
+  it('posts type serie when TV Series is chosen', async () => {
     const calls = stubSearch({ snapshots: [jsonResponse({ search_id: 's1', done: true, timed_out: false, results: [] })] });
     render(<Search />);
-    fireEvent.click(screen.getByLabelText('Serie TV'));
+    fireEvent.click(screen.getByLabelText('TV Series'));
     submitSearch('Pioneer One');
     await tick(0);
     expect(JSON.parse(calls.find((c) => c.method === 'POST').body)).toEqual({
@@ -166,7 +166,7 @@ async function runSearch(stub, q = 'Sintel') {
 }
 
 describe('Search states (D-06, PUI-02)', () => {
-  it('shows "Ricerca in corso…" with the rows received while the search runs, and hides it when done', async () => {
+  it('shows "Searching…" with the rows received while the search runs, and hides it when done', async () => {
     const stub = {
       snapshots: [snapshot([row('a', 'Alpha', 50)], { done: false }), snapshot([row('a', 'Alpha', 50)])],
     };
@@ -174,26 +174,26 @@ describe('Search states (D-06, PUI-02)', () => {
     const { container } = render(<Search />);
     submitSearch('Sintel');
     await tick(0);
-    expect(screen.getByText('Ricerca in corso…')).toBeTruthy();
+    expect(screen.getByText('Searching…')).toBeTruthy();
     await tick(700);
-    expect(screen.getByText('Ricerca in corso…')).toBeTruthy();
+    expect(screen.getByText('Searching…')).toBeTruthy();
     expect(container.querySelector('.spinner')).toBeTruthy();
     expect(container.querySelectorAll('li.result').length).toBe(1);
     await tick(700);
-    expect(screen.queryByText('Ricerca in corso…')).toBeNull();
+    expect(screen.queryByText('Searching…')).toBeNull();
     expect(container.querySelectorAll('li.result').length).toBe(1);
   });
 
   it('says there is nothing found when done with zero rows', async () => {
     await runSearch({ snapshots: [snapshot([])] });
-    expect(screen.getByText('Nessun risultato. Prova con altre parole.')).toBeTruthy();
-    expect(screen.queryByText('La ricerca ha impiegato troppo tempo. Riprova.')).toBeNull();
+    expect(screen.getByText('No results. Try different words.')).toBeTruthy();
+    expect(screen.queryByText('The search took too long. Try again.')).toBeNull();
   });
 
   it('says the search took too long when it timed out with zero rows', async () => {
     await runSearch({ snapshots: [snapshot([], { timed_out: true })] });
-    expect(screen.getByText('La ricerca ha impiegato troppo tempo. Riprova.')).toBeTruthy();
-    expect(screen.queryByText('Nessun risultato. Prova con altre parole.')).toBeNull();
+    expect(screen.getByText('The search took too long. Try again.')).toBeTruthy();
+    expect(screen.queryByText('No results. Try different words.')).toBeNull();
   });
 
   it('shows the rows with no message and no indicator when it timed out with some results', async () => {
@@ -201,15 +201,15 @@ describe('Search states (D-06, PUI-02)', () => {
       snapshots: [snapshot([row('a', 'Alpha', 50)], { timed_out: true })],
     });
     expect(container.querySelectorAll('li.result').length).toBe(1);
-    expect(screen.queryByText('La ricerca ha impiegato troppo tempo. Riprova.')).toBeNull();
-    expect(screen.queryByText('Nessun risultato. Prova con altre parole.')).toBeNull();
-    expect(screen.queryByText('Ricerca in corso…')).toBeNull();
+    expect(screen.queryByText('The search took too long. Try again.')).toBeNull();
+    expect(screen.queryByText('No results. Try different words.')).toBeNull();
+    expect(screen.queryByText('Searching…')).toBeNull();
   });
 
   it('shows no empty message before any search', () => {
     stubSearch({ snapshots: [snapshot([])] });
     render(<Search />);
-    expect(screen.queryByText('Nessun risultato. Prova con altre parole.')).toBeNull();
+    expect(screen.queryByText('No results. Try different words.')).toBeNull();
   });
 
   it('shows the starting message on a 503 and nothing technical', async () => {
@@ -217,8 +217,8 @@ describe('Search states (D-06, PUI-02)', () => {
     const { container } = render(<Search />);
     submitSearch('Sintel');
     await tick(0);
-    expect(screen.getByText('Il servizio si sta avviando. Riprova tra poco.')).toBeTruthy();
-    expect(screen.queryByText('Ricerca in corso…')).toBeNull();
+    expect(screen.getByText('The service is starting up. Try again in a moment.')).toBeTruthy();
+    expect(screen.queryByText('Searching…')).toBeNull();
     expect(container.textContent).not.toMatch(FOREIGN);
   });
 
@@ -227,7 +227,7 @@ describe('Search states (D-06, PUI-02)', () => {
     const { container } = render(<Search />);
     submitSearch('a');
     await tick(0);
-    expect(screen.getByText('Scrivi almeno 2 caratteri.')).toBeTruthy();
+    expect(screen.getByText('Type at least 2 characters.')).toBeTruthy();
     expect(container.textContent).not.toMatch(FOREIGN);
   });
 
@@ -237,7 +237,7 @@ describe('Search states (D-06, PUI-02)', () => {
     submitSearch('Sintel');
     await tick(0);
     expect(
-      screen.getByText('Server non raggiungibile. Controlla che il computer sia acceso.'),
+      screen.getByText('Can’t reach the server. Check that the computer is turned on.'),
     ).toBeTruthy();
     expect(container.textContent).not.toMatch(FOREIGN);
   });
@@ -255,9 +255,9 @@ describe('Search states (D-06, PUI-02)', () => {
     submitSearch('Sintel');
     await tick(0);
     await tick(700);
-    expect(container.querySelector('.form-error').textContent).toBe('Qualcosa è andato storto. Riprova.');
+    expect(container.querySelector('.form-error').textContent).toBe('Something went wrong. Try again.');
     expect(container.textContent).not.toMatch(FOREIGN);
-    expect(screen.queryByText('Ricerca in corso…')).toBeNull();
+    expect(screen.queryByText('Searching…')).toBeNull();
   });
 
   it('clears the previous message when a new search starts', async () => {
@@ -265,11 +265,11 @@ describe('Search states (D-06, PUI-02)', () => {
     render(<Search />);
     submitSearch('Sintel');
     await tick(0);
-    expect(screen.getByText('Il servizio si sta avviando. Riprova tra poco.')).toBeTruthy();
+    expect(screen.getByText('The service is starting up. Try again in a moment.')).toBeTruthy();
     stubSearch({ snapshots: [snapshot([], { done: false })] });
     submitSearch('Sintel');
     await tick(0);
-    expect(screen.queryByText('Il servizio si sta avviando. Riprova tra poco.')).toBeNull();
+    expect(screen.queryByText('The service is starting up. Try again in a moment.')).toBeNull();
   });
 
   it('keeps each row DOM node when a snapshot re-sorts the rows (key = result_id)', async () => {
@@ -291,7 +291,7 @@ describe('Search states (D-06, PUI-02)', () => {
   });
 });
 
-// ---- Download rows (01-13): Scarica, row states, polling -------------------------------
+// ---- Download rows (01-13): Download, row states, polling -------------------------------
 const JOB = 'a'.repeat(16);
 
 function stubPortal({ snapshots, download, jobs = () => jsonResponse({ detail: 'job_not_found' }, 404) }) {
@@ -333,7 +333,7 @@ async function tap(container, name) {
 const downloadPosts = (calls) => calls.filter((c) => c.path === '/api/download' && c.method === 'POST');
 
 describe('Download from the result list (DOWN-01, SEC-03, D-10)', () => {
-  it('posts exactly {result_id, type} and shows "Avviato ✓" for a started job', async () => {
+  it('posts exactly {result_id, type} and shows "Started ✓" for a started job', async () => {
     const { container, calls } = await openRows({
       download: () => jsonResponse({ status: 'started', job_id: JOB }),
     });
@@ -341,7 +341,7 @@ describe('Download from the result list (DOWN-01, SEC-03, D-10)', () => {
     const posts = downloadPosts(calls);
     expect(posts.length).toBe(1);
     expect(JSON.parse(posts[0].body)).toEqual({ result_id: 'a', type: 'film' });
-    expect(rowOf(container, 'Alpha').textContent).toContain('Avviato ✓');
+    expect(rowOf(container, 'Alpha').textContent).toContain('Started ✓');
   });
 
   it('sends the type of the search that produced the row, not the current toggle', async () => {
@@ -350,11 +350,11 @@ describe('Download from the result list (DOWN-01, SEC-03, D-10)', () => {
       download: () => jsonResponse({ status: 'started', job_id: JOB }),
     });
     const { container } = render(<Search />);
-    fireEvent.click(screen.getByLabelText('Serie TV'));
+    fireEvent.click(screen.getByLabelText('TV Series'));
     submitSearch('Pioneer One');
     await tick(0);
     await tick(700);
-    fireEvent.click(screen.getByLabelText('Film')); // toggled after the results arrived
+    fireEvent.click(screen.getByLabelText('Movie')); // toggled after the results arrived
     await tap(container, 'Alpha');
     expect(JSON.parse(downloadPosts(calls)[0].body).type).toBe('serie');
   });
@@ -372,7 +372,7 @@ describe('Download from the result list (DOWN-01, SEC-03, D-10)', () => {
       release(jsonResponse({ status: 'started', job_id: JOB }));
     });
     await tick(0);
-    expect(li.textContent).toContain('Avviato ✓');
+    expect(li.textContent).toContain('Started ✓');
     expect(li.querySelector('.spinner')).toBeNull();
   });
 
@@ -383,20 +383,20 @@ describe('Download from the result list (DOWN-01, SEC-03, D-10)', () => {
     await tap(container, 'Alpha');
     expect(container.querySelectorAll('li.result').length).toBe(2);
     expect(rowOf(container, 'Beta').querySelector('button').disabled).toBe(false);
-    expect(rowOf(container, 'Beta').textContent).not.toContain('Avviato');
+    expect(rowOf(container, 'Beta').textContent).not.toContain('Started');
   });
 });
 
 const OUTCOMES = [
-  ['rejected', () => jsonResponse({ status: 'rejected', job_id: JOB }), 'Questo file non contiene un video. Prova un altro risultato.'],
-  ['unavailable', () => jsonResponse({ status: 'unavailable', job_id: JOB }), 'Non disponibile. Prova un altro risultato.'],
-  ['duplicate', () => jsonResponse({ status: 'duplicate', job_id: JOB }), 'Già presente'],
-  ['failed', () => jsonResponse({ status: 'failed', job_id: JOB }), 'Download non riuscito. Riprova.'],
-  ['preparing', () => jsonResponse({ status: 'preparing', job_id: JOB }), 'In preparazione'],
-  ['410', () => jsonResponse({ detail: 'search_expired' }, 410), 'Ricerca scaduta, cerca di nuovo.'],
-  ['503', () => jsonResponse({ detail: 'not_ready' }, 503), 'Il servizio si sta avviando. Riprova tra poco.'],
-  ['422', () => jsonResponse({ detail: 'type_mismatch' }, 422), 'Download non riuscito. Riprova.'],
-  ['network', () => { throw new TypeError('Failed to fetch'); }, 'Server non raggiungibile. Controlla che il computer sia acceso.'],
+  ['rejected', () => jsonResponse({ status: 'rejected', job_id: JOB }), 'This file doesn’t contain a video. Try another result.'],
+  ['unavailable', () => jsonResponse({ status: 'unavailable', job_id: JOB }), 'Not available. Try another result.'],
+  ['duplicate', () => jsonResponse({ status: 'duplicate', job_id: JOB }), 'Already added'],
+  ['failed', () => jsonResponse({ status: 'failed', job_id: JOB }), 'Download failed. Try again.'],
+  ['preparing', () => jsonResponse({ status: 'preparing', job_id: JOB }), 'Preparing'],
+  ['410', () => jsonResponse({ detail: 'search_expired' }, 410), 'Search expired. Search again.'],
+  ['503', () => jsonResponse({ detail: 'not_ready' }, 503), 'The service is starting up. Try again in a moment.'],
+  ['422', () => jsonResponse({ detail: 'type_mismatch' }, 422), 'Download failed. Try again.'],
+  ['network', () => { throw new TypeError('Failed to fetch'); }, 'Can’t reach the server. Check that the computer is turned on.'],
 ];
 
 describe('Download outcomes on the row (D-11, D-13)', () => {
@@ -409,10 +409,10 @@ describe('Download outcomes on the row (D-11, D-13)', () => {
     expect(container.querySelectorAll('li.result').length).toBe(2);
   });
 
-  it.each(OUTCOMES)('never_success: %s never renders "Avviato"', async (_n, download) => {
+  it.each(OUTCOMES)('never_success: %s never renders "Started"', async (_n, download) => {
     const { container } = await openRows({ download });
     await tap(container, 'Alpha');
-    expect(container.textContent).not.toContain('Avviato');
+    expect(container.textContent).not.toContain('Started');
     expect(container.textContent).not.toContain('✓');
   });
 
@@ -440,12 +440,12 @@ describe('Preparing jobs poll the job (D-11)', () => {
     expect(gets()).toBe(0);
     await tick(100);
     expect(gets()).toBe(1);
-    expect(rowOf(container, 'Alpha').textContent).toContain('In preparazione');
+    expect(rowOf(container, 'Alpha').textContent).toContain('Preparing');
     await tick(2000);
     expect(gets()).toBe(2);
     await tick(2000);
     expect(gets()).toBe(3);
-    expect(rowOf(container, 'Alpha').textContent).toContain('Avviato ✓');
+    expect(rowOf(container, 'Alpha').textContent).toContain('Started ✓');
     await tick(10000);
     expect(gets()).toBe(3);
   });
@@ -458,12 +458,12 @@ describe('Preparing jobs poll the job (D-11)', () => {
     await tap(container, 'Alpha');
     await tick(2000);
     expect(rowOf(container, 'Alpha').textContent).toContain(
-      'Questo file non contiene un video. Prova un altro risultato.',
+      'This file doesn’t contain a video. Try another result.',
     );
-    expect(container.textContent).not.toContain('Avviato');
+    expect(container.textContent).not.toContain('Started');
   });
 
-  it('gives up after 330 s and keeps "In preparazione"', async () => {
+  it('gives up after 330 s and keeps "Preparing"', async () => {
     const { container, calls } = await openRows({
       download: () => jsonResponse({ status: 'preparing', job_id: JOB }),
       jobs: () => jsonResponse({ status: 'preparing', job_id: JOB }),
@@ -474,10 +474,10 @@ describe('Preparing jobs poll the job (D-11)', () => {
     const after = gets();
     expect(after).toBeGreaterThan(100);
     expect(after).toBeLessThanOrEqual(165);
-    expect(rowOf(container, 'Alpha').textContent).toContain('In preparazione');
+    expect(rowOf(container, 'Alpha').textContent).toContain('Preparing');
     await tick(20000);
     expect(gets()).toBe(after);
-    expect(rowOf(container, 'Alpha').textContent).toContain('In preparazione');
+    expect(rowOf(container, 'Alpha').textContent).toContain('Preparing');
   });
 
   it('stops polling when the screen unmounts', async () => {
@@ -493,7 +493,7 @@ describe('Preparing jobs poll the job (D-11)', () => {
     expect(calls.length).toBe(before);
   });
 
-  it('keeps "In preparazione" and keeps polling through a network blip', async () => {
+  it('keeps "Preparing" and keeps polling through a network blip', async () => {
     let n = 0;
     const { container } = await openRows({
       download: () => jsonResponse({ status: 'preparing', job_id: JOB }),
@@ -505,17 +505,17 @@ describe('Preparing jobs poll the job (D-11)', () => {
     });
     await tap(container, 'Alpha');
     await tick(2000);
-    expect(rowOf(container, 'Alpha').textContent).toContain('In preparazione');
+    expect(rowOf(container, 'Alpha').textContent).toContain('Preparing');
     await tick(2000);
-    expect(rowOf(container, 'Alpha').textContent).toContain('Avviato ✓');
+    expect(rowOf(container, 'Alpha').textContent).toContain('Started ✓');
   });
 });
 
 describe('Row state keyed by result_id (PUI-02)', () => {
   it.each([
-    ['started', 'Avviato ✓'],
-    ['preparing', 'In preparazione'],
-    ['duplicate', 'Già presente'],
+    ['started', 'Started ✓'],
+    ['preparing', 'Preparing'],
+    ['duplicate', 'Already added'],
   ])('a second tap on a %s row sends no second request', async (status, text) => {
     const { container, calls } = await openRows({
       download: () => jsonResponse({ status, job_id: JOB }),
@@ -561,11 +561,11 @@ describe('Row state keyed by result_id (PUI-02)', () => {
     });
     await tick(0);
     expect(downloadPosts(calls).length).toBe(3);
-    expect(rowOf(container, 'Alpha').textContent).toContain('Avviato ✓');
-    expect(rowOf(container, 'Beta').textContent).toContain('Questo file non contiene un video.');
-    expect(rowOf(container, 'Gamma').textContent).toContain('Già presente');
-    expect(rowOf(container, 'Beta').textContent).not.toContain('Avviato');
-    expect(rowOf(container, 'Gamma').textContent).not.toContain('Avviato');
+    expect(rowOf(container, 'Alpha').textContent).toContain('Started ✓');
+    expect(rowOf(container, 'Beta').textContent).toContain('This file doesn’t contain a video.');
+    expect(rowOf(container, 'Gamma').textContent).toContain('Already added');
+    expect(rowOf(container, 'Beta').textContent).not.toContain('Started');
+    expect(rowOf(container, 'Gamma').textContent).not.toContain('Started');
   });
 
   it('keeps each row state when a later snapshot re-sorts the rows', async () => {
@@ -584,9 +584,9 @@ describe('Row state keyed by result_id (PUI-02)', () => {
     await tick(700); // re-sorted snapshot, done
     const items = container.querySelectorAll('li.result');
     expect(items[0].textContent).toContain('Beta');
-    expect(items[0].textContent).not.toContain('Avviato');
+    expect(items[0].textContent).not.toContain('Started');
     expect(items[1].textContent).toContain('Alpha');
-    expect(items[1].textContent).toContain('Avviato ✓');
+    expect(items[1].textContent).toContain('Started ✓');
     expect(downloadPosts(calls).length).toBe(1);
   });
 });

@@ -33,16 +33,16 @@ describe('App session gate', () => {
   it('shows the login form when the session is 401', async () => {
     stubApi({ session: jsonResponse({ detail: 'not_authenticated' }, 401) });
     render(<App />);
-    expect(await screen.findByRole('button', { name: 'Entra' })).toBeTruthy();
-    expect(screen.getByLabelText('Nome utente')).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'Log in' })).toBeTruthy();
+    expect(screen.getByLabelText('Username')).toBeTruthy();
     expect(screen.getByLabelText('Password')).toBeTruthy();
   });
 
   it('shows the logged-in shell when the session is 200', async () => {
     stubApi();
     render(<App />);
-    expect(await screen.findByRole('button', { name: 'Cerca' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Esci' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'Search' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Log out' })).toBeTruthy();
   });
 });
 
@@ -50,14 +50,14 @@ describe('App health banner', () => {
   it('shows the starting message when the backend is degraded', async () => {
     stubApi({ health: jsonResponse({ status: 'degraded', qbittorrent: 'down' }) });
     render(<App />);
-    expect(await screen.findByText('Servizio in avvio. Riprova tra poco.')).toBeTruthy();
+    expect(await screen.findByText('Service is starting up. Try again in a moment.')).toBeTruthy();
   });
 
   it('shows no banner when the backend is ok', async () => {
     stubApi();
     render(<App />);
-    await screen.findByRole('button', { name: 'Cerca' });
-    expect(screen.queryByText('Servizio in avvio. Riprova tra poco.')).toBeNull();
+    await screen.findByRole('button', { name: 'Search' });
+    expect(screen.queryByText('Service is starting up. Try again in a moment.')).toBeNull();
   });
 
   it('shows the unreachable message when fetch rejects', async () => {
@@ -65,7 +65,7 @@ describe('App health banner', () => {
     stubApi({ session: down, health: down });
     render(<App />);
     expect(
-      await screen.findByText('Server non raggiungibile. Controlla che il computer sia acceso.'),
+      await screen.findByText('Can’t reach the server. Check that the computer is turned on.'),
     ).toBeTruthy();
   });
 });
@@ -118,17 +118,17 @@ describe('App session lifecycle', () => {
       }),
     );
     render(<App />);
-    await screen.findByRole('button', { name: 'Entra' });
-    fireEvent.input(screen.getByLabelText('Nome utente'), { target: { value: 'casa' } });
+    await screen.findByRole('button', { name: 'Log in' });
+    fireEvent.input(screen.getByLabelText('Username'), { target: { value: 'casa' } });
     fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'giusta' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Entra' }));
-    await screen.findByRole('button', { name: 'Cerca' });
+    fireEvent.click(screen.getByRole('button', { name: 'Log in' }));
+    await screen.findByRole('button', { name: 'Search' });
   }
 
-  it('Esci posts /api/logout and returns to the login screen', async () => {
+  it('Log out posts /api/logout and returns to the login screen', async () => {
     await loginFlow();
-    fireEvent.click(screen.getByRole('button', { name: 'Esci' }));
-    expect(await screen.findByRole('button', { name: 'Entra' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Log out' }));
+    expect(await screen.findByRole('button', { name: 'Log in' })).toBeTruthy();
     const calls = fetch.mock.calls.filter(([p]) => p === '/api/logout');
     expect(calls).toHaveLength(1);
     expect(calls[0][1].method).toBe('POST');
@@ -139,15 +139,15 @@ describe('App session lifecycle', () => {
     // Simulate a later API call (e.g. a search) failing with 401.
     fetch.mockImplementationOnce(async () => jsonResponse({ detail: 'not_authenticated' }, 401));
     await expect(api('/api/search?q=x')).rejects.toBeTruthy();
-    expect(await screen.findByRole('button', { name: 'Entra' })).toBeTruthy();
-    expect(document.body.textContent).not.toMatch(/errat|Troppi|non raggiungibile|401/);
+    expect(await screen.findByRole('button', { name: 'Log in' })).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/Wrong|Too many|reach the server|401/);
   });
 
   it('never writes to web storage during login and logout', async () => {
     const setItem = vi.spyOn(Storage.prototype, 'setItem');
     await loginFlow();
-    fireEvent.click(screen.getByRole('button', { name: 'Esci' }));
-    await screen.findByRole('button', { name: 'Entra' });
+    fireEvent.click(screen.getByRole('button', { name: 'Log out' }));
+    await screen.findByRole('button', { name: 'Log in' });
     await waitFor(() => expect(setItem).not.toHaveBeenCalled());
     setItem.mockRestore();
   });

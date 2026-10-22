@@ -37,8 +37,8 @@ describe('ResultRow layout (D-09)', () => {
   it('shows leechers and source small and grey', () => {
     const { container } = renderRow();
     const meta = container.querySelector('.result-meta.muted');
-    expect(meta.textContent).toBe('35 in download · piratebay');
-    expect(screen.getByText('35 in download · piratebay')).toBeTruthy();
+    expect(meta.textContent).toBe('35 downloading · piratebay');
+    expect(screen.getByText('35 downloading · piratebay')).toBeTruthy();
   });
 
   it('shows a quality badge when the quality is known', () => {
@@ -63,23 +63,23 @@ describe('ResultRow encoding (T-01-28)', () => {
 
 // Every outcome a row can show, with its exact Italian text (D-10, D-11, D-13).
 const TEXT = {
-  started: 'Avviato ✓',
-  preparing: 'In preparazione',
-  rejected: 'Questo file non contiene un video. Prova un altro risultato.',
-  unavailable: 'Non disponibile. Prova un altro risultato.',
-  duplicate: 'Già presente',
-  failed: 'Download non riuscito. Riprova.',
-  expired: 'Ricerca scaduta, cerca di nuovo.',
-  notReady: 'Il servizio si sta avviando. Riprova tra poco.',
-  network: 'Server non raggiungibile. Controlla che il computer sia acceso.',
+  started: 'Started ✓',
+  preparing: 'Preparing',
+  rejected: 'This file doesn’t contain a video. Try another result.',
+  unavailable: 'Not available. Try another result.',
+  duplicate: 'Already added',
+  failed: 'Download failed. Try again.',
+  expired: 'Search expired. Search again.',
+  notReady: 'The service is starting up. Try again in a moment.',
+  network: 'Can’t reach the server. Check that the computer is turned on.',
 };
 const NON_STARTED = Object.keys(TEXT).filter((k) => k !== 'started');
 
-describe('ResultRow Scarica button (DOWN-01, D-10)', () => {
-  it('offers an enabled Scarica button and hands the result to onDownload on tap', () => {
+describe('ResultRow Download button (DOWN-01, D-10)', () => {
+  it('offers an enabled Download button and hands the result to onDownload on tap', () => {
     const onDownload = vi.fn();
     renderRow({}, { onDownload });
-    const button = screen.getByRole('button', { name: 'Scarica' });
+    const button = screen.getByRole('button', { name: 'Download' });
     expect(button.disabled).toBe(false);
     fireEvent.click(button);
     expect(onDownload).toHaveBeenCalledTimes(1);
@@ -89,7 +89,7 @@ describe('ResultRow Scarica button (DOWN-01, D-10)', () => {
   it('disables the button and shows a spinner while the request is pending', () => {
     const onDownload = vi.fn();
     const { container } = renderRow({}, { state: 'pending', onDownload });
-    const button = screen.getByRole('button', { name: /Scarica/ });
+    const button = screen.getByRole('button', { name: /Download/ });
     expect(button.disabled).toBe(true);
     expect(container.querySelector('.spinner')).toBeTruthy();
     fireEvent.click(button);
@@ -108,7 +108,7 @@ describe('ResultRow Scarica button (DOWN-01, D-10)', () => {
     },
   );
 
-  it('shows "In preparazione" with a spinner', () => {
+  it('shows "Preparing" with a spinner', () => {
     const { container } = renderRow({}, { state: 'preparing' });
     expect(container.querySelector('.spinner')).toBeTruthy();
   });
@@ -124,7 +124,7 @@ describe('ResultRow Scarica button (DOWN-01, D-10)', () => {
   it.each(['failed', 'notReady', 'network'])('lets the user retry after %s', (state) => {
     const onDownload = vi.fn();
     renderRow({}, { state, onDownload });
-    const button = screen.getByRole('button', { name: 'Scarica' });
+    const button = screen.getByRole('button', { name: 'Download' });
     expect(button.disabled).toBe(false);
     fireEvent.click(button);
     expect(onDownload).toHaveBeenCalledTimes(1);
@@ -133,7 +133,7 @@ describe('ResultRow Scarica button (DOWN-01, D-10)', () => {
   it.each(['rejected', 'unavailable', 'expired'])('does not offer a retry after %s', (state) => {
     const onDownload = vi.fn();
     renderRow({}, { state, onDownload });
-    const button = screen.getByRole('button', { name: 'Scarica' });
+    const button = screen.getByRole('button', { name: 'Download' });
     expect(button.disabled).toBe(true);
     fireEvent.click(button);
     expect(onDownload).not.toHaveBeenCalled();
@@ -151,15 +151,15 @@ describe('ResultRow Scarica button (DOWN-01, D-10)', () => {
 });
 
 describe('ResultRow never_success prohibition (T-01-45)', () => {
-  it.each(NON_STARTED)('never_success: state %s never renders "Avviato" or a check mark', (state) => {
+  it.each(NON_STARTED)('never_success: state %s never renders "Started" or a check mark', (state) => {
     const { container } = renderRow({}, { state });
-    expect(container.textContent).not.toContain('Avviato');
+    expect(container.textContent).not.toContain('Started');
     expect(container.textContent).not.toContain('✓');
     expect(container.querySelector('.row-state-ok')).toBeNull();
   });
 
-  it('never_success: a row without any state never says Avviato', () => {
+  it('never_success: a row without any state never says Started', () => {
     const { container } = renderRow();
-    expect(container.textContent).not.toContain('Avviato');
+    expect(container.textContent).not.toContain('Started');
   });
 });

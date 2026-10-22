@@ -27,8 +27,8 @@ describe('portal loads nothing from outside its own origin', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('index.html is Italian and mobile-ready', () => {
-    expect(indexHtml).toContain('lang="it"');
+  it('index.html is English and mobile-ready', () => {
+    expect(indexHtml).toContain('lang="en"');
     expect(indexHtml).toContain('width=device-width');
   });
 });

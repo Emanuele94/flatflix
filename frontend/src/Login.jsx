@@ -2,7 +2,7 @@ import { useState } from 'preact/hooks';
 import { api, ApiError } from './api.js';
 import { MSG } from './messages.js';
 
-// Only MSG strings ever reach the screen: no status code, JSON or English text.
+// Only MSG strings ever reach the screen: no status code, JSON or raw backend text.
 function loginErrorMessage(err) {
   if (err instanceof ApiError) {
     if (err.status === 401) return MSG.loginFailed;
