@@ -15,6 +15,7 @@ from collections.abc import Iterable
 
 from app.config import Settings
 from app.content_type import type_for_category
+from app.download.jobs import FAILED_STATES, Job
 
 # Tags set by the download pipeline on the torrents it adds.
 TAG_PORTAL = "fx"
@@ -33,6 +34,9 @@ PREPARING_STATES = frozenset(
 )
 PROBLEM_STATES = frozenset({"error", "missingFiles"})
 STOPPED_DL_STATES = frozenset({"stoppedDL", "pausedDL"})
+
+# The job states that get a row of their own while young: the plain state is the job state value.
+FAILED_JOB_STATES = frozenset(state.value for state in FAILED_STATES)
 
 # Rows in these plain states are shown first (D-30).
 ACTIVE_PLAIN_STATES = frozenset({"preparing", "downloading", "stalled"})
@@ -129,8 +133,15 @@ def sort_time(row: dict) -> float:
     return 0.0
 
 
-def build_items(rows: Iterable[dict], settings: Settings, *, now: float, secret: str) -> list[dict]:
-    """The list the household sees: Film and SerieTV torrents only, active first, newest first."""
+def build_items(
+    rows: Iterable[dict],
+    settings: Settings,
+    *,
+    now: float,
+    secret: str,
+    jobs: Iterable[Job] = (),
+) -> list[dict]:
+    """The list the household sees: Film and SerieTV torrents and failed attempts, active first."""
     kept: list[tuple[tuple[int, float, str], dict]] = []
     for row in rows:
         content_type = type_for_category(settings, str(row.get("category") or ""))
@@ -152,5 +163,22 @@ def build_items(rows: Iterable[dict], settings: Settings, *, now: float, secret:
             "action": "remove" if state == "ready" else "cancel",
         }
         kept.append(((0 if state in ACTIVE_PLAIN_STATES else 1, -stamp, item_id), item))
+    for job in jobs:
+        # D-29: a failed attempt stays visible, with its plain reason, until this age.
+        if (
+            job.state.value in FAILED_JOB_STATES
+            and job.finished_at is not None
+            and now - job.finished_at < settings.failed_visible_seconds
+        ):
+            item = {
+                "id": job.job_id,
+                "name": job.name,
+                "type": job.type,
+                "state": job.state.value,
+                "progress": 0,
+                "eta_seconds": None,
+                "action": None,
+            }
+            kept.append(((1, -job.finished_at, job.job_id), item))
     kept.sort(key=lambda pair: pair[0])
     return [item for _, item in kept]

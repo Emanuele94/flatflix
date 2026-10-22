@@ -41,6 +41,10 @@ async def list_downloads(request: Request) -> dict[str, list[dict]]:
         raise qbit_failure(exc) from None
     return {
         "items": build_items(
-            rows, settings, now=time.time(), secret=settings.secret_key.get_secret_value()
+            rows,
+            settings,
+            now=time.time(),
+            secret=settings.secret_key.get_secret_value(),
+            jobs=app.state.jobs.all(),
         )
     }

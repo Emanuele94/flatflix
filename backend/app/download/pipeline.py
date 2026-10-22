@@ -36,6 +36,7 @@ from app.config import Settings
 from app.content_type import ContentType, qbit_category
 from app.download.allowlist import TorrentFile, decide
 from app.download.jobs import Job, JobRegistry, JobState
+from app.download.listing import TAG_JOB_PREFIX, TAG_PENDING, TAG_PORTAL, job_tag_of, tags_of
 from app.netutil import resolve_host
 from app.qbit.bootstrap import repair_drift
 from app.qbit.client import QbitClient, QbitError
@@ -44,9 +45,6 @@ from app.search.service import SearchService
 
 logger = logging.getLogger(__name__)
 
-TAG_PORTAL = "fx"
-TAG_PENDING = "fx-pending"
-TAG_JOB_PREFIX = "fx-job-"
 POLL_SECONDS = 1
 HTTP_NOT_FOUND = 404
 HTTP_CONFLICT = 409
@@ -66,14 +64,6 @@ TAG_CLEANUP_ATTEMPTS = 3
 
 
 Resolver = Callable[[str], Awaitable[list[str]]]
-
-
-def _tags_of(row: dict) -> list[str]:
-    return [t.strip() for t in str(row.get("tags") or "").split(",") if t.strip()]
-
-
-def _job_tag_of(tags: list[str]) -> str | None:
-    return next((t for t in tags if t.startswith(TAG_JOB_PREFIX)), None)
 
 
 def _has_started(row: dict) -> bool:
@@ -146,6 +136,7 @@ class DownloadPipeline:
             state=JobState.PREPARING,
             torrent_hash=None,
             created_at=self._clock(),
+            name=cached.name,
         )
         self._registry.spawn(job, self.run(job, cached.file_url, cached.engine))
         return job
@@ -239,8 +230,8 @@ class DownloadPipeline:
         failed after the add (WR-01). It is not "already added": nothing runs. Run it through the
         allowlist again, which is idempotent, so the next tap can finish it.
         """
-        tags = _tags_of(row)
-        old_tag = _job_tag_of(tags)
+        tags = tags_of(row)
+        old_tag = job_tag_of(tags)
         owner = self._registry.task(old_tag.removeprefix(TAG_JOB_PREFIX)) if old_tag else None
         if TAG_PENDING not in tags or (owner is not None and not owner.done()):
             job.state = JobState.DUPLICATE
@@ -348,7 +339,7 @@ class DownloadPipeline:
         }
         for row in await self._qbit.torrents_info(tag=TAG_PENDING):
             torrent_hash = str(row["hash"])
-            job_tag = _job_tag_of(_tags_of(row))
+            job_tag = job_tag_of(tags_of(row))
             known_id = job_tag.removeprefix(TAG_JOB_PREFIX) if job_tag else None
             if known_id is not None and self._registry.get(known_id) is not None:
                 continue  # a job of this process owns the torrent
@@ -369,6 +360,7 @@ class DownloadPipeline:
                 state=JobState.PREPARING,
                 torrent_hash=torrent_hash,
                 created_at=now,
+                name=str(row.get("name") or "") or None,
             )
             self._registry.spawn(
                 job,

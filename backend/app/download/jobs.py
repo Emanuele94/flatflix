@@ -9,7 +9,8 @@ result to its active job so a double tap cannot add a torrent twice.
 
 import asyncio
 import logging
-from collections.abc import Coroutine
+import time
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from enum import Enum
 
@@ -34,6 +35,10 @@ class JobState(str, Enum):
 
 
 ACTIVE_STATES = frozenset({JobState.PREPARING, JobState.STARTED})
+# The outcomes the downloads list shows for FAILED_VISIBLE_HOURS after the job ended (D-29).
+FAILED_STATES = frozenset(
+    {JobState.REJECTED, JobState.UNSUPPORTED, JobState.UNAVAILABLE, JobState.FAILED}
+)
 
 
 @dataclass(slots=True)
@@ -45,15 +50,25 @@ class Job:
     state: JobState
     torrent_hash: str | None
     created_at: float
+    # The search result's name, so a magnet still named by its hash reads as the film (D-27).
+    name: str | None = None
+    # Epoch seconds, stamped once when the job task ends (normally, by error or by cancellation).
+    finished_at: float | None = None
 
 
 class JobRegistry:
-    def __init__(self) -> None:
+    def __init__(self, clock: Callable[[], float] = time.time) -> None:
+        # Epoch seconds, like qBittorrent's timestamps and the downloads list's `now`.
+        self._clock = clock
         self._jobs: dict[str, Job] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}  # strong references
 
     def get(self, job_id: str) -> Job | None:
         return self._jobs.get(job_id)
+
+    def all(self) -> list[Job]:
+        """A snapshot of the registered jobs, in insertion order."""
+        return list(self._jobs.values())
 
     def task(self, job_id: str) -> asyncio.Task[None] | None:
         return self._tasks.get(job_id)
@@ -74,6 +89,14 @@ class JobRegistry:
         return task
 
     async def _guard(self, job: Job, coro: Coroutine[object, object, None]) -> None:
+        try:
+            await self._run(job, coro)
+        finally:
+            # Every ending is stamped exactly once: a job that sat Preparing for minutes ages
+            # from here, not from its creation (D-29, research Pitfall 3).
+            job.finished_at = self._clock()
+
+    async def _run(self, job: Job, coro: Coroutine[object, object, None]) -> None:
         try:
             await coro
         except asyncio.CancelledError:

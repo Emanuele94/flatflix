@@ -4,6 +4,7 @@ Assertions are about responses and the fake's state; the pure rules live in
 test_download_listing.py.
 """
 
+import asyncio
 import logging
 import re
 import time
@@ -14,6 +15,9 @@ import pytest
 from app.download.listing import download_id
 from tests.conftest import PORTAL_SECRET_KEY, QBIT_PASS
 from tests.fakeqbit import FakeQbit
+
+# The download rig (fake clock, cached result, pipeline) is shared with the pipeline tests.
+from tests.test_download_pipeline import BTIH, Rig, clock, rig  # noqa: F401
 
 HASH = "a" * 40
 ITEM_KEYS = {"id", "name", "type", "state", "progress", "eta_seconds", "action"}
@@ -144,3 +148,43 @@ async def test_a_refused_login_answers_502_never_401(
     warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
     assert any("QbitAuthError" in message for message in warnings)
     assert all(QBIT_PASS not in message for message in warnings)
+
+
+async def test_a_rejected_download_tap_is_listed_with_its_reason_and_name(rig: Rig) -> None:  # noqa: F811
+    rig.cache()
+    rig.fake.set_metadata(BTIH, [("Movie/setup.exe", 5000), ("Movie/readme.txt", 10)])
+
+    posted = await rig.post()
+    job_id = posted.json()["job_id"]
+    await asyncio.wait_for(rig.app.state.jobs.task(job_id), 5)
+    response = await rig.api.get("/api/downloads")
+
+    assert posted.json()["status"] == "rejected"
+    (item,) = response.json()["items"]
+    assert item == {
+        "id": job_id,
+        "name": "Sintel",
+        "type": "film",
+        "state": "rejected",
+        "progress": 0,
+        "eta_seconds": None,
+        "action": None,
+    }
+    assert BTIH not in response.text
+
+
+async def test_a_failed_row_disappears_after_failed_visible_hours(rig: Rig) -> None:  # noqa: F811
+    rig.cache()
+    rig.fake.set_metadata(BTIH, [("Movie/setup.exe", 5000), ("Movie/readme.txt", 10)])
+    job_id = (await rig.post()).json()["job_id"]
+    await asyncio.wait_for(rig.app.state.jobs.task(job_id), 5)
+    job = rig.app.state.jobs.get(job_id)
+    assert job.finished_at is not None
+
+    job.finished_at = time.time() - 24 * 3600
+    gone = await rig.api.get("/api/downloads")
+    job.finished_at = time.time() - 24 * 3600 + 60
+    shown = await rig.api.get("/api/downloads")
+
+    assert gone.json() == {"items": []}
+    assert [item["id"] for item in shown.json()["items"]] == [job_id]
