@@ -132,7 +132,7 @@ None - plan executed exactly as written. The only judgement call: the list test 
 
 `workflow.human_verify_mode` is `end-of-phase`, so the phone check of Task 2 (steps 1-8 and both backstops, recorded per browser) is for the phase UAT and has not been run. Two things to watch when the admin runs it:
 
-- On this WSL2 dev host the audit lines show the Docker gateway address (`172.19.0.1`), not the caller's address. Step 8 ("lines carry the phone's address") will therefore show the gateway here; it is the documented household-wide caveat, and the Ubuntu Server box is where real addresses should appear.
+- On this WSL2 dev host the audit lines show the Docker gateway address, not the caller's address. Step 8 ("lines carry the phone's address") will therefore show the gateway here; it is the documented household-wide caveat, and the Ubuntu Server box is where real addresses should appear.
 - Deferred real-phone checks from 02-06 and 02-10 (48 px buttons, side-by-side confirm at 320 px, focus ring and tap feel) are covered by the same pass.
 
 ## Known Stubs
