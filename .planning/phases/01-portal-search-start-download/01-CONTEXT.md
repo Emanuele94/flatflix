@@ -36,7 +36,7 @@ Out of this phase: download list, cancel, audit logs and full rate limiting (Pha
 ### Torrent acceptance flow (FILT-02)
 - **D-11:** After the tap, the row shows a spinner for up to **~15 s** while the backend waits for metadata. If metadata arrives: show "✓ Started" or the rejection. If not: show "Preparing" and the **backend keeps processing on its own** (background task, not tied to the HTTP request). The final outcome becomes visible in the Phase 2 downloads list.
 - **D-12:** Metadata timeout is env `METADATA_TIMEOUT`, **default 5 minutes**; after it the torrent is removed from qBittorrent and marked unavailable.
-- **D-13:** Rejection text (no allowed video file): **"This file doesn’t contain a video. Try another result."** No technical detail.
+- **D-13:** Rejection text (no allowed video file): **"This file doesn’t contain a video. Try another result."** No technical detail. **Amended 2026-10-22 (UAT gap G-01-3, option B):** a torrent whose only videos are in a format outside the FILT-02 allowlist (e.g. `.webm`) is still rejected and deleted, but gets its own status `unsupported` and the text "This video format isn’t supported. Try another result." The text above stays for a torrent with no video at all. The allowlist is unchanged.
 - **D-14:** Multi-video torrents: download **all allowed video files** (full seasons are fine) but set **priority 0 on samples**: files with "sample" in the name, or tiny compared with the main video. Subtitles stay allowed.
 
 ### Login and access
@@ -50,7 +50,10 @@ Out of this phase: download list, cancel, audit logs and full rate limiting (Pha
 - **D-20:** Dev host runs **Docker Desktop with WSL integration**. LAN access goes through Docker Desktop port publishing; document the enable step as a human checkpoint before any compose task.
 - **D-21:** Completed torrents **seed until ratio 1.0 or 24 h, then stop** (qBittorrent share limits set at bootstrap). Files stay in place.
 - **D-22:** Pin **`lscr.io/linuxserver/qbittorrent:5.2.4`** (the version research verified), never `latest`.
-- **D-23:** FILT-02 is implemented by adding torrents **started with `stopCondition=MetadataReceived`**, not `stopped=true` (research showed a stopped magnet never fetches metadata). Same guarantee: no file data before the per-file allowlist runs.
+- **D-23:** FILT-02 is implemented by adding torrents **started with `stopCondition=MetadataReceived`**, not `stopped=true` (research showed a stopped magnet never fetches metadata). Same guarantee: no file data before the per-file allowlist runs. **Re-affirmed 2026-10-22 (G-01-3):** applies to every add, including results whose plugin downloader prints a magnet (limetorrents, torrentproject) or fetches a .torrent; the WR-04 stopped-add variant was reverted because a stopped magnet never fetches metadata. qBittorrent 5.2.4 adds a torrent that already has metadata paused under this condition (sessionimpl.cpp:2794-2801).
+
+### UAT gap decisions (2026-10-22, G-01-3)
+- **D-24:** A page reload must not lose the search or a Preparing row. Phase 1 keeps the current search (type, query, search id, rows, row states and job ids) in the browser's per-tab sessionStorage inside Search.jsx, restores it on load and resumes job polling; a new search and logout clear it. Credentials and the session never go to web storage (T-01-43). A downloads list or active-jobs endpoint stays in Phase 2 (DOWN-04). — **Reversibility:** reversible.
 
 ### Claude's Discretion
 - Exact Caddy paths for portal vs TV (D-05).
@@ -107,7 +110,7 @@ Out of this phase: download list, cancel, audit logs and full rate limiting (Pha
 ## Specific Ideas
 
 - User explicitly wants a seeders "sweet spot": not just hiding 0-seeder results, but keeping only results that are safe and will actually download.
-- Rejection message wording is fixed: "This file doesn’t contain a video. Try another result."
+- Rejection message wording is fixed: "This file doesn’t contain a video. Try another result." For a torrent whose only videos are in a format outside the allowlist: "This video format isn’t supported. Try another result." (see the D-13 amendment).
 - Button state after tap: "Started ✓"; pending state: "Preparing".
 
 </specifics>
