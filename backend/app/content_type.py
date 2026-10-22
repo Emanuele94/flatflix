@@ -28,3 +28,16 @@ def qbit_category(settings: Settings, content_type: ContentType) -> str:
 def save_path(settings: Settings, content_type: ContentType) -> str:
     """Save path that belongs to the category of a type."""
     return settings.category_paths[qbit_category(settings, content_type)]
+
+
+def type_for_category(settings: Settings, category: str) -> ContentType | None:
+    """The type of a qBittorrent category, or None for any category the portal does not own.
+
+    The inverse of `qbit_category`. Exact equality only: qBittorrent's own category filter also
+    matches sub-categories (Film/Extra), which must never reach the household (D-25).
+    """
+    if category == settings.category_film:
+        return "film"
+    if category == settings.category_tv:
+        return "serie"
+    return None

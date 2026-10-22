@@ -20,7 +20,7 @@ from app.download.pipeline import DownloadPipeline
 from app.proxy import TrustedProxyHeaders
 from app.qbit.bootstrap import Bootstrapper, Readiness
 from app.qbit.client import QbitClient
-from app.routers import auth, download, health, search
+from app.routers import auth, download, downloads, health, search
 from app.search.service import SearchService
 
 LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s %(message)s"
@@ -99,4 +99,5 @@ def create_app(settings: Settings | None = None, qbit: QbitClient | None = None)
     app.include_router(auth.protected)
     app.include_router(search.router)
     app.include_router(download.router)
+    app.include_router(downloads.router)
     return app
