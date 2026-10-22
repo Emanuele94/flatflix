@@ -352,12 +352,13 @@ class DownloadPipeline:
     async def cancel(self, download_id: str) -> CancelOutcome | None:
         """Cancel or remove one download by its opaque id; None when the id names nothing.
 
-        The order matters. The torrent is read and checked here (category and in-progress state
-        come from the live row, never from the browser), then the job behind it is stopped and
-        marked cancelled, and only then does `torrents/delete` go out. Deleting first would let a
-        job that still waits for metadata run into `METADATA_TIMEOUT` and show a "Not available"
-        row for a download the household cancelled (research Pitfall 1), and a job left active
-        would swallow the next tap on the same result for a minute (Pitfall 2).
+        The order matters. The torrent is read and checked here (category comes from the live row,
+        never from the browser), then the job behind it is stopped and marked cancelled, the row is
+        read once more to decide on the files, and only then does `torrents/delete` go out.
+        Deleting first would let a job that still waits for metadata run into `METADATA_TIMEOUT`
+        and show a "Not available" row for a download the household cancelled (research Pitfall
+        1), and a job left active would swallow the next tap on the same result for a minute
+        (Pitfall 2).
         Files are deleted only for a torrent the server reads as in progress (D-32, D-33).
         """
         secret = self._settings.secret_key.get_secret_value()
@@ -368,12 +369,17 @@ class DownloadPipeline:
                 return await self._cancel_job_without_torrent(download_id)
             torrent_hash = str(row["hash"])
             job_tag = job_tag_of(tags_of(row))
-            deletes = cancel_deletes_files(row)
             job = await self._registry.cancel_for(
                 torrent_hash=torrent_hash,
                 job_id=job_tag.removeprefix(TAG_JOB_PREFIX) if job_tag else None,
             )
             try:
+                # Stopping the job can take a while and the torrent may finish meanwhile, so the
+                # files are decided on the row as it is right before the delete, not on the first
+                # read (D-33). A torrent that is gone has no files left to protect.
+                fresh = await self._qbit.torrents_info(hashes=torrent_hash)
+                row = fresh[0] if fresh else row
+                deletes = bool(fresh) and cancel_deletes_files(row)
                 await self._discard(torrent_hash, job_tag, delete_files=deletes)
             except QbitError:
                 if job is not None and job_tag is not None:

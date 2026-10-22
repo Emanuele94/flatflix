@@ -43,6 +43,59 @@ async def test_cancelling_an_in_progress_download_deletes_the_torrent_and_its_fi
     assert (await user_api.get("/api/downloads")).json() == {"items": []}
 
 
+async def test_a_download_that_finishes_while_the_job_is_being_stopped_keeps_its_files(
+    user_api: httpx.AsyncClient, fake_qbit: FakeQbit, app: FastAPI
+) -> None:
+    # The tap reads the row at 99 %, then stopping the job takes a moment and the torrent finishes.
+    # The delete must decide on the row as it is right before it goes out, not on the first read.
+    torrent = fake_qbit.add_torrent_row(HASH, category="Film", state="downloading", progress=0.99)
+    (item,) = (await user_api.get("/api/downloads")).json()["items"]
+    assert item["action"] == "cancel"
+    registry = app.state.jobs
+    real_cancel_for = registry.cancel_for
+
+    async def finishing_cancel_for(**kwargs: object) -> object:
+        torrent.state, torrent.progress, torrent.completion_on = "stalledUP", 1.0, int(time.time())
+        return await real_cancel_for(**kwargs)
+
+    registry.cancel_for = finishing_cancel_for
+
+    response = await user_api.delete(f"/api/downloads/{item['id']}")
+
+    assert response.status_code == 204
+    assert fake_qbit.deleted == [(HASH, False)]
+
+
+async def test_a_failed_re_read_before_the_delete_never_deletes_files_and_starts_a_sweep(
+    user_api: httpx.AsyncClient, fake_qbit: FakeQbit, app: FastAPI
+) -> None:
+    fake_qbit.add_torrent_row(
+        HASH, category="Film", tags=("fx", "fx-job-0123456789abcdef"), state="downloading",
+        progress=0.4,
+    )  # fmt: skip
+    app.state.jobs._jobs["0123456789abcdef"] = Job(
+        "0123456789abcdef", None, "film", JobState.PREPARING, HASH, time.time()
+    )
+    (item,) = (await user_api.get("/api/downloads")).json()["items"]
+    lookups = iter([httpx.Response(500, text="boom")])
+    real_info = fake_qbit._torrents_info
+
+    def flaky_info(request: httpx.Request) -> httpx.Response:
+        if "hashes" in request.url.params:
+            return next(lookups)
+        return real_info(request)
+
+    fake_qbit.register("GET", "/api/v2/torrents/info", flaky_info)
+
+    response = await user_api.delete(f"/api/downloads/{item['id']}")
+
+    assert response.status_code == 502
+    assert fake_qbit.deleted == []
+    sweeps = [t for t in asyncio.all_tasks() if t.get_name().startswith("cancel-sweep-")]
+    assert sweeps
+    await app.state.jobs.shutdown()
+
+
 # -- cancelling a Preparing download (research Pitfalls 1 and 2) ----------------------------
 
 
