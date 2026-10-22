@@ -21,7 +21,7 @@
 | torrents/info (job polling) | INTEGRATE | |
 | torrents/categories, createCategory, editCategory (Film, SerieTV) | INTEGRATE | |
 | torrents tags (removeTags, deleteTags for fx-pending) | INTEGRATE | |
-| torrents/stop, recheck, reannounce, setLocation, rename*, setShareLimits, setDownloadLimit, setUploadLimit, topPrio and other per-torrent controls | OPT-OUT | not needed yet — a downloads list with controls is Phase 2 (DOWN-04, D-11) |
+| torrents per-torrent controls (stop, recheck, setLocation, rename, limits, prio) | OPT-OUT | not needed yet — a downloads list with controls is Phase 2 (DOWN-04, D-11) |
 | torrents/properties, trackers, webseeds, pieceStates, pieceHashes | OPT-OUT | not needed; the portal shows only a plain status |
 | sync/maindata, sync/torrentPeers | OPT-OUT | not needed; per-job polling of torrents/info is enough for Phase 1 |
 | transfer/* (global speed limits, ban peers, transfer info) | OPT-OUT | explicitly out of scope; global limits are admin settings in the admin WebUI |
