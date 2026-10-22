@@ -12,6 +12,52 @@ const RETRYABLE = new Set(['failed', 'notReady', 'network', 'lost']);
 // Backend job statuses that map to a row state. Anything else is a failure, never a success.
 const JOB_STATES = new Set(['started', 'preparing', 'rejected', 'unavailable', 'duplicate', 'failed']);
 
+// The current search survives a page reload (G-01-3 c, D-11): sessionStorage, this tab only.
+// It holds only the query, the type, opaque ids, the rows the API already showed and row states.
+// No credentials, URLs, hashes, paths or categories ever reach it (PUI-02, T-01-43, T-01-54).
+export const SAVED_SEARCH_KEY = 'flatflix.search';
+const SAVED_SEARCH_VERSION = 1;
+const ID = /^[0-9a-f]{16}$/; // the backend's result, job and search id shape
+// Row states a saved job may hold: the backend statuses plus the client-side ones.
+const ROW_STATES = new Set([...JOB_STATES, 'expired', 'notReady', 'network', 'lost']);
+
+// Bumped by every clear. A write that carries an older generation is dropped, so a late answer
+// from a screen that is going away cannot bring a cleared search back (T-01-57).
+let generation = 0;
+
+export function clearSavedSearch() {
+  generation += 1;
+  try {
+    sessionStorage.removeItem(SAVED_SEARCH_KEY);
+  } catch {
+    // Storage unusable: nothing was saved, nothing to clear.
+  }
+}
+
+function writeSaved(gen, record) {
+  if (gen !== generation) return;
+  try {
+    sessionStorage.setItem(SAVED_SEARCH_KEY, JSON.stringify(record));
+  } catch {
+    // Storage unusable or full: the portal works the same, it only stops surviving a reload.
+  }
+}
+
+function readSaved() {
+  try {
+    const raw = sessionStorage.getItem(SAVED_SEARCH_KEY);
+    if (raw === null) return null;
+    const rec = JSON.parse(raw);
+    if (!rec || rec.v !== SAVED_SEARCH_VERSION) return null;
+    if (rec.type !== 'film' && rec.type !== 'serie') return null;
+    if (typeof rec.q !== 'string' || !ID.test(rec.search_id)) return null;
+    if (!Array.isArray(rec.rows) || !rec.jobs || typeof rec.jobs !== 'object') return null;
+    return rec;
+  } catch {
+    return null;
+  }
+}
+
 function downloadErrorState(err) {
   if (err instanceof ApiError) {
     if (err.status === 410) return 'expired';
@@ -50,6 +96,14 @@ export function Search() {
   const jobTimers = useRef(new Map());
   const jobEpoch = useRef(0);
   const rowsType = useRef('film'); // type of the search that produced the rows on screen
+  // The search on screen as it is saved: {type, q, search_id, done, outcome, rows}, null before one.
+  const saved = useRef(null);
+  const savedGen = useRef(generation);
+
+  function persist() {
+    if (saved.current === null) return;
+    writeSaved(savedGen.current, { v: SAVED_SEARCH_VERSION, ...saved.current, jobs: jobsRef.current });
+  }
 
   function stopPolling() {
     runId.current += 1;
@@ -62,6 +116,7 @@ export function Search() {
   function setJob(id, entry) {
     jobsRef.current = { ...jobsRef.current, [id]: entry };
     setJobs(jobsRef.current);
+    persist();
   }
 
   function stopJobs() {
@@ -82,6 +137,39 @@ export function Search() {
     [],
   );
 
+  // Restore after a reload. In an effect, not in render, so no timer starts during render.
+  // The unmount cleanup above never clears storage: a reload is an unmount.
+  useEffect(() => {
+    const rec = readSaved();
+    if (rec === null) return;
+    savedGen.current = generation;
+    rowsType.current = rec.type;
+    saved.current = {
+      type: rec.type,
+      q: rec.q,
+      search_id: rec.search_id,
+      done: rec.done === true,
+      outcome: rec.outcome === 'empty' || rec.outcome === 'timeout' ? rec.outcome : null,
+      rows: rec.rows,
+    };
+    setType(rec.type);
+    setQ(rec.q);
+    setRows(rec.rows);
+    if (rec.rows.length === 0) setOutcome(saved.current.outcome);
+    jobsRef.current = rec.jobs;
+    setJobs(jobsRef.current);
+    for (const [id, entry] of Object.entries(rec.jobs)) {
+      if (
+        entry.state === 'preparing' &&
+        ID.test(entry.jobId) &&
+        Date.now() - entry.startedAt < JOB_GIVE_UP_MS
+      ) {
+        pollJob(id, jobEpoch.current, entry.jobId, entry.startedAt);
+      }
+    }
+    persist();
+  }, []);
+
   // Maps a backend job answer to a row state and keeps polling while it is preparing.
   function applyJob(id, epoch, res, startedAt) {
     const status = res && JOB_STATES.has(res.status) ? res.status : 'failed';
@@ -90,7 +178,7 @@ export function Search() {
       return;
     }
     const jobId = res.job_id;
-    setJob(id, { state: 'preparing', jobId });
+    setJob(id, { state: 'preparing', jobId, startedAt });
     if (typeof jobId === 'string') pollJob(id, epoch, jobId, startedAt);
   }
 
@@ -146,8 +234,12 @@ export function Search() {
     event.preventDefault();
     stopPolling();
     stopJobs();
+    clearSavedSearch(); // a new search always starts from an empty record
+    savedGen.current = generation;
+    saved.current = null;
     const run = runId.current;
     const searchType = type;
+    const query = q;
     rowsType.current = searchType;
     setRows([]);
     setOutcome(null);
@@ -159,6 +251,15 @@ export function Search() {
         body: { q, type: searchType },
       });
       if (run !== runId.current) return;
+      saved.current = {
+        type: searchType,
+        q: query,
+        search_id: searchId,
+        done: false,
+        outcome: null,
+        rows: [],
+      };
+      persist();
       poll(run, searchId);
     } catch (err) {
       fail(run, err);
@@ -179,10 +280,19 @@ export function Search() {
         const snap = await api(`/api/search/${searchId}`);
         if (run !== runId.current) return;
         setRows(snap.results);
+        let result = null;
         if (snap.done) {
           setSearching(false);
-          if (snap.results.length === 0) setOutcome(snap.timed_out ? 'timeout' : 'empty');
-        } else {
+          if (snap.results.length === 0) {
+            result = snap.timed_out ? 'timeout' : 'empty';
+            setOutcome(result);
+          }
+        }
+        if (saved.current !== null) {
+          saved.current = { ...saved.current, rows: snap.results, done: !!snap.done, outcome: result };
+          persist();
+        }
+        if (!snap.done) {
           poll(run, searchId);
         }
       } catch (err) {
