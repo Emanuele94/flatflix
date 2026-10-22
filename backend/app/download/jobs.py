@@ -112,16 +112,20 @@ class JobRegistry:
             job.state = JobState.FAILED
 
     def _prune(self) -> None:
-        """Make room for one more job by dropping the oldest finished ones."""
+        """Make room for one more job by dropping the oldest finished ones, never a running one."""
         excess = len(self._jobs) - MAX_JOBS + 1
-        for job_id in list(self._jobs):
-            if excess <= 0:
-                return
-            task = self._tasks.get(job_id)
-            if task is not None and task.done():
-                del self._jobs[job_id]
-                del self._tasks[job_id]
-                excess -= 1
+        if excess <= 0:
+            return
+        done = [
+            job
+            for job_id, job in self._jobs.items()
+            if (task := self._tasks.get(job_id)) is not None and task.done()
+        ]
+        # A done job without a stamp sorts first; sorted() is stable, so ties keep insertion order.
+        done.sort(key=lambda job: -1.0 if job.finished_at is None else job.finished_at)
+        for job in done[:excess]:
+            del self._jobs[job.job_id]
+            del self._tasks[job.job_id]
 
     async def shutdown(self) -> None:
         """Cancel running jobs (application shutdown); reconcile finishes them next start."""

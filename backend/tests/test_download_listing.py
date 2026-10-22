@@ -457,7 +457,7 @@ def test_a_bare_hash_torrent_takes_the_name_of_the_job_its_tag_names() -> None:
 
 def test_a_bare_hash_torrent_without_a_job_stays_unnamed() -> None:
     (item,) = items_with_jobs(
-        [row("f" * 40, name="f" * 40)], [job("1" * 16, torrent_hash="9" * 40)]
+        [row("f" * 40, name="f" * 40)], [job("1" * 16, JobState.STARTED, torrent_hash="9" * 40)]
     )
 
     assert item["name"] is None
@@ -613,4 +613,5 @@ async def test_pruning_never_drops_a_running_job(monkeypatch: pytest.MonkeyPatch
     assert registry.get("1" * 16) is running
     assert registry.get("2" * 16) is None
     assert registry.get("3" * 16) is other
+    await asyncio.sleep(0)  # let the new task start before it is cancelled
     await registry.shutdown()

@@ -15,7 +15,7 @@ from collections.abc import Iterable
 
 from app.config import Settings
 from app.content_type import type_for_category
-from app.download.jobs import FAILED_STATES, Job
+from app.download.jobs import FAILED_STATES, Job, JobState
 
 # Tags set by the download pipeline on the torrents it adds.
 TAG_PORTAL = "fx"
@@ -133,6 +133,14 @@ def sort_time(row: dict) -> float:
     return 0.0
 
 
+def job_name(job: Job | None) -> str | None:
+    """A job's name for a torrent row; a bare info-hash is no name (a reconciled job)."""
+    if job is None:
+        return None
+    name = (job.name or "").strip()
+    return None if not name or HASH_NAME.match(name) else name
+
+
 def build_items(
     rows: Iterable[dict],
     settings: Settings,
@@ -141,8 +149,18 @@ def build_items(
     secret: str,
     jobs: Iterable[Job] = (),
 ) -> list[dict]:
-    """The list the household sees: Film and SerieTV torrents and failed attempts, active first."""
+    """The list the household sees: Film and SerieTV torrents and attempts no torrent shows.
+
+    The torrent is the primary identity and appears exactly once. A job adds a row only when no
+    torrent represents it: a failed attempt (while young, D-29) or a Preparing tap whose torrent
+    is not in qBittorrent yet. Active rows come first, newest first inside each group (D-30).
+    """
+    jobs = list(jobs)
+    by_hash = {j.torrent_hash.lower(): j for j in jobs if j.torrent_hash}
+    by_id = {j.job_id: j for j in jobs}
     kept: list[tuple[tuple[int, float, str], dict]] = []
+    kept_hashes: set[str] = set()
+    tagged_job_ids: set[str] = set()
     for row in rows:
         content_type = type_for_category(settings, str(row.get("category") or ""))
         if content_type is None:
@@ -152,10 +170,20 @@ def build_items(
         # D-28: a finished download leaves the list from exactly this age on; the torrent stays.
         if state == "ready" and now - stamp >= settings.completed_visible_seconds:
             continue
-        item_id = download_id(secret, str(row.get("hash") or ""))
+        torrent_hash = str(row.get("hash") or "")
+        job_tag = job_tag_of(tags_of(row))
+        tagged_id = job_tag.removeprefix(TAG_JOB_PREFIX) if job_tag else None
+        kept_hashes.add(torrent_hash.lower())
+        if tagged_id:
+            tagged_job_ids.add(tagged_id)
+        name = display_name(row)
+        if name is None:  # a magnet still named by its hash takes its job's name (Pitfall 11)
+            owner = by_hash.get(torrent_hash.lower()) or by_id.get(tagged_id or "")
+            name = job_name(owner)
+        item_id = download_id(secret, torrent_hash)
         item = {
             "id": item_id,
-            "name": display_name(row),
+            "name": name,
             "type": content_type,
             "state": state,
             "progress": percent(row, state),
@@ -164,21 +192,33 @@ def build_items(
         }
         kept.append(((0 if state in ACTIVE_PLAIN_STATES else 1, -stamp, item_id), item))
     for job in jobs:
+        if job.state is JobState.PREPARING:
+            if job.job_id in tagged_job_ids or (
+                job.torrent_hash and job.torrent_hash.lower() in kept_hashes
+            ):
+                continue  # the torrent row represents it
+            item = _job_item(job, "preparing", "cancel")
+            kept.append(((0, -job.created_at, job.job_id), item))
         # D-29: a failed attempt stays visible, with its plain reason, until this age.
-        if (
+        elif (
             job.state.value in FAILED_JOB_STATES
             and job.finished_at is not None
             and now - job.finished_at < settings.failed_visible_seconds
         ):
-            item = {
-                "id": job.job_id,
-                "name": job.name,
-                "type": job.type,
-                "state": job.state.value,
-                "progress": 0,
-                "eta_seconds": None,
-                "action": None,
-            }
+            item = _job_item(job, job.state.value, None)
             kept.append(((1, -job.finished_at, job.job_id), item))
     kept.sort(key=lambda pair: pair[0])
     return [item for _, item in kept]
+
+
+def _job_item(job: Job, state: str, action: str | None) -> dict:
+    """The same seven keys as a torrent row; the id is the opaque job id the browser holds."""
+    return {
+        "id": job.job_id,
+        "name": job_name(job),
+        "type": job.type,
+        "state": state,
+        "progress": 0,
+        "eta_seconds": None,
+        "action": action,
+    }
