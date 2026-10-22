@@ -17,7 +17,14 @@ from app.config import Settings
 
 
 class QbitError(Exception):
-    """Base class for every qBittorrent access failure."""
+    """Base class for every qBittorrent access failure.
+
+    `status` is the HTTP status when qBittorrent answered with one (never the body).
+    """
+
+    def __init__(self, *args: object, status: int | None = None) -> None:
+        super().__init__(*args)
+        self.status = status
 
 
 class QbitUnavailable(QbitError):
@@ -147,7 +154,9 @@ class QbitClient:
         """Like `_request`, but a non-2xx answer raises `QbitError` without its body."""
         response = await self._request(method, path, **kwargs)
         if not response.is_success:
-            raise QbitError(f"qBittorrent answered HTTP {response.status_code}")
+            raise QbitError(
+                f"qBittorrent answered HTTP {response.status_code}", status=response.status_code
+            )
         return response
 
     async def get_preferences(self) -> dict:
@@ -171,7 +180,9 @@ class QbitClient:
         if response.status_code == 409:
             return False
         if not response.is_success:
-            raise QbitError(f"qBittorrent answered HTTP {response.status_code}")
+            raise QbitError(
+                f"qBittorrent answered HTTP {response.status_code}", status=response.status_code
+            )
         return True
 
     async def edit_category(self, name: str, save_path: str) -> None:
@@ -187,6 +198,51 @@ class QbitClient:
 
     async def install_search_plugin(self, url: str) -> None:
         await self._checked("POST", "/api/v2/search/installPlugin", data={"sources": url})
+
+    async def search_start(self, pattern: str, category: str, plugins: str = "enabled") -> int:
+        """Start a plugin search and return qBittorrent's integer search id."""
+        response = await self._checked(
+            "POST",
+            "/api/v2/search/start",
+            data={"pattern": pattern, "category": category, "plugins": plugins},
+        )
+        try:
+            return int(response.json()["id"])
+        except (ValueError, KeyError, TypeError) as exc:
+            raise QbitUnavailable(
+                "qBittorrent answered search/start with an unexpected body"
+            ) from exc
+
+    async def search_status(self, search_id: int | None = None) -> list[dict]:
+        """Status rows of one search, or of every search when no id is given."""
+        params = {} if search_id is None else {"id": search_id}
+        response = await self._checked("GET", "/api/v2/search/status", params=params)
+        return response.json()
+
+    async def search_results(self, search_id: int, limit: int = 0, offset: int = 0) -> dict:
+        """`{results, status, total}`; limit 0 means every row received so far."""
+        response = await self._checked(
+            "GET",
+            "/api/v2/search/results",
+            params={"id": search_id, "limit": limit, "offset": offset},
+        )
+        return response.json()
+
+    async def search_stop(self, search_id: int) -> None:
+        await self._search_idempotent("/api/v2/search/stop", search_id)
+
+    async def search_delete(self, search_id: int) -> None:
+        await self._search_idempotent("/api/v2/search/delete", search_id)
+
+    async def _search_idempotent(self, path: str, search_id: int) -> None:
+        """Stop or delete; a search qBittorrent no longer knows (404) is already gone."""
+        response = await self._request("POST", path, data={"id": search_id})
+        if response.status_code == 404:
+            return
+        if not response.is_success:
+            raise QbitError(
+                f"qBittorrent answered HTTP {response.status_code}", status=response.status_code
+            )
 
     async def aclose(self) -> None:
         await self._http.aclose()

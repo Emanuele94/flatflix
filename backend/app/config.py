@@ -75,6 +75,17 @@ class Settings(BaseSettings):
     share_ratio_limit: float = Field(default=1.0, gt=0)
     share_time_limit_minutes: int = Field(default=1440, ge=1)
 
+    # Search (SRCH-01..03, D-06..D-08). A result is shown only when it clears these floors.
+    min_seeders: int = Field(default=5, ge=0)
+    min_film_size_mb: int = Field(default=500, ge=0)
+    min_serie_size_mb: int = Field(default=100, ge=0)
+    search_timeout: int = Field(default=20, ge=1)
+    # Comma-separated; empty means the built-in list in app.search.filters.
+    suspicious_terms: str = ""
+    max_results: int = Field(default=100, ge=1)
+    result_cache_ttl: int = Field(default=900, ge=1)
+    max_active_searches: int = Field(default=3, ge=1, le=5)
+
     # The tested qBittorrent WebAPI floor (D-22); an older server stops bootstrap.
     min_webapi_version: str = "2.15.1"
 

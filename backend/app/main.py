@@ -17,7 +17,8 @@ from app.auth import SESSION_COOKIE, LoginThrottle
 from app.config import Settings, get_settings
 from app.qbit.bootstrap import Bootstrapper, Readiness
 from app.qbit.client import QbitClient
-from app.routers import auth, health
+from app.routers import auth, health, search
+from app.search.service import SearchService
 
 LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s %(message)s"
 
@@ -37,6 +38,7 @@ def create_app(settings: Settings | None = None, qbit: QbitClient | None = None)
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.settings = settings
         app.state.qbit = qbit or QbitClient.from_settings(settings)
+        app.state.search = SearchService(app.state.qbit, settings)
         # One bootstrap per process; the strong reference keeps the task from being collected.
         app.state.bootstrap_task = asyncio.create_task(
             Bootstrapper(app.state.qbit, settings, app.state.readiness).run_forever()
@@ -75,4 +77,5 @@ def create_app(settings: Settings | None = None, qbit: QbitClient | None = None)
     app.include_router(health.router)
     app.include_router(auth.router)
     app.include_router(auth.protected)
+    app.include_router(search.router)
     return app
