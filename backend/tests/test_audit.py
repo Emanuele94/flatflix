@@ -400,6 +400,26 @@ def test_the_filter_redacts_exception_text_and_non_string_args() -> None:
     assert SECRET not in with_arg.getMessage()
 
 
+def test_the_filter_redacts_a_message_that_is_an_exception_or_another_object() -> None:
+    redactor = audit.RedactingFilter([SECRET])
+
+    class Leaky:
+        def __str__(self) -> str:
+            return f"leaky {SECRET}"
+
+    by_exception = make_record(RuntimeError(f"login failed for {SECRET}"))  # type: ignore[arg-type]
+    by_object = make_record(Leaky())  # type: ignore[arg-type]
+    clean = make_record(RuntimeError("nothing secret"))  # type: ignore[arg-type]
+    original = clean.msg
+
+    for record in (by_exception, by_object, clean):
+        assert redactor.filter(record) is True
+
+    assert by_exception.getMessage() == "login failed for [redacted]"
+    assert by_object.getMessage() == "leaky [redacted]"
+    assert clean.msg is original  # nothing to redact: formatting is unchanged
+
+
 @pytest.fixture
 def logging_state() -> Iterator[None]:
     """Restore handlers, filters, levels and propagation of the loggers a test reconfigures."""

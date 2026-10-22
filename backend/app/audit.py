@@ -23,7 +23,8 @@ from collections.abc import Sequence
 audit_logger = logging.getLogger("app.audit")
 
 MAX_TEXT = 200
-# Secrets shorter than this are not redacted: they would blank ordinary words.
+# Secrets shorter than this are not redacted: they would blank ordinary words. The audit helpers
+# never log a secret in the first place; this filter is the second line of defence only.
 MIN_SECRET_LENGTH = 8
 
 _IP_PATTERN = re.compile(r"^[0-9A-Fa-f:.]{1,45}$")
@@ -149,8 +150,10 @@ class RedactingFilter(logging.Filter):
         return redacted if redacted != shown else arg
 
     def filter(self, record: logging.LogRecord) -> bool:
-        if isinstance(record.msg, str):
-            record.msg = self.redact(record.msg)
+        # `logger.error(exc)` passes an object as the message and logging prints `str(msg)` later.
+        record.msg = (
+            self.redact(record.msg) if isinstance(record.msg, str) else self._arg(record.msg)
+        )
         if isinstance(record.args, tuple):
             record.args = tuple(self._arg(arg) for arg in record.args)
         elif isinstance(record.args, dict):

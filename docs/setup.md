@@ -234,7 +234,9 @@ INFO app.audit event=error where=downloads ip=203.0.113.7 exc=QbitError status=5
 The audit log contains what people searched for, the names of the downloads they started
 or cancelled, and client addresses. Anyone with access to the laptop can read it, and
 someone who types a secret into the search box puts it there. Passwords, password hashes,
-session cookies, `SECRET_KEY` and the qBittorrent credentials are never written. A failed
+session cookies, `SECRET_KEY` and the qBittorrent credentials are never written. A log filter
+also blanks these secrets if one ever shows up in a log line, but only values of 8 or more
+characters, so use a qBittorrent password of at least 8 characters. A failed
 login records the outcome and the address only, never the username that was typed.
 
 `LOG_LEVEL=WARNING` quiets the ordinary application lines but keeps the audit lines.
