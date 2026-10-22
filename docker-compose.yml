@@ -1,6 +1,6 @@
 # Flatflix stack. The one port map and the media-folder contract live in
 # docs/ports-and-media.md; keep this file in line with it.
-# 01-02 adds service `backend` and network `edge`; 01-04 adds service `web`.
+# 01-04 adds service `web`.
 name: flatflix
 
 services:
@@ -42,6 +42,28 @@ services:
       start_period: 20s
     restart: unless-stopped
 
+  backend:
+    build: ./backend
+    env_file: .env
+    networks: [edge, qbit]
+    depends_on:
+      qbittorrent:
+        condition: service_healthy
+    # Liveness of the backend process: /api/health answers 200 even when degraded.
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    restart: unless-stopped
+
 networks:
+  # Backend and the web service (01-04) only.
+  edge: {}
   # Not internal: search plugins and peers need Internet egress.
   qbit: {}
