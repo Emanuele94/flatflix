@@ -1,8 +1,11 @@
-import { afterEach, describe, expect, it } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/preact';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/preact';
 import { ResultRow } from '../ResultRow.jsx';
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 const base = {
   result_id: 'r1',
@@ -17,7 +20,7 @@ const base = {
 function renderRow(overrides = {}) {
   return render(
     <ul>
-      <ResultRow result={{ ...base, ...overrides }} />
+      <ResultRow result={{ ...base, ...overrides }} type="film" />
     </ul>,
   );
 }
@@ -55,5 +58,25 @@ describe('ResultRow encoding (T-01-28)', () => {
     const { container } = renderRow({ name });
     expect(container.querySelector('.result-name').textContent).toBe(name);
     expect(container.querySelector('img')).toBeNull();
+  });
+});
+
+function jsonResponse(body, status = 200) {
+  return { ok: status >= 200 && status < 300, status, json: async () => body };
+}
+
+describe('ResultRow tracer: Scarica (DOWN-01, SEC-03)', () => {
+  it('posts exactly {result_id, type} and shows "Avviato ✓" for a started job', async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ status: 'started', job_id: 'a'.repeat(16) }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { container } = renderRow();
+    fireEvent.click(screen.getByRole('button', { name: 'Scarica' }));
+    await screen.findByText('Avviato ✓');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [path, init] = fetchMock.mock.calls[0];
+    expect(path).toBe('/api/download');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body)).toEqual({ result_id: 'r1', type: 'film' });
+    expect(container.textContent).toContain('Avviato ✓');
   });
 });

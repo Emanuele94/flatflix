@@ -22,6 +22,8 @@ export const MSG = {
   notReady: 'Il servizio si sta avviando. Riprova tra poco.',
   queryTooShort: 'Scrivi almeno 2 caratteri.',
   searchFailed: 'Qualcosa è andato storto. Riprova.',
+  download: 'Scarica',
+  started: 'Avviato ✓',
   seedUnit: 'seed',
   leechUnit: 'in download',
 };
