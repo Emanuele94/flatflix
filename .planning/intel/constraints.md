@@ -1,6 +1,6 @@
 # Constraints (from SPECs)
 
-Docs are written in Italian; content below is translated to English. Identifiers, endpoints, paths and code are verbatim.
+Docs were originally written in Italian (now translated to English); content below is in English. Identifiers, endpoints, paths and code are verbatim.
 
 # Part A: home-theater (Jellyfin + Hisense VIDAA TV app)
 
@@ -139,7 +139,7 @@ Docs are written in Italian; content below is translated to English. Identifiers
   Backend logs in via `POST /api/v2/auth/login` (username/password form) and keeps the session cookie.
   Endpoints used: `POST /api/v2/auth/login`; `POST /api/v2/search/start`; `GET /api/v2/search/status`; `GET /api/v2/search/results`; `GET /api/v2/search/plugins`; `POST /api/v2/torrents/add` (urls=magnet, category=Film); `GET /api/v2/torrents/info` (category=Film,SerieTV); `POST /api/v2/torrents/createCategory`; `GET /api/v2/torrents/categories`; `GET /api/v2/app/webapiVersion`.
   Version notes: `category` in `torrents/add` supported in recent versions; category-level `savePath` is the recommended approach; verify WebAPI >= 2.1.0 for advanced features.
-  Search: `search/start` params `pattern`, `plugins` (separated by `|`), `category` (`movies` or `tv`). Film -> `movies`, Serie TV -> `tv`. Results normalized and sorted by seeders descending.
+  Search: `search/start` params `pattern`, `plugins` (separated by `|`), `category` (`movies` or `tv`). Film -> `movies`, TV series -> `tv`. Results normalized and sorted by seeders descending.
 
 ## QB: Security rules
 - source: /home/emanuele/projects/flatflix/qbit-wrapper.md

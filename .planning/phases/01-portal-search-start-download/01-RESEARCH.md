@@ -25,12 +25,12 @@
   - **Hide suspicious names** (e.g. containing `.exe`, `password`, `codec`, and similar markers; list is Claude's discretion, keep it configurable or in one place).
   - **Quality badge**: parse `1080p` / `2160p`/`4K` (and similar) from the name and show a badge. Badge only, not a filter.
 - **D-09:** Result row: **name (full) + size (human, e.g. "4.2 GB") + seeders prominent**; leechers and source small and grey.
-- **D-10:** After tapping Download the user **stays on the results list**; the button turns into "Avviato ✓". Errors and rejections are shown on that row. The user can start more downloads from the same list.
+- **D-10:** After tapping Download the user **stays on the results list**; the button turns into "Started ✓". Errors and rejections are shown on that row. The user can start more downloads from the same list.
 
 **Torrent acceptance flow (FILT-02)**
-- **D-11:** After the tap, the row shows a spinner for up to **~15 s** while the backend waits for metadata. If metadata arrives: show "✓ Avviato" or the rejection. If not: show "In preparazione" and the **backend keeps processing on its own** (background task, not tied to the HTTP request). The final outcome becomes visible in the Phase 2 downloads list.
+- **D-11:** After the tap, the row shows a spinner for up to **~15 s** while the backend waits for metadata. If metadata arrives: show "Started ✓" or the rejection. If not: show "Preparing" and the **backend keeps processing on its own** (background task, not tied to the HTTP request). The final outcome becomes visible in the Phase 2 downloads list.
 - **D-12:** Metadata timeout is env `METADATA_TIMEOUT`, **default 5 minutes**; after it the torrent is removed from qBittorrent and marked unavailable.
-- **D-13:** Rejection text (no allowed video file): **"Questo file non contiene un video. Prova un altro risultato."** No technical detail.
+- **D-13:** Rejection text (no allowed video file): **"This file doesn’t contain a video. Try another result."** No technical detail.
 - **D-14:** Multi-video torrents: download **all allowed video files** (full seasons are fine) but set **priority 0 on samples**: files with "sample" in the name, or tiny compared with the main video. Subtitles stay allowed.
 
 **Login and access**
@@ -43,7 +43,7 @@
 - Exact Caddy paths for portal vs TV (D-05).
 - How live results reach the browser (polling vs SSE) as long as D-06 holds.
 - Suspicious-name list, sample-size heuristic, per-episode size threshold for series.
-- Visual design of the portal (no area discussed); keep it simple, large tap targets, Italian UI text.
+- Visual design of the portal (no area discussed); keep it simple, large tap targets, English UI text.
 - Host media paths, PUID/PGID and incomplete-downloads folder layout (MEDIA-01) — not discussed; follow requirements.
 
 ### Deferred Ideas (OUT OF SCOPE)
@@ -98,7 +98,7 @@ Source: `/home/emanuele/projects/flatflix/CLAUDE.md` (Read this session).
 - qBittorrent writes into folders Jellyfin scans; keep completed-torrent info (hash, name, category, content path) reachable from the backend; do not freeze the download request body (STATE.md blocker).
 - Port 8080 is used by both frontend and qBittorrent in the design doc: superseded by D-04, never reuse 8080 for two services.
 - CLAUDE.md says "Update this file once code and commands exist": the plan should end with a task that updates its Status section with real build/test commands.
-- Planning docs in English, UI text in Italian.
+- Planning docs in English, UI text in English.
 
 ## Architectural Responsibility Map
 
@@ -303,13 +303,13 @@ Protect by default: `APIRouter(dependencies=[Depends(require_user)])` for search
 `{"descrLink": "https://www.limetorrents.lol/Big-Buck-Bunny-trailer-torrent-157833.html", "engineName": "limetorrents", "fileName": "Big Buck Bunny trailer", "fileSize": 4362076, "fileUrl": "https://www.limetorrents.lol/Big-Buck-Bunny-trailer-torrent-157833.html", "nbLeechers": 0, "nbSeeders": 7, "pubDate": 1761083074, "siteUrl": "https://www.limetorrents.lol"}`
 **Plugin list row (verbatim):** `{"enabled": true, "fullName": "The Pirate Bay", "name": "piratebay", "supportedCategories": [{"id": "all", "name": "All categories"}, {"id": "games", "name": "Games"}, {"id": "movies", "name": "Movies"}, {"id": "music", "name": "Music"}, {"id": "software", "name": "Software"}], "url": "https://thepiratebay.org", "version": "3.10"}`
 **Normalization rules:** plugin spec says unknown values are `-1` (`size`, `seeds`, `leech`) [CITED: github.com/qbittorrent/search-plugins wiki "How to write a search plugin", lines 159-168]. Treat `nbSeeders < 0` as unknown (hidden by `MIN_SEEDERS`); treat `fileSize < 0` as unknown and hide it from film/serie size filters (fail-safe); dedupe by btih infohash when `fileUrl` is a magnet (`xt=urn:btih:`), otherwise by `(engineName, fileUrl)`, keeping the highest seeders.
-**Timeout:** `SEARCH_TIMEOUT` (suggest 20 s): on expiry call `search/stop`; zero results → `timed_out: true` and the frontend shows a plain Italian message; some results → show them with the indicator off.
+**Timeout:** `SEARCH_TIMEOUT` (suggest 20 s): on expiry call `search/stop`; zero results → `timed_out: true` and the frontend shows a plain English message; some results → show them with the indicator off.
 **Query hygiene:** trim, length 2..100, strip control characters.
 
 ### Pattern 3: Tag-driven download pipeline (DOWN-01..03, FILT-02, D-10..D-14) [VERIFIED sequence, local run]
-**What:** `POST /api/download {result_id, type}`. The backend resolves URL + engine from its cache (410 "Ricerca scaduta, cerca di nuovo" if missing), maps `type` → category with a fixed dict, and runs a job as an `asyncio.Task` held by a registry (strong references; not `BackgroundTasks`, which dies with the request lifecycle). The endpoint awaits `asyncio.wait_for(asyncio.shield(task), 15)`; on timeout it answers `{"status":"preparing","job_id":…}` and the task continues to `METADATA_TIMEOUT`.
+**What:** `POST /api/download {result_id, type}`. The backend resolves URL + engine from its cache (410 "Search expired. Search again." if missing), maps `type` → category with a fixed dict, and runs a job as an `asyncio.Task` held by a registry (strong references; not `BackgroundTasks`, which dies with the request lifecycle). The endpoint awaits `asyncio.wait_for(asyncio.shield(task), 15)`; on timeout it answers `{"status":"preparing","job_id":…}` and the task continues to `METADATA_TIMEOUT`.
 **Steps:**
-1. If `fileUrl` is a magnet, parse btih (hex-40 or base32-32) and check `torrents/info?hashes=` → if present, answer "Già presente" (qB itself returns 409 for duplicates, verified).
+1. If `fileUrl` is a magnet, parse btih (hex-40 or base32-32) and check `torrents/info?hashes=` → if present, answer "Already added" (qB itself returns 409 for duplicates, verified).
 2. `POST /api/v2/torrents/add` with: `urls=<single line>`, `category=<Film|SerieTV>`, `autoTMM=true`, `stopCondition=MetadataReceived`, `tags=fx,fx-pending[,fx-job-<8hex>]`, and `downloader=<engineName>` **only when `fileUrl` is not a magnet** (verified: without `downloader` an HTTP page URL silently never appears; with it the response is `202 {"added_torrent_ids": [], "failure_count": 0, "pending_count": 1, "success_count": 0}` and the torrent appears under the tag a few seconds later). For magnets the response is `200 {"added_torrent_ids": ["<hash>"], …}`.
 3. Poll `GET /api/v2/torrents/files?hash=` every 1 s: **an empty array means "no metadata yet"** (not an error; source `torrentscontroller.cpp:1036-1037`). For the downloader flow find the hash through `torrents/info?tag=fx-job-…`.
 4. On files: run the allowlist (Pattern 4). Reject → `torrents/delete` with `deleteFiles=true`. Accept → `torrents/filePrio` (`hash`, `id=1|2|3`, `priority=0`) for every non-allowed file and every sample, **re-read `files` and assert** all those indexes are 0, then `torrents/start`, then remove tag `fx-pending`.
@@ -575,7 +575,7 @@ Real `torrents/files` rows (verbatim shape, 5.2.4): index, priority, size, name,
 Add a `.torrent` through multipart `torrents` (`stopped=true` is fine here because metadata is embedded); bencode `info` with `name`, `piece length`, random `pieces`, and `files`. Verified: 19-file torrent accepted in one call, priorities readable immediately via `torrents/files`.
 
 ### Frontend row states (D-10, D-11, D-13)
-States: `idle → starting(spinner ≤15 s) → started "Avviato ✓" | preparing "In preparazione" | rejected "Questo file non contiene un video. Prova un altro risultato." | error`. Poll `GET /api/download/{job_id}` every 2 s while `preparing` so the row resolves without a downloads list. Vite config (verified): `base: '/'`, dev `server.proxy: {'/api': 'http://127.0.0.1:8000'}`.
+States: `idle → starting(spinner ≤15 s) → started "Started ✓" | preparing "Preparing" | rejected "This file doesn’t contain a video. Try another result." | error`. Poll `GET /api/download/{job_id}` every 2 s while `preparing` so the row resolves without a downloads list. Vite config (verified): `base: '/'`, dev `server.proxy: {'/api': 'http://127.0.0.1:8000'}`.
 
 ## State of the Art
 
@@ -675,7 +675,7 @@ States: `idle → starting(spinner ≤15 s) → started "Avviato ✓" | preparin
 | FILT-01 | Bootstrap sends newline-separated exclusion list with `excluded_file_names_enabled: true` including every FILT-01 pattern | unit | `uv run pytest backend/tests/test_bootstrap.py -k excluded -x` | ❌ Wave 0 |
 | FILT-02 | No allowed video → delete with `deleteFiles=true`, D-13 text, never `start`; accepted → non-allowed and samples prio 0, verified, then `start`; `movie.mkv.exe` blocked; all-sample torrent rejected; timeout → delete + `unavailable`; `preparing` after 15 s while task continues | unit/API | `uv run pytest backend/tests/test_allowlist.py backend/tests/test_download_pipeline.py -x` | ❌ Wave 0 |
 | PUI-01 | Layout renders in a narrow viewport; tap targets ≥ 44 px (CSS asserted); manual phone check | component + manual | `cd frontend && npx vitest run` | ❌ Wave 0 |
-| PUI-02 | UI text never contains qB/category/path strings; row states and Italian copy per D-10/D-13; 401 → login | component | `cd frontend && npx vitest run src/__tests__/` | ❌ Wave 0 |
+| PUI-02 | UI text never contains qB/category/path strings; row states and English copy per D-10/D-13; 401 → login | component | `cd frontend && npx vitest run src/__tests__/` | ❌ Wave 0 |
 | INFRA-01 | Compose parses, healthchecks present, `GET /api/health` minimal + unauthenticated; **real `docker compose up` is manual** | infra + manual | `uv run pytest infra/tests/test_compose_invariants.py -k health -x`; manual: `docker compose up --build` | ❌ Wave 0 |
 | INFRA-02 | All published host ports unique; no `8080`; qB WebUI ≠ 80/8000/8096; `QBITTORRENT_URL` port equals `WEBUI_PORT`; `docs/ports-and-media.md` lists them | infra | `uv run pytest infra/tests/test_compose_invariants.py -k ports -x` | ❌ Wave 0 |
 | MEDIA-01 | Compose mounts Film/SerieTV from `MEDIA_ROOT`, incomplete outside `MEDIA_ROOT`, `PUID/PGID` set | infra | `uv run pytest infra/tests/test_compose_invariants.py -k media -x` | ❌ Wave 0 |

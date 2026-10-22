@@ -41,7 +41,7 @@ Full list with IDs, source references and phase mapping: `.planning/REQUIREMENTS
 
 ## Context
 
-- Source docs (Italian, SPEC type, not locked): `home-theater.md` (low classification confidence) and `qbit-wrapper.md` (medium). They are the detailed spec; planning files are in English. Ingest intel is in `.planning/intel/`; the conflict report is `.planning/INGEST-CONFLICTS.md`.
+- Source docs (originally Italian, now English, SPEC type, not locked): `home-theater.md` (low classification confidence) and `qbit-wrapper.md` (medium). They are the detailed spec; planning files are in English. Ingest intel is in `.planning/intel/`; the conflict report is `.planning/INGEST-CONFLICTS.md`.
 - Home theater part: backend is stock Jellyfin (configured, no server code); Caddy serves the frontend and reverse-proxies Jellyfin API and video from one origin (no CORS); the only custom code is the frontend. Proposed stack Preact + Vite with spatial navigation and a transpiled build for the old VIDAA browser; SolidJS is the fallback (not locked).
 - Portal part: frontend -> own backend (FastAPI, D-01) -> qBittorrent Web API v2 and its search plugins. The backend owns qBittorrent credentials and session cookie; the browser sends only `type` (`film` | `serie`), mapped to category `Film` -> `/media/Film` or `SerieTV` -> `/media/SerieTV`.
 - The parts meet at the shared media folders: qBittorrent writes, Jellyfin scans. Neither doc references the other, which produced three ingest warnings. The user approved all three and asked that each become explicit roadmap work:
@@ -77,6 +77,7 @@ No locked decisions. No ADRs were ingested (both source docs are unlocked SPECs)
 | Build the qBittorrent portal first, then the home theater | User decision at roadmap intake | Decided (user, 2026-10-21) |
 | Public MIT repo, no secrets / LAN IPs / real credentials | User constraint; protects the household | Decided (user, 2026-10-21) |
 | Planning files in English; user communicates in Italian | User instruction | Decided (user, 2026-10-21) |
+| Portal UI text and all repo docs/planning in English | User instruction (2026-10-22: changed from Italian to English at user request — household includes an English speaker; repo is public) | Decided (user, 2026-10-22) |
 | Jellyfin + Caddy single origin as the home-theater backend/proxy | SPEC architecture (not ADR-locked); avoids CORS and server code | Baseline (SPEC, revisitable) |
 | Validate downloads with ffprobe inside Firecracker microVMs (not a hardened container) | User choice; strongest isolation for parsing untrusted files; KVM available on dev and required on production | Decided (user, 2026-10-21) |
 | Production host: dedicated box with Ubuntu Server, KVM-capable | User decision; the laptop is only for development | Decided (user, 2026-10-21); exact model pending |

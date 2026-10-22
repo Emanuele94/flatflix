@@ -7,7 +7,7 @@
 ### WARNINGS (3)
 
 [WARNING] Naming convention gap: torrent downloads will not match Jellyfin's required layout
-  Found: /home/emanuele/projects/flatflix/home-theater.md requires "Titolo (Anno)/Titolo (Anno).mkv" for films and "Serie/Season 01/Serie S01E01.mkv" for series, "to be respected for the scan to work". /home/emanuele/projects/flatflix/qbit-wrapper.md saves torrents as-is into /media/Film and /media/SerieTV (sections 5.2 and 6), with no renaming or organizing step, and lists "Replace Sonarr/Radarr or other library managers" as a non-goal. Season/episode search and Jellyfin integration appear only under "Future extensions" (section 14).
+  Found: /home/emanuele/projects/flatflix/home-theater.md requires "Title (Year)/Title (Year).mkv" for films and "Series/Season 01/Series S01E01.mkv" for series, "to be respected for the scan to work". /home/emanuele/projects/flatflix/qbit-wrapper.md saves torrents as-is into /media/Film and /media/SerieTV (sections 5.2 and 6), with no renaming or organizing step, and lists "Replace Sonarr/Radarr or other library managers" as a non-goal. Season/episode search and Jellyfin integration appear only under "Future extensions" (section 14).
   Impact: Torrent names are arbitrary (release-group names, flat files, varied folder structures), so Jellyfin will mis-identify or skip many downloads. Neither doc owns the rename/organize step, so the non-technical household user would see missing or wrong titles in the TV app.
   → Decide who enforces the layout: add a post-download rename/move step in the qbit backend, accept a different tool (e.g. a library manager, currently a non-goal), or relax the Jellyfin requirement. Record it as a decision before roadmapping.
 

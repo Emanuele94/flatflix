@@ -1,6 +1,6 @@
 # Synthesis Summary
 
-Mode: new. Precedence: ADR > SPEC > PRD > DOC. Source docs are in Italian; intel is in English.
+Mode: new. Precedence: ADR > SPEC > PRD > DOC. Source docs were originally in Italian and have since been translated to English; intel is in English.
 
 ## Doc counts by type
 - Total: 2 (SPEC: 2; ADR: 0; PRD: 0; DOC: 0; UNKNOWN: 0)

@@ -64,7 +64,7 @@
 | Show all | | |
 | Hide 0 + cap 50 | | |
 
-**Notes (free text):** "sicuramente nascondiamo 0 seeders ma troviamo uno sweetspot che permette di trovare file sicuri con seeders che permettono il download".
+**Notes (free text):** "We should definitely hide 0 seeders, but let's find a sweet spot that lets us find safe files with enough seeders to allow the download" (translated from Italian).
 
 | Option | Description | Selected |
 |--------|-------------|----------|
@@ -86,7 +86,7 @@
 
 | Option | Description | Selected |
 |--------|-------------|----------|
-| Stay on results, button → "Avviato ✓" | | ✓ |
+| Stay on results, button → "Started ✓" | | ✓ |
 | Confirmation screen | | |
 
 ---
@@ -97,7 +97,7 @@
 |--------|-------------|----------|
 | Short wait, then hand-off | Spinner ~15 s, then "In preparazione", backend continues | ✓ |
 | Always wait for outcome | Can block minutes | |
-| Immediately "Avviato" | Rejection never seen in Phase 1 | |
+| Immediately "Started" | Rejection never seen in Phase 1 | |
 
 | Option | Description | Selected |
 |--------|-------------|----------|
@@ -107,7 +107,7 @@
 
 | Option | Description | Selected |
 |--------|-------------|----------|
-| "Questo file non contiene un video. Prova un altro risultato." | | ✓ |
+| "This file doesn’t contain a video. Try another result." | | ✓ |
 | With short reason | | |
 
 | Option | Description | Selected |

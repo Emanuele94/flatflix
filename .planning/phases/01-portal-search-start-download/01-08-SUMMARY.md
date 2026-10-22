@@ -183,7 +183,7 @@ See key-decisions in the frontmatter.
 
 **2. [Rule 2 - Missing critical] STARTED jobs dedupe a repeat tap for 60 s only**
 - **Found during:** Task 2 design
-- **Issue:** the plan says a job that is "preparing or started" absorbs a second tap. Kept forever, a user who deleted the torrent and tapped again would see Avviato while nothing happened.
+- **Issue:** the plan says a job that is "preparing or started" absorbs a second tap. Kept forever, a user who deleted the torrent and tapped again would see Started while nothing happened.
 - **Fix:** preparing jobs always absorb the tap; started jobs for `STARTED_DEDUPE_SECONDS = 60`. After that the btih check answers `duplicate` ("Gia presente") or the torrent is added again.
 - **Files modified:** backend/app/download/pipeline.py, backend/app/download/jobs.py (newest job wins in `active_for_result`)
 - **Commit:** 7e8a53e
@@ -214,7 +214,7 @@ None. The RED placeholder `reconcile()` was replaced in the GREEN commit; `grep 
 None beyond the plan's threat model (T-01-30 to T-01-35 are mitigated and tested: extra fields 422, line break ValueError before any request, priorities verified before start, category only from the fixed map, two-key responses, startup reconcile).
 
 ## Next Phase Readiness
-- 01-13 can build the Scarica button on `POST /api/download` and `GET /api/download/{job_id}` with states preparing, started, rejected, unavailable, duplicate, failed.
+- 01-13 can build the Download button on `POST /api/download` and `GET /api/download/{job_id}` with states preparing, started, rejected, unavailable, duplicate, failed.
 - Residual race accepted per A8: nothing was observed downloaded before the stop (`downloaded=0`), and disallowed files are priority 0 before `start`.
 
 ---

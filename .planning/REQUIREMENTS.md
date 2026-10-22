@@ -23,7 +23,7 @@ Requirements for the initial release. Each maps to exactly one roadmap phase.
 
 ### Portal Search
 
-- [x] **SRCH-01**: User can choose Film or Serie TV and search by keyword; the backend queries the installed qBittorrent search plugins using plugin category `movies` (film) or `tv` (serie). (qbit F1, section 9)
+- [x] **SRCH-01**: User can choose Movie or TV Series and search by keyword; the backend queries the installed qBittorrent search plugins using plugin category `movies` (film) or `tv` (serie). (qbit F1, section 9)
 - [x] **SRCH-02**: Results show name, size, seeders, leechers and source, normalized and sorted by seeders descending. (qbit F2, section 9)
 - [x] **SRCH-03**: First results appear within about 2 seconds of submitting a search (results fill in while the qBittorrent search runs), and a search timeout shows a plain-language message instead of an error. (qbit NF2, section 13 code 504)
 

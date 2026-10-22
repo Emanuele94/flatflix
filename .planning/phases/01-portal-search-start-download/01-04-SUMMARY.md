@@ -71,11 +71,11 @@ coverage:
         status: pass
     human_judgment: false
   - id: D2
-    description: "The portal page shows backend status in Italian for ok, degraded and unreachable"
+    description: "The portal page shows backend status in English for ok, degraded and unreachable"
     requirement: "PUI-01"
     verification:
       - kind: unit
-        ref: "frontend/src/__tests__/App.test.jsx (three tests: Portale pronto, Servizio in avvio, Server non raggiungibile)"
+        ref: "frontend/src/__tests__/App.test.jsx (three tests: Portal ready, Servizio in avvio, Server non raggiungibile)"
         status: pass
     human_judgment: false
   - id: D3
@@ -83,7 +83,7 @@ coverage:
     requirement: "PUI-01"
     verification:
       - kind: unit
-        ref: "frontend/src/__tests__/no-third-party.test.js#index.html is Italian and mobile-ready (lang and width=device-width only)"
+        ref: "frontend/src/__tests__/no-third-party.test.js#index.html is English and mobile-ready (lang and width=device-width only)"
         status: pass
       - kind: other
         ref: "styles.css sets min-height 48px on button, input, select and max-width 40rem with no fixed widths; no browser check at 360 px was run"

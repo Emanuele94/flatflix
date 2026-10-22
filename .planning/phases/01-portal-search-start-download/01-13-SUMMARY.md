@@ -9,7 +9,7 @@ requires:
   - phase: 01-portal-search-start-download
     provides: "01-08 POST /api/download and GET /api/download/{job_id}; 01-12 Search and ResultRow with type prop and MSG.notReady"
 provides:
-  - "Scarica button on every result row posting exactly {result_id, type}"
+  - "Download button on every result row posting exactly {result_id, type}"
   - "Row state map in Search keyed by result_id (pending, started, preparing, duplicate, rejected, unavailable, failed, expired, notReady, network)"
   - "Job polling every 2 s, capped at 330 s, cleared on unmount and on a new search"
   - "MSG keys: download, started, preparing, rejected, unavailable, duplicate, downloadFailed, searchExpired"
@@ -42,9 +42,9 @@ key-files:
 
 key-decisions:
   - "The POST and the polling live in Search, not ResultRow: ResultRow is a pure view taking state and onDownload, so state survives re-sorts and unmounted rows"
-  - "Type sent is captured at submit time (rowsType ref), so toggling Film/Serie TV after results arrive cannot cause a type_mismatch"
+  - "Type sent is captured at submit time (rowsType ref), so toggling Movie/TV Series after results arrive cannot cause a type_mismatch"
   - "rejected, unavailable and expired rows disable the button (a retry cannot change the outcome); failed, 503 and network keep it enabled"
-  - "A poll answering 404 or 401 stops polling and keeps In preparazione; network blips and 5xx keep polling until the 330 s cap"
+  - "A poll answering 404 or 401 stops polling and keeps Preparing; network blips and 5xx keep polling until the 330 s cap"
 
 requirements-completed: [DOWN-01, SEC-03]
 
@@ -52,15 +52,15 @@ duration: about 25 min
 completed: 2026-10-22
 ---
 
-# Phase 1 Plan 13: Scarica button and row states Summary
+# Phase 1 Plan 13: Download button and row states Summary
 
-**Scarica on every result row posts only {result_id, type}; each outcome is a plain Italian state on its own row, and "Avviato ✓" appears only for a backend status of started**
+**Download on every result row posts only {result_id, type}; each outcome is a plain English state on its own row, and "Started ✓" appears only for a backend status of started**
 
 ## Accomplishments
 
-- Tracer: the web image Caddy serves carries the Scarica button. The served bundle references `/api/download` and `Avviato`, and `POST /api/download` through the same origin answers 401 without a session. No real download was started.
-- Row states: spinner while the POST is pending, "Avviato ✓", "In preparazione" (with spinner), "Già presente", the D-13 rejection text, "Non disponibile. Prova un altro risultato.", "Download non riuscito. Riprova." with the button enabled again, 410 "Ricerca scaduta, cerca di nuovo.", 503 `MSG.notReady`, network `MSG.serverUnreachable`.
-- Preparing jobs poll `GET /api/download/{job_id}` every 2 s until a final status, give up after 330 s keeping "In preparazione", and stop on unmount or a new search.
+- Tracer: the web image Caddy serves carries the Download button. The served bundle references `/api/download` and `Started`, and `POST /api/download` through the same origin answers 401 without a session. No real download was started.
+- Row states: spinner while the POST is pending, "Started ✓", "Preparing" (with spinner), "Already added", the D-13 rejection text, "Not available. Try another result.", "Download failed. Try again." with the button enabled again, 410 "Search expired. Search again.", 503 `MSG.notReady`, network `MSG.serverUnreachable`.
+- Preparing jobs poll `GET /api/download/{job_id}` every 2 s until a final status, give up after 330 s keeping "Preparing", and stop on unmount or a new search.
 - Idempotency and concurrency: taps on started, preparing, duplicate, pending rows send nothing (disabled button plus a handler guard), two taps in one tick send one request, three rows tapped together resolve independently, and a re-sorting snapshot keeps each state.
 - Verification: frontend vitest 100 pass (38 before). Web image rebuilt healthy; bundle check and 401 check pass.
 
@@ -73,9 +73,9 @@ completed: 2026-10-22
 
 | Task | Commit | Message |
 | ---- | ------ | ------- |
-| 1 tracer | 0782508 | feat(01-13): tracer Scarica button posts {result_id, type} and shows Avviato on started |
+| 1 tracer | 0782508 | feat(01-13): tracer Download button posts {result_id, type} and shows Started on started |
 | 2 RED | ca5e19a | test(01-13): add failing tests for row states, polling, idempotency and never_success |
-| 2 GREEN | 08c88e1 | feat(01-13): every download outcome is a plain Italian row state, success only for started |
+| 2 GREEN | 08c88e1 | feat(01-13): every download outcome is a plain Italian row state, success only for started (UI later switched to English) |
 
 ## Deviations from Plan
 
@@ -83,7 +83,7 @@ completed: 2026-10-22
 
 **1. [Rule 1 - Bug] Live toggle type used for downloads**
 - **Found during:** Task 2 (RED test design)
-- **Issue:** 01-12 passed the live `type` toggle into rows, so switching Film to Serie TV after results arrived would send the wrong type and hit `type_mismatch` (422).
+- **Issue:** 01-12 passed the live `type` toggle into rows, so switching Movie to TV Series after results arrived would send the wrong type and hit `type_mismatch` (422).
 - **Fix:** `rowsType` ref set at submit; the POST uses it.
 - **Files modified:** frontend/src/Search.jsx
 - **Commit:** 08c88e1
@@ -126,5 +126,5 @@ Ready for 01-09. Row-state copy lives in `messages.js`; tap targets are 48 px an
 
 - Files modified exist: Search.jsx, ResultRow.jsx, messages.js, styles.css, both test files.
 - Commits 0782508, ca5e19a, 08c88e1 are ancestors of HEAD.
-- Acceptance greps pass: `Avviato ✓`, `In preparazione`, D-13 text, `Già presente`, `Ricerca scaduta, cerca di nuovo.` in messages.js; `never_success` tests in ResultRow.test.jsx.
+- Acceptance greps pass: `Started ✓`, `Preparing`, D-13 text, `Already added`, `Search expired. Search again.` in messages.js; `never_success` tests in ResultRow.test.jsx.
 - Plan verification: `npm --prefix frontend test` green (100); served bundle references `/api/download`; `POST /api/download` without session answers 401.

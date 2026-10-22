@@ -6,7 +6,7 @@
 <domain>
 ## Phase Boundary
 
-A household member opens the portal on a phone over the LAN, logs in, picks Film or Serie TV, searches by keyword through qBittorrent's search plugins, and taps Download on a result. The backend adds the torrent stopped, filters its file list (video + subtitles only), starts it in the right category (`Film` → `/media/Film`, `SerieTV` → `/media/SerieTV`), and the user never sees qBittorrent, paths, categories or credentials. The stack (Caddy, portal backend, qBittorrent) starts with one `docker compose up`; one port map and one media-folder contract are documented.
+A household member opens the portal on a phone over the LAN, logs in, picks Movie or TV Series, searches by keyword through qBittorrent's search plugins, and taps Download on a result. The backend adds the torrent stopped, filters its file list (video + subtitles only), starts it in the right category (`Film` → `/media/Film`, `SerieTV` → `/media/SerieTV`), and the user never sees qBittorrent, paths, categories or credentials. The stack (Caddy, portal backend, qBittorrent) starts with one `docker compose up`; one port map and one media-folder contract are documented.
 
 Out of this phase: download list, cancel, audit logs and full rate limiting (Phase 2); quarantine/ffprobe (Phase 2.1); Jellyfin and the TV app (Phase 3+).
 
@@ -31,12 +31,12 @@ Out of this phase: download list, cancel, audit logs and full rate limiting (Pha
   - **Hide suspicious names** (e.g. containing `.exe`, `password`, `codec`, and similar markers; list is Claude's discretion, keep it configurable or in one place).
   - **Quality badge**: parse `1080p` / `2160p`/`4K` (and similar) from the name and show a badge. Badge only, not a filter.
 - **D-09:** Result row: **name (full) + size (human, e.g. "4.2 GB") + seeders prominent**; leechers and source small and grey.
-- **D-10:** After tapping Download the user **stays on the results list**; the button turns into "Avviato ✓". Errors and rejections are shown on that row. The user can start more downloads from the same list.
+- **D-10:** After tapping Download the user **stays on the results list**; the button turns into "Started ✓". Errors and rejections are shown on that row. The user can start more downloads from the same list.
 
 ### Torrent acceptance flow (FILT-02)
-- **D-11:** After the tap, the row shows a spinner for up to **~15 s** while the backend waits for metadata. If metadata arrives: show "✓ Avviato" or the rejection. If not: show "In preparazione" and the **backend keeps processing on its own** (background task, not tied to the HTTP request). The final outcome becomes visible in the Phase 2 downloads list.
+- **D-11:** After the tap, the row shows a spinner for up to **~15 s** while the backend waits for metadata. If metadata arrives: show "✓ Started" or the rejection. If not: show "Preparing" and the **backend keeps processing on its own** (background task, not tied to the HTTP request). The final outcome becomes visible in the Phase 2 downloads list.
 - **D-12:** Metadata timeout is env `METADATA_TIMEOUT`, **default 5 minutes**; after it the torrent is removed from qBittorrent and marked unavailable.
-- **D-13:** Rejection text (no allowed video file): **"Questo file non contiene un video. Prova un altro risultato."** No technical detail.
+- **D-13:** Rejection text (no allowed video file): **"This file doesn’t contain a video. Try another result."** No technical detail.
 - **D-14:** Multi-video torrents: download **all allowed video files** (full seasons are fine) but set **priority 0 on samples**: files with "sample" in the name, or tiny compared with the main video. Subtitles stay allowed.
 
 ### Login and access
@@ -56,7 +56,7 @@ Out of this phase: download list, cancel, audit logs and full rate limiting (Pha
 - Exact Caddy paths for portal vs TV (D-05).
 - How live results reach the browser (polling vs SSE) as long as D-06 holds.
 - Suspicious-name list, sample-size heuristic, per-episode size threshold for series.
-- Visual design of the portal (no area discussed); keep it simple, large tap targets, Italian UI text.
+- Visual design of the portal (no area discussed); keep it simple, large tap targets, English UI text.
 - Host media paths, PUID/PGID and incomplete-downloads folder layout (MEDIA-01) — not discussed; follow requirements.
 
 </decisions>
@@ -94,7 +94,7 @@ Out of this phase: download list, cancel, audit logs and full rate limiting (Pha
 - None: the repo has no code yet (planning stage).
 
 ### Established Patterns
-- None in code. Project constraints: Docker on LAN, public MIT repo with no secrets or LAN IPs, planning files in English, UI text in Italian.
+- None in code. Project constraints: Docker on LAN, public MIT repo with no secrets or LAN IPs, planning files in English, UI text in English (2026-10-22: changed from Italian to English at user request — household includes an English speaker; repo is public).
 
 ### Integration Points
 - qBittorrent Web API v2 (search, torrents/add, files, filePrio, categories, preferences `excluded_file_names`).
@@ -107,8 +107,8 @@ Out of this phase: download list, cancel, audit logs and full rate limiting (Pha
 ## Specific Ideas
 
 - User explicitly wants a seeders "sweet spot": not just hiding 0-seeder results, but keeping only results that are safe and will actually download.
-- Rejection message wording is fixed: "Questo file non contiene un video. Prova un altro risultato."
-- Button state after tap: "Avviato ✓"; pending state: "In preparazione".
+- Rejection message wording is fixed: "This file doesn’t contain a video. Try another result."
+- Button state after tap: "Started ✓"; pending state: "Preparing".
 
 </specifics>
 

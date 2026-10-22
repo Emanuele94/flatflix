@@ -9,8 +9,8 @@ requires:
   - phase: 01-portal-search-start-download
     provides: "01-04 Caddy single origin and fetch wrapper; 01-05 login/session/logout API and smoke.py"
 provides:
-  - "Login.jsx: Italian shared-account login form"
-  - "App.jsx: checking/login/in shell with header (title + Esci) and a main area for 01-12 Search"
+  - "Login.jsx: English shared-account login form"
+  - "App.jsx: checking/login/in shell with header (title + Log out) and a main area for 01-12 Search"
   - "api.js setUnauthorizedHandler: any 401 except /api/login returns the SPA to login"
   - "MSG keys: loginTitle, username, password, loginButton, logout, loggedIn, loginFailed, loginThrottled"
 affects: [01-12, 01-13, 01-09]
@@ -56,7 +56,7 @@ completed: 2026-10-22
 
 # Phase 1 Plan 11: Login screen and session lifecycle Summary
 
-**Italian login screen on Preact served by Caddy, with 401-driven return to login, Esci logout and plain-Italian failure messages**
+**English login screen on Preact served by Caddy, with 401-driven return to login, Log out and plain-English failure messages**
 
 ## Performance
 
@@ -66,26 +66,26 @@ completed: 2026-10-22
 
 ## Accomplishments
 
-- Opening the portal without a session shows the login form; a correct login opens the logged-in shell (header with Esci, main area for Search).
-- Wrong password, throttle and network failure each show one fixed Italian message; status codes, JSON and English never reach the screen.
-- A 401 from any call other than login returns to the login screen silently; Esci posts `/api/logout` then shows login.
+- Opening the portal without a session shows the login form; a correct login opens the logged-in shell (header with Log out, main area for Search).
+- Wrong password, throttle and network failure each show one fixed English message; status codes, JSON and raw backend text never reach the screen.
+- A 401 from any call other than login returns to the login screen silently; Log out posts `/api/logout` then shows login.
 - Verified on the live stack: the bundle Caddy serves contains `/api/login`, `/api/session`, `/api/logout`; `scripts/smoke.py --base http://127.0.0.1 login` all OK.
 
 ## Task Commits
 
 1. **Task 1 (tracer): login screen and logged-in shell through Caddy** - `5290b88` (feat)
-2. **Task 2 RED: failing tests for session end, Esci, Italian failures** - `4f940d0` (test)
-3. **Task 2 GREEN: unauthorized handler, Esci, failure messages, form styles** - `4f256b0` (feat)
+2. **Task 2 RED: failing tests for session end, Log out, English failures** - `4f940d0` (test)
+3. **Task 2 GREEN: unauthorized handler, Log out, failure messages, form styles** - `4f256b0` (feat)
 
 ## TDD notes (Task 2)
 
-- RED: 9 of 17 tests failed, all targeting planned behavior (missing `setUnauthorizedHandler`, no failure text in Login, Esci not wired, no handler-driven return to login). Example target: `Login.test.jsx > Login form > shows the Italian wrong-credentials message on 401 and nothing technical`, which failed on `findByText('Nome utente o password errati.')`.
+- RED: 9 of 17 tests failed, all targeting planned behavior (missing `setUnauthorizedHandler`, no failure text in Login, Log out not wired, no handler-driven return to login). Example target: `Login.test.jsx > Login form > shows the English wrong-credentials message on 401 and nothing technical`, which failed on `findByText('Wrong username or password.')`.
 - `gsd check tdd-red-evidence` returned `INVALID_RED (invalid_record)`: the Vitest `tap-flat` report contains testing-library's multi-line DOM dump inside the YAML block, which the TAP parser rejects ("Non-TAP data", "Malformed TAP"), even with `NO_COLOR=1 DEBUG_PRINT_LIMIT=0`. This plan is `type: execute` (the machine gate is for `type: tdd` plans), so GREEN was authorized on semantic assessment only: every failing test executed and failed on the planned assertion or missing symbol, none from syntax, import or fixture faults; the 8 pre-existing-behavior tests passed.
 - GREEN: all 17 tests pass. No REFACTOR commit.
 
 ## Deviations from Plan
 
-None. Notes: Task 1 left the Login catch block empty and the Esci button unwired by design (Task 2 fills them). `frontend/src/__tests__/App.test.jsx` also holds the `api()` unauthorized-handler tests, since the plan's file list has no separate api test file.
+None. Notes: Task 1 left the Login catch block empty and the Log out button unwired by design (Task 2 fills them). `frontend/src/__tests__/App.test.jsx` also holds the `api()` unauthorized-handler tests, since the plan's file list has no separate api test file.
 
 ## Issues Encountered
 

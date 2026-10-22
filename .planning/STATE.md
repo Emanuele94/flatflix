@@ -96,7 +96,7 @@ Recent decisions affecting current work:
 - [Phase 01]: 01-06: downloads gated by require_ready (503 not_ready) until setPreferences and categories succeeded; search plugins install after categories and never block readiness
 - [Phase 01]: 01-07: a cut-short search (timeout, eviction, shutdown) is done with timed_out true only when no row passed the filters; a non-empty SUSPICIOUS_TERMS replaces the built-in list — A timeout is an ordinary end, never an error; one documented rule for the term list
 - [Phase 01]: 01-07: search_start 409 frees tracked searches and sweeps untracked leftovers, then retries once; qBittorrent failures answer 503 search_unavailable — A crashed backend must not block search permanently, and no qBittorrent body reaches the browser
-- [Phase 01]: 01-12: added MSG.searchFailed so poll errors (e.g. 404 search_not_found) show plain Italian, never technical text
+- [Phase 01]: 01-12: added MSG.searchFailed so poll errors (e.g. 404 search_not_found) show plain English, never technical text
 - [Phase 01]: A STARTED job dedupes a repeat tap only for 60 s; later taps hit the btih duplicate check
 - [Phase 01]: A 404 from torrents/files right after a magnet add is retried like an empty list, bounded by METADATA_TIMEOUT
 - [Phase 01]: Bootstrapper on_ready hook runs reconcile after readiness; reconciled jobs reuse the id from their fx-job tag

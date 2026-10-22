@@ -9,7 +9,7 @@ requires:
   - phase: 01-portal-search-start-download
     provides: "01-07 POST /api/search + GET /api/search/{id} snapshots; 01-11 login shell with main area and api.js"
 provides:
-  - "Search.jsx: Film/Serie TV toggle, query box, Cerca, 700 ms polling, searching/empty/timeout/error states"
+  - "Search.jsx: Movie/TV Series toggle, query box, Search, 700 ms polling, searching/empty/timeout/error states"
   - "ResultRow.jsx: li.result with name, size, seeders, muted leechers/source, quality badge"
   - "MSG keys: typeFilm, typeSerie, queryPlaceholder, searchButton, searching, noResults, searchTimedOut, notReady, queryTooShort, searchFailed, seedUnit, leechUnit"
 affects: [01-13, 01-09]
@@ -42,7 +42,7 @@ key-files:
     - frontend/src/__tests__/App.test.jsx
 
 key-decisions:
-  - "Added MSG.searchFailed ('Qualcosa è andato storto. Riprova.') for poll errors such as 404 search_not_found, so nothing technical is ever shown"
+  - "Added MSG.searchFailed ('Something went wrong. Try again.') for poll errors such as 404 search_not_found, so nothing technical is ever shown"
   - "ResultRow takes only { result }; Search passes type as an extra prop for 01-13 to use"
 
 requirements-completed: [SRCH-01, SRCH-02, SRCH-03, PUI-01, PUI-02]
@@ -53,7 +53,7 @@ completed: 2026-10-22
 
 # Phase 1 Plan 12: Search screen and result rows Summary
 
-**Preact search screen: Film/Serie TV toggle, 700 ms live polling through Caddy, D-09 result rows with quality badge, and plain-Italian searching, empty, timeout and error states**
+**Preact search screen: Movie/TV Series toggle, 700 ms live polling through Caddy, D-09 result rows with quality badge, and plain-English searching, empty, timeout and error states**
 
 ## Performance
 
@@ -65,7 +65,7 @@ completed: 2026-10-22
 
 - Tracer: after login the main area renders `Search`; POST `{q, type}` then poll `/api/search/{id}` every 700 ms until `done`. Proven on the real stack: the bundle served by Caddy references `/api/search` and the smoke search through the same origin returned rows.
 - Polling stops on done, on a new search and on unmount (T-01-44).
-- Phone states: spinner + "Ricerca in corso…" while running, "Nessun risultato. Prova con altre parole." / "La ricerca ha impiegato troppo tempo. Riprova." on zero rows, Italian-only error messages for 503, 422, network and poll failures.
+- Phone states: spinner + "Searching…" while running, "No results. Try different words." / "The search took too long. Try again." on zero rows, English-only error messages for 503, 422, network and poll failures.
 - Row layout per D-09 with muted leechers and source, plus a quality pill; 48 px segmented toggle, wrapping names, no inline styles.
 
 ## TDD (Task 2)
@@ -86,14 +86,14 @@ completed: 2026-10-22
 
 **1. [Rule 3 - Blocking] Updated App.test.jsx for the new logged-in shell**
 - **Found during:** Task 1
-- **Issue:** App tests waited for "Accesso effettuato.", which the logged-in shell no longer renders once Search replaces it.
-- **Fix:** Tests now wait for the "Cerca" button. `MSG.loggedIn` is left in messages.js, unused.
+- **Issue:** App tests waited for "Logged in.", which the logged-in shell no longer renders once Search replaces it.
+- **Fix:** Tests now wait for the "Search" button. `MSG.loggedIn` is left in messages.js, unused.
 - **Files modified:** frontend/src/__tests__/App.test.jsx
 - **Commit:** 1826f41
 
 **2. [Rule 2 - Missing critical] Added `MSG.searchFailed`**
 - **Issue:** Plan listed messages for 503, 422 and network only; a poll failing with 404 `search_not_found` would otherwise show nothing or technical text (PUI-02).
-- **Fix:** Generic Italian fallback message.
+- **Fix:** Generic English fallback message.
 - **Commit:** 816dd36
 
 **3. Live probe keywords:** the plan's precondition and verify use `--q 1080p`; per the run instructions to keep public-site queries benign, `Sintel` (film) and `Pioneer One` (serie) were used instead. The check is equivalent (search API answers with rows through Caddy).
@@ -119,7 +119,7 @@ None. T-01-28 (no `dangerouslySetInnerHTML`, text-only rendering, XSS test) and 
 ## Verification
 
 - `npm --prefix frontend test`: 5 files, 38 tests pass.
-- `docker compose up -d --build --wait`: all services healthy; served bundle contains `/api/search` and "Ricerca in corso…".
+- `docker compose up -d --build --wait`: all services healthy; served bundle contains `/api/search` and "Searching…".
 - `scripts/smoke.py search` film `Sintel` (2 results) and serie `Pioneer One` (17 results) OK through port 80. No download started.
 - `grep dangerouslySetInnerHTML frontend/src`: empty; `min-height: 48px` present in styles.css.
 

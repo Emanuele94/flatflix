@@ -1,6 +1,6 @@
 # Context (running notes by topic)
 
-Translated from Italian. Prose sections of the SPEC-classified docs that are not constraints.
+Translated from the original Italian. Prose sections of the SPEC-classified docs that are not constraints.
 
 ## Project phases and milestones (home-theater)
 - source: /home/emanuele/projects/flatflix/home-theater.md

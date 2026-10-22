@@ -29,7 +29,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Requirements**: AUTH-01, SEC-01, SEC-02, SEC-03, SEC-04, SRCH-01, SRCH-02, SRCH-03, DOWN-01, DOWN-02, DOWN-03, PUI-01, PUI-02, INFRA-01, INFRA-02, MEDIA-01, FILT-01, FILT-02
 **Success Criteria** (what must be TRUE):
   1. From a smartphone browser on the LAN, the user opens the portal, is asked to log in, and cannot reach search or download pages or endpoints without logging in.
-  2. The user chooses Film or Serie, types a keyword, and sees first results in about 2 seconds with name, size, seeders, leechers and source, sorted by most seeders; a search timeout shows a plain message, not an error.
+  2. The user chooses Movie or TV Series, types a keyword, and sees first results in about 2 seconds with name, size, seeders, leechers and source, sorted by most seeders; a search timeout shows a plain message, not an error.
   3. Tapping Download on a result starts it in qBittorrent and, once complete, the file is in the Film or SerieTV host folder matching the chosen type, with no path or category ever shown or chosen by the user.
   4. qBittorrent is not reachable from the LAN and its credentials and paths appear in no browser response; the whole portal stack comes up with one `docker compose up` from a `.env` built from `.env.example`, and the repo holds no secrets or LAN IPs.
   5. One documented laptop port map (Caddy, portal frontend, qBittorrent WebUI if published, Jellyfin 8096) and one media-folder contract (host paths, owner IDs, separate incomplete-downloads folder) exist, and no two services collide on a port.
@@ -55,7 +55,7 @@ Plans:
 - [x] 01-05-PLAN.md — Tracer: login API with 30-day session through Caddy; deny-by-default routes; brute-force limit; hash helper (wave 5)
 
 **Wave 6** *(blocked on Wave 5 completion)*
-- [x] 01-11-PLAN.md — Tracer: Italian login screen and logged-in shell; expired-session handling and plain messages (wave 6)
+- [x] 01-11-PLAN.md — Tracer: English login screen and logged-in shell; expired-session handling and plain messages (wave 6)
 
 **Wave 7** *(blocked on Wave 6 completion)*
 - [x] 01-06-PLAN.md — Tracer: qBittorrent bootstrap (categories, paths, exclusions, pinned plugins, seeding limits) + doctor CLI (wave 7)
@@ -70,7 +70,7 @@ Plans:
 - [x] 01-08-PLAN.md — Tracer: download API with stopCondition=MetadataReceived, allowlist before start, real-engine guard (wave 10)
 
 **Wave 11** *(blocked on Wave 10 completion)*
-- [x] 01-13-PLAN.md — Tracer: Scarica button and row states (Avviato ✓, In preparazione, rejection) (wave 11)
+- [x] 01-13-PLAN.md — Tracer: Download button and row states (Started ✓, Preparing, rejection) (wave 11)
 
 **Wave 12** *(blocked on Wave 11 completion)*
 - [x] 01-09-PLAN.md — Tracer: household flow end to end with leak scan; setup guide; CLAUDE.md/REQUIREMENTS.md aligned; phone check (wave 12)

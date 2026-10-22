@@ -7,7 +7,7 @@ status: complete
 
 requires:
   - phase: 01-portal-search-start-download
-    provides: "01-08 POST /api/download pipeline; 01-13 Scarica button; 01-06 doctor; 01-05 login and hash helper; 01-04 Caddy and compose"
+    provides: "01-08 POST /api/download pipeline; 01-13 Download button; 01-06 doctor; 01-05 login and hash helper; 01-04 Caddy and compose"
 provides:
   - "scripts/smoke.py subcommands download and all, and scan_for_leaks over every recorded response"
   - "doctor --torrents (portal torrents: name, category, save path, incomplete path, state, percent)"
@@ -59,7 +59,7 @@ completed: 2026-10-22
 
 # Phase 1 Plan 09: End-to-end tracer, leak scans and setup guide Summary
 
-**The household flow (login, search, Scarica) runs through Caddy on the real stack and starts a real Sintel torrent in the Film category; 27 responses scanned with no leak, a canary test covers every route, and docs/setup.md plus CLAUDE.md now match what was built.**
+**The household flow (login, search, Download) runs through Caddy on the real stack and starts a real Sintel torrent in the Film category; 27 responses scanned with no leak, a canary test covers every route, and docs/setup.md plus CLAUDE.md now match what was built.**
 
 ## Accomplishments
 
@@ -122,11 +122,11 @@ None. The smoke script reads the household password from `.dev-portal-password` 
 
 ## Human verification (queued for end-of-phase, not faked)
 
-1. **Phone check (ROADMAP success criterion 1, PUI-01):** on a real phone on the home Wi-Fi, open `http://<laptop-ip>/`; the Italian login screen appears first and nothing is reachable without logging in; after login a Film search shows rows within about 2 seconds; tapping Scarica on an open-licensed Blender result turns the row into "Avviato" (or "In preparazione" then "Avviato"); big tap targets, no sideways scrolling, no qBittorrent, folder path, category name or English error visible. Record the result in `01-UAT.md` via `/gsd-verify-work 1`.
+1. **Phone check (ROADMAP success criterion 1, PUI-01):** on a real phone on the home Wi-Fi, open `http://<laptop-ip>/`; the English login screen appears first and nothing is reachable without logging in; after login a Movie search shows rows within about 2 seconds; tapping Download on an open-licensed Blender result turns the row into "Started" (or "Preparing" then "Started"); big tap targets, no sideways scrolling, no qBittorrent, folder path, category name or English error visible. Record the result in `01-UAT.md` via `/gsd-verify-work 1`.
 2. **LAN reachability:** the Windows firewall rule for TCP 80 on the Private profile and port publishing through Docker Desktop can only be proven from another device on the LAN.
 3. **Flagged assumption (EDGE SEC-01):** the edge probe could not classify SEC-01; it is covered by test_no_leaks, the smoke leak scan and the backend-only QbitClient. Please review at verification.
 
-Note: because the Sintel torrent already completed, a phone tap on the same result now answers "Già presente" (duplicate). To watch the in-progress behavior, pick another Blender open-movie result, for example Tears of Steel or Big Buck Bunny, when one passes the filters.
+Note: because the Sintel torrent already completed, a phone tap on the same result now answers "Already added" (duplicate). To watch the in-progress behavior, pick another Blender open-movie result, for example Tears of Steel or Big Buck Bunny, when one passes the filters.
 
 ## Known Stubs
 
