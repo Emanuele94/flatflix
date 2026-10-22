@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 02
 current_phase_name: Portal Download Management & Hardening
 status: executing
-stopped_at: Completed 02-02-PLAN.md
-last_updated: "2026-10-22T20:01:27.237Z"
+stopped_at: Completed 02-03-PLAN.md
+last_updated: "2026-10-22T20:04:02.400Z"
 last_activity: 2026-10-22
 last_activity_desc: Phase 02 execution started
-state_head: dbc0bd6132e3332e7b171fe7ea838591c7be701e
+state_head: 3a22b7dbf9de9c157c039d59309e71f82830a5e1
 progress:
   total_phases: 7
   completed_phases: 1
   total_plans: 27
-  completed_plans: 18
+  completed_plans: 19
   percent: 14
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-21)
 ## Current Position
 
 Phase: 02 (Portal Download Management & Hardening) — EXECUTING
-Plan: 3 of 11
+Plan: 4 of 11
 Status: Ready to execute
 Last activity: 2026-10-22 — Phase 02 execution started
 
@@ -74,6 +74,7 @@ Progress: [█░░░░░░░░░] 14%
 | Phase 01 P16 | 6 min | 3 tasks | 11 files |
 | Phase 02 P01 | 25 min | 3 tasks | 10 files |
 | Phase 02 P02 | 9 min | 2 tasks | 4 files |
+| Phase 02 P03 | 8 min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -116,6 +117,8 @@ Recent decisions affecting current work:
 - [Phase 02]: Downloads list route is read-only and not behind require_ready, so it keeps working while bootstrap retries
 - [Phase 02]: A torrent is the primary identity of a list row (HMAC id of the info-hash); jobs are only a detail for rows with no torrent
 - [Phase 02]: 02-02: sample ratio measured against the largest non-sample video of any format (10 %, inclusive); 415 from torrents/add is unavailable
+- [Phase 02]: Hashed /assets/* never fall back to index.html: a missing asset is a plain 404, so no HTML page is cached for a year (D-42)
+- [Phase 02]: Logs stay on stdout through Docker json-file 10m x 5 via one x-logging anchor; no log volume (D-40)
 
 ### Pending Todos
 
@@ -145,6 +148,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-22T20:01:27.110Z
-Stopped at: Completed 02-02-PLAN.md
+Last session: 2026-10-22T20:04:02.265Z
+Stopped at: Completed 02-03-PLAN.md
 Resume file: None
