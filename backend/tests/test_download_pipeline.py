@@ -562,6 +562,8 @@ PAGE_URL = "https://limetorrents.example/torrent/12345"
 # What limetorrents' downloader prints for that page: a magnet, not a .torrent path (G-01-3).
 LIME_BTIH = "2222222222222222222222222222222222222222"
 LIME_MAGNET = f"magnet:?xt=urn:btih:{LIME_BTIH}&dn=tears+of+steel"
+# A direct .torrent URL (torlock prints this kind of path for its pages too).
+TORRENT_URL = "https://torlock.example/tor/12345.torrent"
 
 
 async def test_a_non_magnet_result_is_added_with_its_downloader_and_found_by_tag(
@@ -614,6 +616,123 @@ async def test_a_page_result_whose_downloader_prints_a_magnet_fetches_metadata_a
     assert torrent.started is True
     assert torrent.tags == ["fx"]
     assert [call.form["hashes"] for call in rig.fake.calls_to(START)] == [LIME_BTIH]
+
+
+# The four ways a torrent reaches qBittorrent: (result URL, engine, magnet printed by the
+# downloader or None, hash the torrent ends up under).
+ROUTES = {
+    "magnet": (MAGNET, "limetorrents", None, BTIH),
+    "downloader->magnet": (PAGE_URL, "limetorrents", LIME_MAGNET, LIME_BTIH),
+    "downloader->.torrent": (PAGE_URL, "limetorrents", None, FakeQbit.hash_for(PAGE_URL)),
+    "url->.torrent": (TORRENT_URL, "torlock", None, FakeQbit.hash_for(TORRENT_URL)),
+}
+
+
+@pytest.mark.parametrize("route", list(ROUTES), ids=list(ROUTES))
+async def test_no_route_downloads_a_payload_byte_before_the_allowlist(rig: Rig, route: str) -> None:
+    url, engine, printed, torrent_hash = ROUTES[route]
+    rig.cache(url=url, engine=engine)
+    if printed is not None:
+        rig.fake.downloader_magnets[url] = printed
+    rig.fake.set_metadata(torrent_hash, SINTEL_FILES, delay_polls=1)
+
+    response = await rig.post()
+
+    body = response.json()
+    assert body["status"] == "started"
+    (add,) = rig.adds()
+    assert add.form["stopCondition"] == "MetadataReceived"
+    assert "stopped" not in add.form
+    assert add.form["category"] == "Film"
+    torrent = rig.fake.torrents[torrent_hash]
+    assert torrent.downloaded == 0  # nothing was fetched before the allowlist ran
+    assert torrent.started is True
+    assert [call.form["hashes"] for call in rig.fake.calls_to(START)] == [torrent_hash]
+    assert torrent.tags == ["fx"]
+    priorities = {row["name"]: row["priority"] for row in torrent.files}
+    assert priorities == {
+        "Sintel/Sintel.mp4": 1,
+        "Sintel/poster.jpg": 0,
+        "Sintel/subs/Sintel.en.srt": 1,
+        "Sintel/subs/Sintel.it.srt": 1,
+        "Sintel/readme.txt": 0,
+        "Sintel/setup.exe": 0,
+    }
+
+
+async def test_a_downloader_magnet_without_a_video_is_rejected_with_zero_payload(
+    rig: Rig,
+) -> None:
+    rig.cache(url=PAGE_URL, engine="limetorrents")
+    rig.fake.downloader_magnets[PAGE_URL] = LIME_MAGNET
+    rig.fake.set_metadata(LIME_BTIH, [("Movie/setup.exe", 5000), ("Movie/readme.txt", 10)])
+    held_at_delete: list[int] = []
+    real_delete = rig.fake._routes[("POST", DELETE)]
+
+    def spy_delete(request: httpx.Request) -> httpx.Response:
+        for torrent_hash in rig.fake._form(request).get("hashes", "").split("|"):
+            held_at_delete.append(rig.fake.torrents[torrent_hash].downloaded)
+        return real_delete(request)
+
+    rig.fake.register("POST", DELETE, spy_delete)
+
+    response = await rig.post()
+
+    assert response.json()["status"] == "rejected"
+    assert rig.fake.deleted == [(LIME_BTIH, True)]
+    assert held_at_delete == [0]
+    assert rig.fake.calls_to(START) == []
+    assert rig.fake.calls_to(FILE_PRIO) == []
+    assert LIME_BTIH not in rig.fake.torrents
+
+
+async def test_a_downloader_magnet_with_slow_metadata_answers_preparing_then_started(
+    rig: Rig,
+) -> None:
+    rig.app.state.settings = rig.app.state.settings.model_copy(
+        update={"download_wait_seconds": 0.05}
+    )
+
+    async def slow_sleep(seconds: float) -> None:
+        rig.clock.now += seconds
+        await asyncio.sleep(0.01)
+
+    rig.use_sleep(slow_sleep)
+    rig.cache(url=PAGE_URL, engine="limetorrents")
+    rig.fake.downloader_magnets[PAGE_URL] = LIME_MAGNET
+    rig.fake.set_metadata(LIME_BTIH, SINTEL_FILES, delay_polls=20)
+
+    first = await rig.post()
+
+    assert first.json()["status"] == "preparing"
+    job_id = first.json()["job_id"]
+    await asyncio.wait_for(rig.app.state.jobs.task(job_id), 5)
+    later = await rig.api.get(f"/api/download/{job_id}")
+    assert later.json() == {"status": "started", "job_id": job_id}
+    assert len(rig.adds()) == 1
+    assert rig.fake.torrents[LIME_BTIH].downloaded == 0
+
+
+async def test_the_fake_holds_a_metadata_complete_torrent_added_with_the_stop_condition(
+    settings: Settings, fake_qbit: FakeQbit
+) -> None:
+    client = QbitClient(
+        settings.qbittorrent_url,
+        settings.qbittorrent_user,
+        settings.qbittorrent_pass,
+        transport=fake_qbit.transport,
+    )
+    torrent_hash = FakeQbit.hash_for(TORRENT_URL)
+    fake_qbit.set_metadata(torrent_hash, SINTEL_FILES)
+
+    await client.add_torrent(TORRENT_URL, "Film", ["fx"], downloader="torlock")
+    (row,) = await client.torrents_info()  # releases the downloader torrent
+
+    # qBittorrent 5.2.4 pauses it at add (sessionimpl.cpp:2794-2801): only `start` runs it.
+    assert row["hash"] == torrent_hash
+    assert row["state"] == "stoppedDL"
+    assert row["downloaded"] == 0
+    await client.aclose()
 
 
 async def test_a_non_magnet_torrent_that_never_appears_is_unavailable(rig: Rig) -> None:
