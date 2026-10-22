@@ -371,3 +371,228 @@ describe('cancel from the list (D-32, D-35)', () => {
     expect(screen.queryByText('Sintel.2010')).toBeNull();
   });
 });
+
+const READY = (id, name) => item(id, name, { state: 'ready', progress: 100, eta_seconds: null, action: 'remove' });
+const ID_A = 'a'.repeat(16);
+
+function click(name) {
+  fireEvent.click(screen.getByRole('button', { name }));
+}
+
+describe('remove from list (D-33)', () => {
+  it('one tap sends one DELETE with the id and no body and the row goes on 204', async () => {
+    const net = stubApi({
+      list: [jsonResponse({ items: [READY('a', 'Sintel.2010'), item('b', 'Tears.of.Steel')] })],
+      del: [NO_CONTENT],
+    });
+    render(<Downloads onGoToSearch={() => {}} />);
+    await tick(0);
+    click(MSG.removeFromList);
+    await tick(0);
+    expect(net.deletes()).toEqual([{ path: `/api/downloads/${ID_A}`, method: 'DELETE', body: undefined }]);
+    expect(screen.queryByText('Sintel.2010')).toBeNull();
+    expect(screen.getByText('Tears.of.Steel')).toBeTruthy();
+  });
+
+  it('a 404 removes the row too', async () => {
+    stubApi({
+      list: [jsonResponse({ items: [READY('a', 'Sintel.2010')] })],
+      del: [jsonResponse({ detail: 'download_not_found' }, 404)],
+    });
+    render(<Downloads onGoToSearch={() => {}} />);
+    await tick(0);
+    click(MSG.removeFromList);
+    await tick(0);
+    expect(screen.queryByText('Sintel.2010')).toBeNull();
+    expect(screen.queryByText(MSG.actionFailed)).toBeNull();
+  });
+
+  it('shows "Removing…" with a disabled button while the DELETE is pending and sends nothing twice', async () => {
+    const pending = deferred();
+    const net = stubApi({ list: [jsonResponse({ items: [READY('a', 'Sintel.2010')] })], del: [pending.promise] });
+    render(<Downloads onGoToSearch={() => {}} />);
+    await tick(0);
+    click(MSG.removeFromList);
+    await tick(0);
+    const busyButton = screen.getByRole('button', { name: MSG.removing });
+    expect(busyButton.disabled).toBe(true);
+    fireEvent.click(busyButton);
+    await tick(0);
+    expect(net.deletes()).toHaveLength(1);
+    pending.resolve(NO_CONTENT);
+    await tick(0);
+    expect(screen.queryByText('Sintel.2010')).toBeNull();
+  });
+
+  it('a failed-job row has no button and no dismiss control (D-29)', async () => {
+    stubApi({ list: [jsonResponse({ items: [item('f', 'Gone.Wrong', { state: 'failed', action: null })] })] });
+    const { container } = render(<Downloads onGoToSearch={() => {}} />);
+    await tick(0);
+    expect(screen.getByText('Gone.Wrong')).toBeTruthy();
+    expect(container.querySelector('button')).toBeNull();
+  });
+});
+
+describe('action failures (D-36, D-37)', () => {
+  it('a 500 closes the panel, keeps the row, says it plainly and the next tap works', async () => {
+    const net = stubApi({ del: [jsonResponse({ detail: 'boom' }, 500), NO_CONTENT] });
+    render(<Downloads onGoToSearch={() => {}} />);
+    await tick(0);
+    click(MSG.cancelDownload);
+    click(MSG.cancelConfirmYes);
+    await tick(0);
+    expect(screen.queryByText(MSG.cancelConfirmTitle)).toBeNull();
+    expect(screen.getByText('Sintel.2010')).toBeTruthy();
+    const note = screen.getByText(MSG.actionFailed);
+    expect(note.getAttribute('role')).toBe('status');
+    expect(note.classList.contains('row-state-warn')).toBe(true);
+    expect(document.body.textContent).not.toMatch(/500|boom/);
+    expect(screen.getByRole('button', { name: MSG.cancelDownload }).disabled).toBe(false);
+    click(MSG.cancelDownload);
+    expect(screen.queryByText(MSG.actionFailed)).toBeNull();
+    click(MSG.cancelConfirmYes);
+    await tick(0);
+    expect(net.deletes()).toHaveLength(2);
+    expect(screen.queryByText('Sintel.2010')).toBeNull();
+  });
+
+  it('a failed Remove says the same sentence and keeps the row', async () => {
+    stubApi({
+      list: [jsonResponse({ items: [READY('a', 'Sintel.2010')] })],
+      del: [jsonResponse({ detail: 'boom' }, 500)],
+    });
+    render(<Downloads onGoToSearch={() => {}} />);
+    await tick(0);
+    click(MSG.removeFromList);
+    await tick(0);
+    expect(screen.getByText('Sintel.2010')).toBeTruthy();
+    expect(screen.getByText(MSG.actionFailed)).toBeTruthy();
+    expect(screen.getByRole('button', { name: MSG.removeFromList }).disabled).toBe(false);
+  });
+
+  it.each([
+    ['502 qbit_unreachable', jsonResponse({ detail: 'qbit_unreachable' }, 502), MSG.downloadServiceDown],
+    ['502 qbit_refused', jsonResponse({ detail: 'qbit_refused' }, 502), MSG.downloadServiceProblem],
+    ['a network failure', new TypeError('Failed to fetch'), MSG.downloadServiceDown],
+  ])('%s follows the outage rule: banner, greyed list, buttons off, no action sentence', async (_n, answer, banner) => {
+    const { container } = (() => {
+      stubApi({ del: [answer] });
+      return render(<Downloads onGoToSearch={() => {}} />);
+    })();
+    await tick(0);
+    click(MSG.cancelDownload);
+    click(MSG.cancelConfirmYes);
+    await tick(0);
+    expect(screen.getByText(banner)).toBeTruthy();
+    expect(container.querySelector('ul.downloads.is-stale')).not.toBeNull();
+    expect(screen.queryByText(MSG.cancelConfirmTitle)).toBeNull();
+    expect(screen.queryByText(MSG.actionFailed)).toBeNull();
+    expect(screen.getByRole('button', { name: MSG.cancelDownload }).disabled).toBe(true);
+    expect(screen.getByText('Sintel.2010')).toBeTruthy();
+  });
+
+  it('the next successful poll after an outage re-enables the buttons', async () => {
+    stubApi({ list: [LIST_A, LIST_A], del: [jsonResponse({ detail: 'qbit_unreachable' }, 502)] });
+    const { container } = render(<Downloads onGoToSearch={() => {}} />);
+    await tick(0);
+    click(MSG.cancelDownload);
+    click(MSG.cancelConfirmYes);
+    await tick(0);
+    expect(screen.getByRole('button', { name: MSG.cancelDownload }).disabled).toBe(true);
+    await tick(5000);
+    expect(container.querySelector('.is-stale')).toBeNull();
+    expect(screen.getByRole('button', { name: MSG.cancelDownload }).disabled).toBe(false);
+  });
+
+  it('a failed poll (stale) closes an open confirm panel and disables every button', async () => {
+    stubApi({ list: [LIST_A, UNREACHABLE] });
+    render(<Downloads onGoToSearch={() => {}} />);
+    await tick(0);
+    click(MSG.cancelDownload);
+    expect(screen.getByText(MSG.cancelConfirmTitle)).toBeTruthy();
+    await tick(5000);
+    expect(screen.queryByText(MSG.cancelConfirmTitle)).toBeNull();
+    expect(screen.getByRole('button', { name: MSG.cancelDownload }).disabled).toBe(true);
+  });
+
+  it('never puts a status code or a detail code on screen after a failed action', async () => {
+    for (const answer of [
+      jsonResponse({ detail: 'boom' }, 500),
+      jsonResponse({ detail: 'qbit_unreachable' }, 502),
+      jsonResponse({ detail: 'qbit_refused' }, 502),
+      jsonResponse({ detail: 'download_not_found' }, 404),
+    ]) {
+      stubApi({ del: [answer] });
+      const view = render(<Downloads onGoToSearch={() => {}} />);
+      await tick(0);
+      click(MSG.cancelDownload);
+      click(MSG.cancelConfirmYes);
+      await tick(0);
+      expect(document.body.textContent).not.toMatch(/502|500|404|qbit_|boom|download_not_found/);
+      view.unmount();
+      clearDownloadsCache();
+    }
+  });
+});
+
+describe('one confirm panel at a time, and only while it is true', () => {
+  const TWO = jsonResponse({ items: [item('a', 'Sintel.2010'), item('b', 'Tears.of.Steel')] });
+
+  it('opening the confirm of row B closes the one of row A', async () => {
+    stubApi({ list: [TWO] });
+    render(<Downloads onGoToSearch={() => {}} />);
+    await tick(0);
+    fireEvent.click(screen.getAllByRole('button', { name: MSG.cancelDownload })[0]);
+    expect(screen.getAllByText(MSG.cancelConfirmTitle)).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: MSG.cancelDownload }));
+    expect(screen.getAllByText(MSG.cancelConfirmTitle)).toHaveLength(1);
+    expect(screen.getByText('Sintel.2010').closest('li').querySelector('.confirm')).toBeNull();
+    expect(screen.getByText('Tears.of.Steel').closest('li').querySelector('.confirm')).not.toBeNull();
+  });
+
+  it('an open panel survives a refresh that returns the same row', async () => {
+    stubApi({ list: [LIST_A, jsonResponse({ items: [item('a', 'Sintel.2010', { progress: 55 })] })] });
+    render(<Downloads onGoToSearch={() => {}} />);
+    await tick(0);
+    click(MSG.cancelDownload);
+    await tick(5000);
+    expect(screen.getByText(MSG.cancelConfirmTitle)).toBeTruthy();
+    expect(screen.getByText('55%')).toBeTruthy();
+  });
+
+  it('a refresh that makes the row ready closes the panel and offers Remove from list instead', async () => {
+    stubApi({ list: [LIST_A, jsonResponse({ items: [READY('a', 'Sintel.2010')] })] });
+    render(<Downloads onGoToSearch={() => {}} />);
+    await tick(0);
+    click(MSG.cancelDownload);
+    await tick(5000);
+    expect(screen.queryByText(MSG.cancelConfirmTitle)).toBeNull();
+    expect(screen.queryByRole('button', { name: MSG.cancelConfirmYes })).toBeNull();
+    expect(screen.getByRole('button', { name: MSG.removeFromList })).toBeTruthy();
+  });
+
+  it('a refresh that no longer has the row closes the panel', async () => {
+    stubApi({ list: [LIST_A, LIST_B] });
+    render(<Downloads onGoToSearch={() => {}} />);
+    await tick(0);
+    click(MSG.cancelDownload);
+    await tick(5000);
+    expect(screen.queryByText(MSG.cancelConfirmTitle)).toBeNull();
+    expect(screen.getByText('Tears.of.Steel')).toBeTruthy();
+  });
+
+  it('a slow poll that started before the cancel does not bring the row back', async () => {
+    const slow = deferred();
+    stubApi({ list: [LIST_A, slow.promise] });
+    render(<Downloads onGoToSearch={() => {}} />);
+    await tick(0);
+    await tick(5000);
+    click(MSG.cancelDownload);
+    click(MSG.cancelConfirmYes);
+    await tick(0);
+    expect(screen.queryByText('Sintel.2010')).toBeNull();
+    slow.resolve(LIST_A);
+    await tick(0);
+    expect(screen.queryByText('Sintel.2010')).toBeNull();
+  });
+});

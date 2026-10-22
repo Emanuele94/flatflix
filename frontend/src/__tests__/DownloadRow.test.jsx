@@ -219,3 +219,56 @@ describe('Cancel download (D-32)', () => {
     expect(container.querySelector('button')).toBeNull();
   });
 });
+
+describe('Remove from list (D-33)', () => {
+  const ready = { state: 'ready', progress: 100, eta_seconds: null, action: 'remove' };
+
+  it('shows Remove from list without a confirm and calls onRemove with the id', () => {
+    const onRemove = vi.fn();
+    renderRow(ready, { onRemove });
+    fireEvent.click(screen.getByRole('button', { name: MSG.removeFromList }));
+    expect(onRemove).toHaveBeenCalledWith(base.id);
+    expect(screen.queryByText(MSG.cancelConfirmTitle)).toBeNull();
+    expect(screen.queryByRole('button', { name: MSG.cancelDownload })).toBeNull();
+  });
+
+  it('while removing the button is disabled and shows a spinner and "Removing…"', () => {
+    renderRow(ready, { busy: 'remove' });
+    const button = screen.getByRole('button', { name: MSG.removing });
+    expect(button.disabled).toBe(true);
+    expect(button.querySelector('.spinner')).not.toBeNull();
+  });
+});
+
+describe('action failure and outage lock (D-36, D-37)', () => {
+  it('failed shows the plain sentence under the Cancel button as a warn status', () => {
+    renderRow({}, { failed: true });
+    const note = screen.getByText(MSG.actionFailed);
+    expect(note.getAttribute('role')).toBe('status');
+    expect(note.classList.contains('row-state-warn')).toBe(true);
+    const button = screen.getByRole('button', { name: MSG.cancelDownload });
+    expect(button.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('failed shows the same sentence under Remove from list', () => {
+    renderRow({ state: 'ready', action: 'remove' }, { failed: true });
+    expect(screen.getByText(MSG.actionFailed).getAttribute('role')).toBe('status');
+  });
+
+  it('no sentence when nothing failed', () => {
+    renderRow({}, {});
+    expect(screen.queryByText(MSG.actionFailed)).toBeNull();
+  });
+
+  it('stale disables Cancel, Remove and both confirm buttons', () => {
+    renderRow({}, { stale: true });
+    expect(screen.getByRole('button', { name: MSG.cancelDownload }).disabled).toBe(true);
+    cleanup();
+    renderRow({ state: 'ready', action: 'remove' }, { stale: true });
+    expect(screen.getByRole('button', { name: MSG.removeFromList }).disabled).toBe(true);
+    cleanup();
+    renderRow({}, { stale: true, confirming: true });
+    expect(screen.getByRole('button', { name: MSG.cancelConfirmYes }).disabled).toBe(true);
+    expect(screen.getByRole('button', { name: MSG.cancelConfirmNo }).disabled).toBe(true);
+  });
+});
