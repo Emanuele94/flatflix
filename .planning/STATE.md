@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 01
 current_phase_name: Portal Search & Start Download
 status: executing
-stopped_at: Completed 01-03-PLAN.md
-last_updated: "2026-10-22T10:07:07.432Z"
+stopped_at: Completed 01-10-PLAN.md
+last_updated: "2026-10-22T10:11:43.077Z"
 last_activity: 2026-10-22
 last_activity_desc: Phase 01 execution started
-state_head: f086eec26d17208bb8de15dff3cd2948ebe8e6cb
+state_head: 6b943fe78fce9721ac8d397f451ae06131c5d2ef
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 13
-  completed_plans: 2
+  completed_plans: 3
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-21)
 ## Current Position
 
 Phase: 01 (Portal Search & Start Download) — EXECUTING
-Plan: 3 of 13
+Plan: 4 of 13
 Status: Ready to execute
 Last activity: 2026-10-22 — Phase 01 execution started
 
@@ -58,6 +58,7 @@ Progress: [░░░░░░░░░░] 0%
 |------|----------|-------|-------|
 | Phase 01 P01 | 6 min | 3 tasks | 8 files |
 | Phase 01 P03 | 12min | 3 tasks | 6 files |
+| Phase 01 P10 | 12 min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -72,6 +73,8 @@ Recent decisions affecting current work:
 - [Phase 01]: 01-01: Lockfiles generated without install; package set (incl. transitive opentelemetry-api 1.45.1, annotated-doc 0.0.5) human-approved before first uv sync / npm ci
 - [Phase 01]: Allowlist keys on the final lower-cased extension only; no-video torrents rejected with reason no_video
 - [Phase 01]: Search result_id is sha1 of the dedupe key (btih alone for magnets), stable across engines and polls
+- [Phase 01]: 01-10: research A2 holds - with-contenv init script provisions qBittorrent WebUI credentials from env on first run
+- [Phase 01]: 01-10: qBittorrent admin access only via docker-compose.admin.yml on 127.0.0.1:8088; no service uses 8080
 
 ### Pending Todos
 
@@ -101,6 +104,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-22T10:07:07.388Z
-Stopped at: Completed 01-03-PLAN.md
+Last session: 2026-10-22T10:11:43.025Z
+Stopped at: Completed 01-10-PLAN.md
 Resume file: None

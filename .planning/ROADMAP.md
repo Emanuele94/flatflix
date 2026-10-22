@@ -35,14 +35,14 @@ Decimal phases appear between their surrounding integers in numeric order.
   5. One documented laptop port map (Caddy, portal frontend, qBittorrent WebUI if published, Jellyfin 8096) and one media-folder contract (host paths, owner IDs, separate incomplete-downloads folder) exist, and no two services collide on a port.
   6. A torrent whose file list has no allowed video file is rejected before any data is downloaded, with a plain message to the user; in an accepted torrent, executables, scripts, shortcuts, archives and every other non-video, non-subtitle file are never downloaded (qBittorrent exclusion list plus per-file priority 0).
 
-**Plans**: 2/13 plans executed (12 waves; listed in execution order, so plan numbers are not sequential)
+**Plans**: 3/13 plans executed (12 waves; listed in execution order, so plan numbers are not sequential)
 
 Plans:
 **Wave 1**
 - [x] 01-01-PLAN.md — Toolchain and host gate: manifests, lockfiles, package-legitimacy review, Docker Desktop WSL check (wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 01-10-PLAN.md — Tracer: pinned qBittorrent 5.2.4 in compose with env-provisioned credentials and host media folders; loopback-only admin WebUI; port map + media contract doc (wave 2)
+- [x] 01-10-PLAN.md — Tracer: pinned qBittorrent 5.2.4 in compose with env-provisioned credentials and host media folders; loopback-only admin WebUI; port map + media contract doc (wave 2)
 - [x] 01-03-PLAN.md — Pure content rules, test-first: file allowlist (FILT-02) and search-result filters (SRCH-02) (wave 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
@@ -169,7 +169,7 @@ Phases execute in numeric order: 1 → 2 → 2.1 → 3 → 4 → 5 → 6 (Phases
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Portal Search & Start Download | 2/13 | In Progress | - |
+| 1. Portal Search & Start Download | 3/13 | In Progress | - |
 | 2. Portal Download Management & Hardening | 0/TBD | Not started | - |
 | 2.1 Download Quarantine & Firecracker Validation | 0/TBD | Not started | - |
 | 3. Jellyfin Server & TV Playback Gate | 0/TBD | Not started | - |
