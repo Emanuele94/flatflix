@@ -22,6 +22,7 @@ from app.qbit.bootstrap import Bootstrapper, Readiness
 from app.qbit.client import QbitClient
 from app.routers import auth, download, downloads, health, search
 from app.search.service import SearchService
+from app.throttle import THROTTLE_WINDOW_SECONDS, SlidingWindowThrottle
 
 LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s %(message)s"
 
@@ -84,9 +85,11 @@ def create_app(settings: Settings | None = None, qbit: QbitClient | None = None)
     )
     # Per address only: these routes already sit behind the login, and the limit targets a stuck
     # finger or a script, not password guessing, so there is no ceiling across addresses (D-38).
-    # Task 2 renames the class to SlidingWindowThrottle; the window is one minute.
-    app.state.search_throttle = LoginThrottle(
-        max_attempts=settings.search_rate_per_minute, window_seconds=60
+    app.state.search_throttle = SlidingWindowThrottle(
+        max_attempts=settings.search_rate_per_minute, window_seconds=THROTTLE_WINDOW_SECONDS
+    )
+    app.state.download_throttle = SlidingWindowThrottle(
+        max_attempts=settings.download_rate_per_minute, window_seconds=THROTTLE_WINDOW_SECONDS
     )
     app.add_middleware(
         SessionMiddleware,

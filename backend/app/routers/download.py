@@ -6,6 +6,7 @@ server from the search cache and the fixed type map. Every response is exactly
 """
 
 import asyncio
+import math
 
 from fastapi import Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
@@ -36,6 +37,16 @@ def job_body(job: Job) -> dict[str, str]:
 @router.post("/download", dependencies=[Depends(require_ready)])
 async def start_download(body: DownloadRequest, request: Request) -> dict[str, str]:
     app = request.app
+    # The slot is taken only here: the session, readiness and body checks run as dependencies and
+    # validation before the handler, so anonymous or malformed requests never use one (SEC-05).
+    ip = request.client.host if request.client else "unknown"
+    retry_in = app.state.download_throttle.try_acquire(ip)
+    if retry_in is not None:
+        raise HTTPException(
+            status_code=429,
+            detail="too_many_requests",
+            headers={"Retry-After": str(max(1, math.ceil(retry_in)))},
+        )
     try:
         job = app.state.pipeline.submit(body.result_id, body.type)
     except ResultExpired:
