@@ -205,9 +205,7 @@ def test_a_big_other_format_film_with_a_small_allowed_trailer_is_rejected_as_vid
 
 
 def test_a_big_other_format_film_beside_an_mkv_of_a_fifth_keeps_the_mkv_and_the_subtitle():
-    decision = decide(
-        _files(("Movie.m2ts", 20 * GB), ("Movie.mkv", 4 * GB), ("Movie.srt", 2048))
-    )
+    decision = decide(_files(("Movie.m2ts", 20 * GB), ("Movie.mkv", 4 * GB), ("Movie.srt", 2048)))
 
     assert decision == FileDecision(accept=True, keep_ids=(1, 2), zero_ids=(0,), reason=None)
 
