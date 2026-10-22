@@ -1,0 +1,13 @@
+.env
+.env.*
+!.env.example
+.dev-portal-password
+qbittorrent/config/
+data/
+node_modules/
+dist/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
