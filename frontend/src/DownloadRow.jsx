@@ -32,6 +32,7 @@ export function DownloadRow({
   stale = false,
   confirming = false,
   busy = null,
+  failed = false,
   onAskCancel,
   onCancel,
   onKeep,
@@ -92,48 +93,65 @@ export function DownloadRow({
           )}
         </div>
       )}
-      {item.action === 'cancel' && (
+      {(item.action === 'cancel' || item.action === 'remove') && (
         <div class="download-action">
-          {showPanel ? (
-            <div
-              class="confirm"
-              onKeyDown={(e) => {
-                if (e.key === 'Escape' && !locked) onKeep(item.id);
-              }}
-            >
-              <p class="confirm-title">{MSG.cancelConfirmTitle}</p>
-              <p class="muted">{MSG.cancelConfirmBody}</p>
-              <div class="confirm-actions">
-                <button
-                  class="btn btn-destructive"
-                  type="button"
-                  disabled={locked}
-                  onClick={() => onCancel(item.id)}
-                >
-                  {busy === 'cancel' && <span class="spinner" aria-hidden="true" />}
-                  {busy === 'cancel' ? MSG.cancelling : MSG.cancelConfirmYes}
-                </button>
-                <button
-                  class="btn"
-                  type="button"
-                  ref={keepRef}
-                  disabled={locked}
-                  onClick={() => onKeep(item.id)}
-                >
-                  {MSG.cancelConfirmNo}
-                </button>
-              </div>
-            </div>
-          ) : (
+          {item.action === 'remove' && (
             <button
               class="btn"
               type="button"
-              ref={cancelRef}
               disabled={locked}
-              onClick={() => onAskCancel(item.id)}
+              onClick={() => onRemove(item.id)}
             >
-              {MSG.cancelDownload}
+              {busy === 'remove' && <span class="spinner" aria-hidden="true" />}
+              {busy === 'remove' ? MSG.removing : MSG.removeFromList}
             </button>
+          )}
+          {item.action === 'cancel' &&
+            (showPanel ? (
+              <div
+                class="confirm"
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape' && !locked) onKeep(item.id);
+                }}
+              >
+                <p class="confirm-title">{MSG.cancelConfirmTitle}</p>
+                <p class="muted">{MSG.cancelConfirmBody}</p>
+                <div class="confirm-actions">
+                  <button
+                    class="btn btn-destructive"
+                    type="button"
+                    disabled={locked}
+                    onClick={() => onCancel(item.id)}
+                  >
+                    {busy === 'cancel' && <span class="spinner" aria-hidden="true" />}
+                    {busy === 'cancel' ? MSG.cancelling : MSG.cancelConfirmYes}
+                  </button>
+                  <button
+                    class="btn"
+                    type="button"
+                    ref={keepRef}
+                    disabled={locked}
+                    onClick={() => onKeep(item.id)}
+                  >
+                    {MSG.cancelConfirmNo}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                class="btn"
+                type="button"
+                ref={cancelRef}
+                disabled={locked}
+                onClick={() => onAskCancel(item.id)}
+              >
+                {MSG.cancelDownload}
+              </button>
+            ))}
+          {failed && (
+            <p class="row-state row-state-warn" role="status">
+              {MSG.actionFailed}
+            </p>
           )}
         </div>
       )}
