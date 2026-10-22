@@ -8,10 +8,18 @@ the variable and never echo its value.
 import logging
 from functools import lru_cache
 
+from argon2 import extract_parameters
+from argon2.exceptions import InvalidHashError
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PLACEHOLDER_PREFIX = "change-me"
+SECRET_KEY_MIN_LENGTH = 32
+ARGON2ID_PREFIX = "$argon2id$"
+BAD_HASH_MESSAGE = (
+    "APP_PASS_HASH is not an argon2id hash: generate it with "
+    "python -m app.tools.hash_password and keep the single quotes in .env"
+)
 
 
 def ensure_real_secret(name: str, value: str) -> str:
@@ -60,13 +68,21 @@ class Settings(BaseSettings):
     @field_validator("app_pass_hash")
     @classmethod
     def _check_app_pass_hash(cls, value: SecretStr) -> SecretStr:
-        ensure_real_secret("APP_PASS_HASH", value.get_secret_value())
+        raw = ensure_real_secret("APP_PASS_HASH", value.get_secret_value())
+        if not raw.startswith(ARGON2ID_PREFIX):
+            raise ValueError(BAD_HASH_MESSAGE)
+        try:
+            extract_parameters(raw)
+        except InvalidHashError:
+            raise ValueError(BAD_HASH_MESSAGE) from None
         return value
 
     @field_validator("secret_key")
     @classmethod
     def _check_secret_key(cls, value: SecretStr) -> SecretStr:
-        ensure_real_secret("SECRET_KEY", value.get_secret_value())
+        raw = ensure_real_secret("SECRET_KEY", value.get_secret_value())
+        if len(raw) < SECRET_KEY_MIN_LENGTH:
+            raise ValueError(f"SECRET_KEY is shorter than {SECRET_KEY_MIN_LENGTH} characters")
         return value
 
     @field_validator("qbittorrent_url")
