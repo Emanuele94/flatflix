@@ -56,8 +56,8 @@ class JobRegistry:
         return self._tasks.get(job_id)
 
     def active_for_result(self, result_id: str) -> Job | None:
-        """The preparing or started job of a result, if any."""
-        for job in self._jobs.values():
+        """The newest preparing or started job of a result, if any."""
+        for job in reversed(self._jobs.values()):
             if job.result_id == result_id and job.state in ACTIVE_STATES:
                 return job
         return None

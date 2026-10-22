@@ -5,17 +5,21 @@ Order of one job, with the reason for each step:
 1. `torrents/add` with `stopCondition=MetadataReceived`, so the torrent fetches its file list and
    then stops by itself with no payload requested (D-23; a magnet added fully stopped never gets
    its metadata). Tags `fx`, `fx-pending` and `fx-job-<id>` mark it as ours and unfinished.
-2. Poll `torrents/files` until it is non-empty (an empty list means no metadata yet).
+2. Poll `torrents/files` until it is non-empty (an empty list means no metadata yet), but never
+   longer than METADATA_TIMEOUT after the add (D-12).
 3. `decide()` splits the files into keep and zero ids; a torrent with no usable video is deleted.
 4. File priorities 0 and 1 are set and re-read; any mismatch deletes the torrent.
 5. Only then `torrents/start`, and the pending tags are removed.
 
-The category comes from `qbit_category(settings, job.type)` for the job's own type and nowhere
-else, and the client has no method that re-categorizes a torrent (SEC-03).
+A torrent carries `fx-pending` from the add until step 5, so a restart can find every torrent
+that was never filtered (`reconcile`). The category comes from `qbit_category(settings, type)` for
+the job's own type and nowhere else, and the client has no method that re-categorizes a torrent
+(SEC-03).
 """
 
 import asyncio
 import logging
+import re
 import secrets
 import time
 from collections.abc import Awaitable, Callable
@@ -25,6 +29,7 @@ from app.content_type import ContentType, qbit_category
 from app.download.allowlist import TorrentFile, decide
 from app.download.jobs import Job, JobRegistry, JobState
 from app.qbit.client import QbitClient, QbitError
+from app.search.filters import infohash
 from app.search.service import SearchService
 
 logger = logging.getLogger(__name__)
@@ -34,6 +39,11 @@ TAG_PENDING = "fx-pending"
 TAG_JOB_PREFIX = "fx-job-"
 POLL_SECONDS = 1
 HTTP_NOT_FOUND = 404
+HTTP_CONFLICT = 409
+JOB_ID = re.compile(r"^[0-9a-f]{16}$")
+# A second tap on a result whose job already started returns that job for this long; after it,
+# the tap runs again and the btih check answers "already there" (or re-adds a deleted torrent).
+STARTED_DEDUPE_SECONDS = 60
 
 
 class ResultExpired(Exception):
@@ -64,12 +74,22 @@ class DownloadPipeline:
         self._sleep = sleep
 
     def submit(self, result_id: str, content_type: ContentType) -> Job:
-        """Create a job for a cached result and start it; returns at once."""
+        """Create a job for a cached result and start it; returns at once.
+
+        There is no `await` between the dedupe check and `spawn`, so two requests for one
+        result cannot both pass the check: the second gets the first job.
+        """
         cached = self._search.get_result(result_id)
         if cached is None:
             raise ResultExpired(result_id)
         if cached.type != content_type:
             raise TypeMismatch(result_id)
+        existing = self._registry.active_for_result(result_id)
+        if existing is not None and (
+            existing.state is JobState.PREPARING
+            or self._clock() - existing.created_at < STARTED_DEDUPE_SECONDS
+        ):
+            return existing
         job = Job(
             job_id=secrets.token_hex(8),
             result_id=result_id,
@@ -83,8 +103,11 @@ class DownloadPipeline:
 
     async def run(self, job: Job, url: str, engine: str) -> None:
         """Add the torrent and carry it through the allowlist; settles `job.state`."""
+        await self._settle(job, self._add_and_process(job, url, engine))
+
+    async def _settle(self, job: Job, work: Awaitable[None]) -> None:
         try:
-            await self._run(job, url, engine)
+            await work
         except (QbitError, ValueError) as exc:
             # Class and HTTP status only. The fx-pending tag stays, so a restart cleans up.
             logger.warning(
@@ -95,23 +118,65 @@ class DownloadPipeline:
             )
             job.state = JobState.FAILED
 
-    async def _run(self, job: Job, url: str, engine: str) -> None:
-        assert job.type is not None  # only a reconciled job lacks a type, and it never adds
+    async def _add_and_process(self, job: Job, url: str, engine: str) -> None:
+        if job.type is None:
+            raise ValueError("a job without a type cannot add a torrent")
+        if "\n" in url or "\r" in url:
+            raise ValueError("a torrent URL must be a single line")
+        digest = infohash(url)
+        if digest is not None and await self._qbit.torrents_info(hashes=digest):
+            job.state = JobState.DUPLICATE
+            return
         job_tag = TAG_JOB_PREFIX + job.job_id
+        is_magnet = url.lower().startswith("magnet:")
         added = await self._qbit.add_torrent(
             url,
             qbit_category(self._settings, job.type),
             [TAG_PORTAL, TAG_PENDING, job_tag],
+            downloader=None if is_magnet else engine,
         )
-        if not added.added_ids:
+        if added.status_code == HTTP_CONFLICT:
+            job.state = JobState.DUPLICATE
+            return
+        if not 200 <= added.status_code < 300:
+            logger.warning("download job %s: add answered HTTP %s", job.job_id, added.status_code)
             job.state = JobState.FAILED
             return
-        job.torrent_hash = added.added_ids[0]
-        await self._filter_and_start(job, job.torrent_hash, job_tag)
+        deadline = self._clock() + self._settings.metadata_timeout
+        # A magnet answers with its hash; a plugin page URL answers 202 with none, and the
+        # torrent shows up a few seconds later under the job tag (research Pitfall 5).
+        torrent_hash = (
+            added.added_ids[0] if added.added_ids else await self._find_by_tag(job_tag, deadline)
+        )
+        if torrent_hash is None:
+            # Nothing to delete. If the torrent appears later it keeps fx-pending and is
+            # removed by the next reconcile once it is older than METADATA_TIMEOUT.
+            job.state = JobState.UNAVAILABLE
+            return
+        job.torrent_hash = torrent_hash
+        await self._process(job, torrent_hash, job_tag, deadline)
 
-    async def _filter_and_start(self, job: Job, torrent_hash: str, job_tag: str) -> None:
-        files = await self._wait_for_files(torrent_hash)
+    async def _find_by_tag(self, job_tag: str, deadline: float) -> str | None:
+        while True:
+            rows = await self._qbit.torrents_info(tag=job_tag)
+            if rows:
+                return str(rows[0]["hash"])
+            if self._clock() >= deadline:
+                return None
+            await self._sleep(POLL_SECONDS)
+
+    async def _process(self, job: Job, torrent_hash: str, job_tag: str, deadline: float) -> None:
+        """Metadata -> allowlist -> priorities -> verify -> start. Nothing starts before step 4."""
+        files = await self._wait_for_files(torrent_hash, deadline)
+        if files is None:
+            await self._discard(torrent_hash, job_tag)
+            job.state = JobState.UNAVAILABLE
+            return
         decision = decide([TorrentFile.from_qbit(row) for row in files])
+        if not decision.accept:
+            await self._discard(torrent_hash, job_tag)
+            job.state = JobState.REJECTED
+            return
         await self._qbit.set_file_priority(torrent_hash, decision.zero_ids, 0)
         await self._qbit.set_file_priority(torrent_hash, decision.keep_ids, 1)
         reread = {
@@ -121,15 +186,21 @@ class DownloadPipeline:
         if any(reread.get(i) != 0 for i in decision.zero_ids) or any(
             reread.get(i, 0) < 1 for i in decision.keep_ids
         ):
-            await self._qbit.delete([torrent_hash], True)
+            await self._discard(torrent_hash, job_tag)
             job.state = JobState.FAILED
             return
         await self._qbit.start([torrent_hash])
-        await self._qbit.remove_tags([torrent_hash], [TAG_PENDING, job_tag])
-        await self._qbit.delete_tags([job_tag])
         job.state = JobState.STARTED
+        try:
+            await self._qbit.remove_tags([torrent_hash], [TAG_PENDING, job_tag])
+            await self._qbit.delete_tags([job_tag])
+        except QbitError as exc:
+            # The torrent is filtered and running; a leftover tag only makes the next reconcile
+            # run the same allowlist again.
+            logger.warning("tag cleanup failed after start: %s", type(exc).__name__)
 
-    async def _wait_for_files(self, torrent_hash: str) -> list[dict]:
+    async def _wait_for_files(self, torrent_hash: str, deadline: float) -> list[dict] | None:
+        """The file list, or None when it has not arrived by the deadline."""
         while True:
             try:
                 files = await self._qbit.torrent_files(torrent_hash)
@@ -140,8 +211,56 @@ class DownloadPipeline:
                 files = []
             if files:
                 return files
+            if self._clock() >= deadline:
+                return None
             await self._sleep(POLL_SECONDS)
 
+    async def _discard(self, torrent_hash: str, job_tag: str) -> None:
+        """Delete a torrent with its files; the job tag is cleaned up on a best-effort basis."""
+        await self._qbit.delete([torrent_hash], True)
+        try:
+            await self._qbit.delete_tags([job_tag])
+        except QbitError as exc:
+            logger.warning("tag cleanup failed after delete: %s", type(exc).__name__)
+
     async def reconcile(self) -> None:
-        """Finish the torrents a restart stranded (placeholder until the GREEN commit)."""
-        return
+        """Finish what a restart interrupted (D-12, FILT-02).
+
+        Every portal torrent carries `fx-pending` until it was filtered. One older than
+        METADATA_TIMEOUT is deleted with its files; the others go through the same allowlist
+        and are started only after it. The category qBittorrent holds is never changed.
+        """
+        now = self._clock()
+        timeout = self._settings.metadata_timeout
+        types = {
+            self._settings.category_film: "film",
+            self._settings.category_tv: "serie",
+        }
+        for row in await self._qbit.torrents_info(tag=TAG_PENDING):
+            torrent_hash = str(row["hash"])
+            tags = [t.strip() for t in str(row.get("tags") or "").split(",")]
+            job_tag = next((t for t in tags if t.startswith(TAG_JOB_PREFIX)), None)
+            known_id = job_tag.removeprefix(TAG_JOB_PREFIX) if job_tag else None
+            if known_id is not None and self._registry.get(known_id) is not None:
+                continue  # a job of this process owns the torrent
+            added_on = float(row.get("added_on") or 0)
+            if now - added_on > timeout:
+                logger.info("reconcile: deleting a pending torrent older than %s s", timeout)
+                await self._discard(torrent_hash, job_tag or TAG_JOB_PREFIX)
+                continue
+            job_id = known_id if known_id and JOB_ID.fullmatch(known_id) else secrets.token_hex(8)
+            job = Job(
+                job_id=job_id,
+                result_id=None,
+                type=types.get(str(row.get("category") or "")),  # type: ignore[arg-type]
+                state=JobState.PREPARING,
+                torrent_hash=torrent_hash,
+                created_at=now,
+            )
+            self._registry.spawn(
+                job,
+                self._settle(
+                    job,
+                    self._process(job, torrent_hash, TAG_JOB_PREFIX + job_id, added_on + timeout),
+                ),
+            )

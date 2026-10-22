@@ -47,7 +47,13 @@ def create_app(settings: Settings | None = None, qbit: QbitClient | None = None)
         )
         # One bootstrap per process; the strong reference keeps the task from being collected.
         app.state.bootstrap_task = asyncio.create_task(
-            Bootstrapper(app.state.qbit, settings, app.state.readiness).run_forever()
+            Bootstrapper(
+                app.state.qbit,
+                settings,
+                app.state.readiness,
+                # Looked up at call time so a replaced pipeline (tests) is the one that runs.
+                on_ready=lambda: app.state.pipeline.reconcile(),
+            ).run_forever()
         )
         try:
             yield

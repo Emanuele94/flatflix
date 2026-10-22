@@ -112,11 +112,14 @@ class Bootstrapper:
         readiness: Readiness,
         *,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        on_ready: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
         self._qbit = qbit
         self._settings = settings
         self._readiness = readiness
         self._sleep = sleep
+        # Runs right after readiness flips, e.g. to finish torrents a restart interrupted.
+        self._on_ready = on_ready
 
     async def run_once(self) -> None:
         await self._check_version()
@@ -176,6 +179,17 @@ class Bootstrapper:
                 " ".join(still_missing),
             )
 
+    async def _run_on_ready(self) -> None:
+        """A qBittorrent error is retried with the rest of the loop; a bug is logged, not fatal."""
+        if self._on_ready is None:
+            return
+        try:
+            await self._on_ready()
+        except QbitError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - a bug here must not take the portal offline
+            logger.error("startup follow-up crashed: %s", type(exc).__name__)
+
     async def run_forever(self) -> None:
         """Retry until configured; stop for good on a fault only an admin can fix.
 
@@ -185,6 +199,7 @@ class Bootstrapper:
         while True:
             try:
                 await self.run_once()
+                await self._run_on_ready()
                 return
             except (QbitAuthError, QbitBanned, QbitIncompatible) as exc:
                 reason = type(exc).__name__

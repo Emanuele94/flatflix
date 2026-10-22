@@ -366,7 +366,9 @@ async def test_a_url_with_a_line_break_fails_before_any_torrent_call(rig: Rig) -
 
     assert response.json()["status"] == "failed"
     assert rig.adds() == []
-    assert rig.fake.calls_to("/api/v2/torrents/info") == []
+    # (The startup reconcile lists fx-pending torrents; the job itself looks nothing up.)
+    lookups = [c for c in rig.fake.calls_to("/api/v2/torrents/info") if "hashes" in c.params]
+    assert lookups == []
 
 
 async def test_add_torrent_refuses_a_multi_line_url_before_any_request(
