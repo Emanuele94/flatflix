@@ -204,6 +204,38 @@ async def test_a_torrent_less_preparing_job_is_cancelled_and_a_late_torrent_is_s
     assert (await rig.api.delete(f"/api/downloads/{job_id}")).status_code == 404
 
 
+async def test_a_failed_first_sweep_still_leaves_a_sweep_that_deletes_the_torrent(
+    rig: Rig,  # noqa: F811
+) -> None:
+    slow_rig(rig)
+    rig.cache(url=PAGE_URL, engine="limetorrents")
+    page_hash = FakeQbit.hash_for(PAGE_URL)
+    rig.fake.downloader_delay_calls = 10**6
+    job_id = (await rig.post()).json()["job_id"]
+    real_info = rig.fake._torrents_info
+    failures = [httpx.Response(500, text="boom")]
+
+    def flaky_info(request: httpx.Request) -> httpx.Response:
+        if "tag" in request.url.params and failures:
+            return failures.pop()
+        return real_info(request)
+
+    rig.fake.register("GET", "/api/v2/torrents/info", flaky_info)
+
+    response = await rig.api.delete(f"/api/downloads/{job_id}")
+
+    # The job is cancelled for good, so the tap must not look like a failure to retry (a retry
+    # would answer 404), and the sweep that was started afterwards removes the late torrent.
+    assert response.status_code == 204
+    assert rig.app.state.jobs.get(job_id).state is JobState.CANCELLED
+    rig.fake._pending_downloads[0][0] = 0
+    for _ in range(50):
+        if rig.fake.deleted:
+            break
+        await settle(rig, 0.02)
+    assert rig.fake.deleted == [(page_hash, True)]
+
+
 async def test_a_torrent_that_a_cancelled_job_added_before_the_cancel_is_deleted_at_once(
     rig: Rig,  # noqa: F811
 ) -> None:

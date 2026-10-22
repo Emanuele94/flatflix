@@ -406,8 +406,14 @@ class DownloadPipeline:
             return None
         await self._registry.cancel_for(job_id=job_id)
         job_tag = TAG_JOB_PREFIX + job_id
-        await self._sweep_once(job_tag)
+        # The job is cancelled for good from here, so the sweep must exist before anything can
+        # fail: a failing first lookup only means the sweep retries, and the tap still succeeds
+        # (a retry would answer 404 and a torrent left behind would be started by `reconcile`).
         self._start_sweep(job, job_tag, job.created_at + self._settings.metadata_timeout)
+        try:
+            await self._sweep_once(job_tag)
+        except QbitError as exc:
+            logger.warning("cancel sweep failed: %s", type(exc).__name__)
         return CancelOutcome("cancel", job.name, True)
 
     def _start_sweep(self, job: Job, job_tag: str, deadline: float) -> None:
