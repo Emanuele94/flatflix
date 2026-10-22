@@ -1,18 +1,18 @@
 ---
 gsd_state_version: "1.0"
-current_phase: 1
+current_phase: 01
 current_phase_name: Portal Search & Start Download
 status: executing
-stopped_at: Phase 1 context gathered
-last_updated: "2026-10-22T09:51:33.646Z"
-last_activity: 2026-10-21
-last_activity_desc: Roadmap created from ingest of home-theater.md and qbit-wrapper.md (52 v1 requirements, 6 phases)
-state_head: f3461af80c15571905d3c7b6f6d88511961c9247
+stopped_at: Completed 01-01-PLAN.md
+last_updated: "2026-10-22T10:02:43.299Z"
+last_activity: 2026-10-22
+last_activity_desc: Phase 01 execution started
+state_head: 3ad5bb8f5b317ca226ad39a58d964ae3a0cf455e
 progress:
   total_phases: 7
   completed_phases: 0
   total_plans: 13
-  completed_plans: 0
+  completed_plans: 1
   percent: 0
 ---
 
@@ -23,14 +23,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-21)
 
 **Core value:** A non-technical household member can get a film or series onto the TV using only a phone and the TV remote, and watch it in at least 1080p with no video transcoding.
-**Current focus:** Phase 1: Portal Search & Start Download
+**Current focus:** Phase 01 — Portal Search & Start Download
 
 ## Current Position
 
-Phase: 1 (Portal Search & Start Download) — READY TO EXECUTE
-Plan: 0 of TBD in current phase
+Phase: 01 (Portal Search & Start Download) — EXECUTING
+Plan: 2 of 13
 Status: Ready to execute
-Last activity: 2026-10-21 — Roadmap created from ingest of home-theater.md and qbit-wrapper.md (52 v1 requirements, 6 phases)
+Last activity: 2026-10-22 — Phase 01 execution started
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -52,6 +52,11 @@ Progress: [░░░░░░░░░░] 0%
 - Trend: n/a
 
 *Updated after each plan completion*
+**Per-Plan Metrics:**
+
+| Plan | Duration | Tasks | Files |
+|------|----------|-------|-------|
+| Phase 01 P01 | 6 min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -63,6 +68,7 @@ Recent decisions affecting current work:
 - [Intake]: Build the qBittorrent portal first (Phases 1-2), then the home theater (Phases 3-6) — user decision
 - [Intake]: Public MIT repo; no secrets, LAN IPs or real credentials committed — user constraint
 - [Intake]: The 3 ingest warnings are explicit roadmap work: W1 naming (decide Phase 3, build Phase 4), W2 media wiring (Phase 1 then Phase 4), W3 port map (Phase 1 then Phase 3)
+- [Phase 01]: 01-01: Lockfiles generated without install; package set (incl. transitive opentelemetry-api 1.45.1, annotated-doc 0.0.5) human-approved before first uv sync / npm ci
 
 ### Pending Todos
 
@@ -92,6 +98,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-21T21:38:08.750Z
-Stopped at: Phase 1 context gathered
-Resume file: .planning/phases/01-portal-search-start-download/01-CONTEXT.md
+Last session: 2026-10-22T10:02:43.251Z
+Stopped at: Completed 01-01-PLAN.md
+Resume file: None
