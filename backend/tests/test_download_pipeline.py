@@ -553,6 +553,9 @@ async def test_delete_always_sends_the_delete_files_flag(
 # -- results that are not magnets (research Pitfall 5) -----------------------------------------
 
 PAGE_URL = "https://limetorrents.example/torrent/12345"
+# What limetorrents' downloader prints for that page: a magnet, not a .torrent path (G-01-3).
+LIME_BTIH = "2222222222222222222222222222222222222222"
+LIME_MAGNET = f"magnet:?xt=urn:btih:{LIME_BTIH}&dn=tears+of+steel"
 
 
 async def test_a_non_magnet_result_is_added_with_its_downloader_and_found_by_tag(
@@ -578,6 +581,33 @@ async def test_a_non_magnet_result_is_added_with_its_downloader_and_found_by_tag
     lookups = rig.fake.calls_to("/api/v2/torrents/info")
     assert any(call.params.get("tag") == f"fx-job-{body['job_id']}" for call in lookups)
     assert rig.fake.torrents[page_hash].started is True
+
+
+async def test_a_page_result_whose_downloader_prints_a_magnet_fetches_metadata_and_starts(
+    rig: Rig,
+) -> None:
+    rig.cache(url=PAGE_URL, engine="limetorrents")
+    rig.fake.downloader_magnets[PAGE_URL] = LIME_MAGNET
+    rig.fake.downloader_delay_calls = 2
+    rig.fake.set_metadata(LIME_BTIH, SINTEL_FILES, delay_polls=2)
+    began = rig.clock.now
+
+    response = await rig.post()
+
+    body = response.json()
+    assert body["status"] == "started"  # not the 300 s give-up path (G-01-3 a)
+    assert rig.clock.now - began < 60
+    (add,) = rig.adds()
+    assert add.form["urls"] == PAGE_URL
+    assert add.form["downloader"] == "limetorrents"
+    assert add.form["category"] == "Film"
+    assert add.form["stopCondition"] == "MetadataReceived"
+    assert "stopped" not in add.form
+    torrent = rig.fake.torrents[LIME_BTIH]
+    assert torrent.downloaded == 0  # no payload before the allowlist
+    assert torrent.started is True
+    assert torrent.tags == ["fx"]
+    assert [call.form["hashes"] for call in rig.fake.calls_to(START)] == [LIME_BTIH]
 
 
 async def test_a_non_magnet_torrent_that_never_appears_is_unavailable(rig: Rig) -> None:

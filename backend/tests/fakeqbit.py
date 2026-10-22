@@ -112,6 +112,9 @@ class FakeQbit:
         self.ignore_prio_ids: set[int] = set()  # filePrio silently skips these file ids
         self.files_404_calls = 0  # `torrents/files` answers 404 this many times, then normally
         self.downloader_delay_calls = 0  # `torrents/info` calls before a downloader torrent shows
+        # Page URL -> the magnet its plugin's downloader prints (limetorrents and torrentproject
+        # do this; torlock prints the path of a fetched .torrent).
+        self.downloader_magnets: dict[str, str] = {}
         self._metadata: dict[str, tuple[list[dict], int]] = {}
         self._pending_downloads: list[list] = []  # [remaining_info_calls, FakeTorrent]
         self.register("POST", "/api/v2/torrents/add", self._torrents_add)
@@ -320,53 +323,42 @@ class FakeQbit:
         category = form.get("category", "")
         if not url:
             return httpx.Response(400, text="Bad Request")
-        is_magnet = url.lower().startswith("magnet:")
-        torrent_hash = self.hash_for(url)
+        # Only a URL that is not a magnet goes through the plugin's downloader.
+        downloader = form.get("downloader") if not url.lower().startswith("magnet:") else None
+        # A page URL goes through the plugin's downloader, which prints either a magnet or the
+        # path of a fetched .torrent. The add params of this request apply to whatever it prints.
+        result_url = self.downloader_magnets.get(url, url) if downloader else url
+        is_magnet = result_url.lower().startswith("magnet:")
+        torrent_hash = self.hash_for(result_url)
         if torrent_hash in self.torrents:
             return httpx.Response(409, text="Conflict")
         if category and category not in self.category_table:
             # The real engine creates any category it is given (research Pitfall 4).
             self.category_table[category] = {"name": category, "savePath": ""}
         tags = [t.strip() for t in form.get("tags", "").split(",") if t.strip()]
-        torrent = FakeTorrent(torrent_hash, url, category, tags, self.clock())
+        torrent = FakeTorrent(torrent_hash, result_url, category, tags, self.clock())
         # A magnet added fully stopped never fetches its metadata (research Pitfall 1).
         stopped = form.get("stopped", "").lower() == "true"
         blocked = is_magnet and stopped
-        # What the real engine does with a torrent that is not stopped. A magnet with
-        # stopCondition=MetadataReceived stops itself before any payload (research A8). Whether
-        # that condition also stops a torrent that has its metadata at add is NOT proven, so the
-        # fake assumes it does not: such a torrent runs and fetches payload at once. Only `stopped`
-        # holds it back. A pipeline that relied on the condition there would show `downloaded > 0`.
-        stop_condition = form.get("stopCondition") == "MetadataReceived"
-        runs = not stopped and not (is_magnet and stop_condition)
+        # A torrent runs at add only with neither flag. With stopCondition=MetadataReceived a magnet
+        # stops itself at its metadata (research A8), and for a torrent that already has its
+        # metadata at add qBittorrent 5.2.4 turns the condition into a paused add before the
+        # libtorrent handle exists (sessionimpl.cpp:2794-2801). Either way no payload flows before
+        # `start`. A torrent that does run gets `downloaded = 1`, so a pipeline that ever adds
+        # with neither flag is caught.
+        runs = not stopped and form.get("stopCondition") != "MetadataReceived"
         if runs:
             torrent.started = True
             if torrent.hash in self._metadata:
                 torrent.downloaded = 1
-        if not is_magnet:
-            if not form.get("downloader"):
-                # Without the plugin's downloader a page URL never becomes a torrent.
-                return httpx.Response(
-                    202,
-                    json={
-                        "added_torrent_ids": [],
-                        "failure_count": 0,
-                        "pending_count": 1,
-                        "success_count": 0,
-                    },
-                )
+        if not is_magnet and not downloader:
+            # Without the plugin's downloader a page URL never becomes a torrent.
+            return self._pending_response()
+        if downloader:
             self._pending_downloads.append([self.downloader_delay_calls, torrent])
             if not blocked:
                 self._attach_metadata(torrent)
-            return httpx.Response(
-                202,
-                json={
-                    "added_torrent_ids": [],
-                    "failure_count": 0,
-                    "pending_count": 1,
-                    "success_count": 0,
-                },
-            )
+            return self._pending_response()
         self.torrents[torrent_hash] = torrent
         if not blocked:
             self._attach_metadata(torrent)
@@ -377,6 +369,18 @@ class FakeQbit:
                 "failure_count": 0,
                 "pending_count": 0,
                 "success_count": 1,
+            },
+        )
+
+    @staticmethod
+    def _pending_response() -> httpx.Response:
+        return httpx.Response(
+            202,
+            json={
+                "added_torrent_ids": [],
+                "failure_count": 0,
+                "pending_count": 1,
+                "success_count": 0,
             },
         )
 
