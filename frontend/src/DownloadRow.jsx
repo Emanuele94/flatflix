@@ -1,3 +1,4 @@
+import { formatEta } from './eta.js';
 import { MSG } from './messages.js';
 
 // state code (from the backend) -> text and tone. The backend decides the state; this only maps
@@ -23,9 +24,12 @@ const STATES = {
 const BADGE = { film: MSG.typeFilm, serie: MSG.typeSerie };
 
 // One download. Names are attacker-controlled text: only ever rendered as text children.
+// `stale` is accepted now; the row actions of plan 02-10 use it to disable their buttons.
 export function DownloadRow({ item }) {
   const state = STATES[item.state];
   const badge = BADGE[item.type];
+  const eta = item.state === 'downloading' ? formatEta(item.eta_seconds) : null;
+  const value = item.state === 'ready' ? 100 : Math.round(item.progress);
   return (
     <li class="download">
       <div class="download-name">{item.name || MSG.unnamedDownload}</div>
@@ -37,7 +41,13 @@ export function DownloadRow({ item }) {
             {state.text}
           </span>
         )}
+        {eta && <span class="download-eta muted">{eta}</span>}
       </div>
+      {state && state.hint && (
+        <p class={`download-hint ${state.tone === 'error' ? 'row-state-error' : 'muted'}`}>
+          {state.hint}
+        </p>
+      )}
       {state && state.bar && (
         <div class="download-progress">
           {state.bar === 'indeterminate' ? (
@@ -46,9 +56,14 @@ export function DownloadRow({ item }) {
             <progress
               class={state.barClass}
               max="100"
-              value={item.state === 'ready' ? 100 : item.progress}
+              value={value}
               aria-label={MSG.progressLabel}
             />
+          )}
+          {state.bar === 'value' && (
+            <span class="download-percent muted" aria-hidden="true">
+              {value}%
+            </span>
           )}
         </div>
       )}
