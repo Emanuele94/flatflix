@@ -43,7 +43,7 @@ Full list with IDs, source references and phase mapping: `.planning/REQUIREMENTS
 
 - Source docs (Italian, SPEC type, not locked): `home-theater.md` (low classification confidence) and `qbit-wrapper.md` (medium). They are the detailed spec; planning files are in English. Ingest intel is in `.planning/intel/`; the conflict report is `.planning/INGEST-CONFLICTS.md`.
 - Home theater part: backend is stock Jellyfin (configured, no server code); Caddy serves the frontend and reverse-proxies Jellyfin API and video from one origin (no CORS); the only custom code is the frontend. Proposed stack Preact + Vite with spatial navigation and a transpiled build for the old VIDAA browser; SolidJS is the fallback (not locked).
-- Portal part: frontend -> own backend (FastAPI or Node, undecided) -> qBittorrent Web API v2 and its search plugins. The backend owns qBittorrent credentials and session cookie; the browser sends only `type` (`film` | `serie`), mapped to category `Film` -> `/media/Film` or `SerieTV` -> `/media/SerieTV`.
+- Portal part: frontend -> own backend (FastAPI, D-01) -> qBittorrent Web API v2 and its search plugins. The backend owns qBittorrent credentials and session cookie; the browser sends only `type` (`film` | `serie`), mapped to category `Film` -> `/media/Film` or `SerieTV` -> `/media/SerieTV`.
 - The parts meet at the shared media folders: qBittorrent writes, Jellyfin scans. Neither doc references the other, which produced three ingest warnings. The user approved all three and asked that each become explicit roadmap work:
   - W1 Naming gap: torrent names do not match Jellyfin's `Title (Year)/Title (Year).mkv` and `Series/Season 01/Series S01E01.mkv` — decided in Phase 3, implemented in Phase 4.
   - W2 Shared media wiring: host paths, permissions, incomplete-downloads folder, read-only Jellyfin mounts, libraries, rescan trigger — contract in Phase 1, Jellyfin side in Phase 4.
@@ -81,9 +81,9 @@ No locked decisions. No ADRs were ingested (both source docs are unlocked SPECs)
 | Validate downloads with ffprobe inside Firecracker microVMs (not a hardened container) | User choice; strongest isolation for parsing untrusted files; KVM available on dev and required on production | Decided (user, 2026-10-21) |
 | Production host: dedicated box with Ubuntu Server, KVM-capable | User decision; the laptop is only for development | Decided (user, 2026-10-21); exact model pending |
 | Who puts downloads into Jellyfin naming layout (W1) | Options: portal post-download step, external library manager, relaxed Jellyfin requirement; decide on scan-test evidence | — Pending (Phase 3 decides, Phase 4 implements) |
-| Shared media wiring contract (W2): host paths, PUID/PGID, incomplete folder, read-only mounts, libraries, rescan trigger | Neither doc specified it | — Pending (Phase 1 part, Phase 4 rest) |
-| Laptop port map and whether Caddy also fronts the portal (W3) | Port 8080 ambiguity; Caddy port undefined | — Pending (Phase 1 map, Phase 3 Caddy) |
-| Portal backend stack: FastAPI or Node | Spec says "FastAPI/Node" | — Pending (Phase 1) |
+| Shared media wiring contract (W2): host paths, PUID/PGID, incomplete folder, read-only mounts, libraries, rescan trigger | Neither doc specified it | Phase 1 part defined in docs/ports-and-media.md; Phase 4 rest pending |
+| Laptop port map and whether Caddy also fronts the portal (W3) | Port 8080 ambiguity; Caddy port undefined | Port map defined in docs/ports-and-media.md; Caddy on port 80 fronts the portal since Phase 1 (D-03, D-04); Phase 3 adds Jellyfin and TV routes |
+| Portal backend stack: FastAPI or Node | Spec says "FastAPI/Node" | FastAPI (D-01) — Decided (user, 2026-10-21) |
 | TV frontend framework: Preact + Vite (proposed) or SolidJS | Decide after a grid prototype on the real TV | — Pending (Phase 5) |
 | One shared Jellyfin user or separate profiles | Separate profiles are out of scope for now | — Pending (Phase 3) |
 | Default audio and subtitle language | Open decision in home-theater.md | — Pending (Phase 3) |
