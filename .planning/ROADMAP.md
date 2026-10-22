@@ -106,10 +106,10 @@ Plans:
 **Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 02-04-PLAN.md — Tracer: failed attempts (24 h) and torrent-less Preparing jobs in the list; every download appears once (wave 2)
 - [ ] 02-05-PLAN.md — Tracer: search 10/min and download 20/min per address, 429 too_many_requests; generic sliding-window limiter (wave 2)
-- [ ] 02-06-PLAN.md — Tracer: Search | Downloads tabs, live list polled every 5 s while visible, outage banner, row states, ETA, styling contract, smoke downloads probe (wave 2)
+- [ ] 02-06-PLAN.md — Tracer: Search | Downloads tabs, live list polled every 5 s while visible, outage banner, row states, ETA, styling contract (wave 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
-- [ ] 02-07-PLAN.md — Tracer: DELETE /api/downloads/{id}: cancel deletes partial files, remove keeps the film, server-side checks, no ghost rows (wave 3)
+- [ ] 02-07-PLAN.md — Tracer: DELETE /api/downloads/{id}: cancel deletes partial files, remove keeps the film, the list's action matches what DELETE does to files, server-side checks, no ghost rows (wave 3)
 - [ ] 02-08-PLAN.md — Tracer: throttled search and download taps and cancelled jobs read as plain, retryable messages on the Search screen (wave 3)
 
 **Wave 4** *(blocked on Wave 3 completion)*
@@ -117,7 +117,7 @@ Plans:
 - [ ] 02-10-PLAN.md — Tracer: Cancel download with one in-row confirm, Remove from list, failures and outage lock on the Downloads tab (wave 4)
 
 **Wave 5** *(blocked on Wave 4 completion)*
-- [ ] 02-11-PLAN.md — Tracer: real-engine list and cancel, full gate on the rebuilt stack, admin guide sections, end-of-phase phone check (wave 5)
+- [ ] 02-11-PLAN.md — Tracer: real-engine list and cancel, live smoke downloads probe, full gate on the rebuilt stack, admin guide sections, end-of-phase phone check (wave 5)
 
 **UI hint**: yes
 
