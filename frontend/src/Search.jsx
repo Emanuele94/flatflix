@@ -8,7 +8,7 @@ const JOB_POLL_MS = 2000; // D-11: ask the backend about a preparing job every 2
 const JOB_GIVE_UP_MS = 330000; // METADATA_TIMEOUT is 5 min; stop asking after 5.5 min
 
 // A row in one of these states can be tapped again; every other state ignores taps.
-const RETRYABLE = new Set(['failed', 'notReady', 'network', 'lost']);
+const RETRYABLE = new Set(['failed', 'notReady', 'network', 'lost', 'throttled', 'cancelled']);
 // Backend job statuses that map to a row state. Anything else is a failure, never a success.
 const JOB_STATES = new Set([
   'started',
@@ -18,6 +18,7 @@ const JOB_STATES = new Set([
   'unavailable',
   'duplicate',
   'failed',
+  'cancelled', // cancelled from the Downloads tab while this row still showed Preparing (02-07)
 ]);
 
 // The current search survives a page reload (G-01-3 c, D-11): sessionStorage, this tab only.
@@ -27,7 +28,7 @@ export const SAVED_SEARCH_KEY = 'flatflix.search';
 const SAVED_SEARCH_VERSION = 1;
 const ID = /^[0-9a-f]{16}$/; // the backend's result, job and search id shape
 // Row states a saved job may hold: the backend statuses plus the client-side ones.
-const ROW_STATES = new Set([...JOB_STATES, 'expired', 'notReady', 'network', 'lost']);
+const ROW_STATES = new Set([...JOB_STATES, 'expired', 'notReady', 'network', 'lost', 'throttled']);
 
 // Bumped by every clear. A write that carries an older generation is dropped, so a late answer
 // from a screen that is going away cannot bring a cleared search back (T-01-57).
@@ -145,6 +146,7 @@ function downloadErrorState(err) {
     if (err.status === 410) return 'expired';
     if (err.status === 503) return 'notReady';
     if (err.status === 0) return 'network';
+    if (err.status === 429) return 'throttled'; // D-39: retryable, no countdown
   }
   return 'failed';
 }

@@ -150,7 +150,7 @@ describe('ResultRow Download button (DOWN-01, D-10)', () => {
     expect(note.getAttribute('role')).toBe('status');
     expect(note.textContent).toBe(TEXT[state]);
     expect(container.querySelector('.spinner')).toBeNull();
-    expect(container.textContent).not.toMatch(/429|too_many_requests|\bcancelled\b/);
+    expect(container.textContent.replace(TEXT[state], '')).not.toMatch(/429|too_many_requests|cancelled/);
   });
 
   it('styles ok, warning and error states with classes only', () => {

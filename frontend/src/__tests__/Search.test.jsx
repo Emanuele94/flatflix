@@ -494,7 +494,7 @@ describe('Throttled downloads and cancelled jobs (D-39, 02-08)', () => {
     expect(note.classList.contains('row-state-warn')).toBe(true);
     expect(li.querySelector('button').disabled).toBe(false);
     expect(li.querySelector('.spinner')).toBeNull();
-    expect(container.textContent).not.toMatch(/\bcancelled\b/);
+    expect(container.textContent.replace(CANCELLED, '')).not.toContain('cancelled');
     const gets = () => calls.filter((c) => c.path === `/api/download/${JOB}`).length;
     expect(gets()).toBe(1);
     await tick(10000);
