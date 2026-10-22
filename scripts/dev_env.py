@@ -9,6 +9,9 @@ Rules:
 - Keys already present in the local file are never rewritten.
 - Missing keys whose template value starts with "change-me" get a random secret;
   other missing keys copy the template value.
+- A missing APP_PASS_HASH gets a random dev password, written to
+  .dev-portal-password (mode 0600, gitignored), and its argon2id hash, single-quoted
+  so Compose takes the `$` signs literally.
 - Only key names are printed, never values.
 - --check writes nothing; exit 1 if a key is missing or still a placeholder.
 """
@@ -23,6 +26,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE = ROOT / ".env.example"
 TARGET = ROOT / ".env"
+PASSWORD_FILE = ROOT / ".dev-portal-password"
+HASH_KEY = "APP_PASS_HASH"
 PLACEHOLDER_PREFIX = "change-me"
 
 
@@ -37,6 +42,19 @@ def parse(path: Path) -> dict[str, str]:
         key, _, value = line.partition("=")
         values[key.strip()] = value.strip()
     return values
+
+
+def make_dev_login_hash() -> str:
+    """Write a fresh dev password to its 0600 file and return the single-quoted env value."""
+    # Lazy import: only needed on first run, inside the uv env.
+    from argon2 import PasswordHasher
+
+    password = secrets.token_urlsafe(12)
+    PASSWORD_FILE.unlink(missing_ok=True)
+    fd = os.open(PASSWORD_FILE, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(password + "\n")
+    return "'" + PasswordHasher().hash(password) + "'"
 
 
 def main(argv: list[str]) -> int:
@@ -61,7 +79,9 @@ def main(argv: list[str]) -> int:
     for key, value in template.items():
         if key in local:
             continue
-        if value.startswith(PLACEHOLDER_PREFIX):
+        if key == HASH_KEY and value.startswith(PLACEHOLDER_PREFIX):
+            value = make_dev_login_hash()
+        elif value.startswith(PLACEHOLDER_PREFIX):
             value = secrets.token_urlsafe(32)
         lines.append(f"{key}={value}")
         added.append(key)

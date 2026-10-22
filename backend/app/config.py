@@ -8,7 +8,7 @@ the variable and never echo its value.
 import logging
 from functools import lru_cache
 
-from pydantic import SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PLACEHOLDER_PREFIX = "change-me"
@@ -33,6 +33,41 @@ class Settings(BaseSettings):
     qbittorrent_user: str
     qbittorrent_pass: SecretStr
     log_level: str = "INFO"
+
+    # Portal access (AUTH-01, D-15..D-18): one shared account from the environment.
+    app_user: str
+    app_pass_hash: SecretStr
+    secret_key: SecretStr
+    login_max_attempts: int = Field(default=5, ge=1)
+    login_window_minutes: int = Field(default=15, ge=1)
+    session_max_age_days: int = Field(default=30, ge=1)
+
+    @property
+    def session_max_age_seconds(self) -> int:
+        return self.session_max_age_days * 24 * 3600
+
+    @property
+    def login_window_seconds(self) -> float:
+        return self.login_window_minutes * 60.0
+
+    @field_validator("app_user")
+    @classmethod
+    def _check_app_user(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("APP_USER is empty")
+        return value
+
+    @field_validator("app_pass_hash")
+    @classmethod
+    def _check_app_pass_hash(cls, value: SecretStr) -> SecretStr:
+        ensure_real_secret("APP_PASS_HASH", value.get_secret_value())
+        return value
+
+    @field_validator("secret_key")
+    @classmethod
+    def _check_secret_key(cls, value: SecretStr) -> SecretStr:
+        ensure_real_secret("SECRET_KEY", value.get_secret_value())
+        return value
 
     @field_validator("qbittorrent_url")
     @classmethod

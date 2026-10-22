@@ -9,10 +9,12 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from starlette.middleware.sessions import SessionMiddleware
 
+from app.auth import SESSION_COOKIE
 from app.config import Settings, get_settings
 from app.qbit.client import QbitClient
-from app.routers import health
+from app.routers import auth, health
 
 LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s %(message)s"
 
@@ -44,5 +46,17 @@ def create_app(settings: Settings | None = None, qbit: QbitClient | None = None)
         openapi_url=None,
         lifespan=lifespan,
     )
+    app.add_middleware(
+        SessionMiddleware,
+        secret_key=settings.secret_key.get_secret_value(),
+        session_cookie=SESSION_COOKIE,
+        max_age=settings.session_max_age_seconds,
+        same_site="lax",
+        # Plain-HTTP LAN (T-01-17): the cookie is HttpOnly, SameSite=Lax and signed.
+        https_only=False,
+        path="/",
+    )
     app.include_router(health.router)
+    app.include_router(auth.router)
+    app.include_router(auth.protected)
     return app
