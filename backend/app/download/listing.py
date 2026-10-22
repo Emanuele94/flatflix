@@ -138,6 +138,9 @@ def build_items(rows: Iterable[dict], settings: Settings, *, now: float, secret:
             continue
         state = plain_state(row)
         stamp = sort_time(row)
+        # D-28: a finished download leaves the list from exactly this age on; the torrent stays.
+        if state == "ready" and now - stamp >= settings.completed_visible_seconds:
+            continue
         item_id = download_id(secret, str(row.get("hash") or ""))
         item = {
             "id": item_id,

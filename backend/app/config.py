@@ -99,6 +99,11 @@ class Settings(BaseSettings):
     metadata_timeout: int = Field(default=300, ge=1)
     download_wait_seconds: float = Field(default=15, ge=0)
 
+    # Downloads list (D-28, D-29). A finished download stays in the list this many days after it
+    # completed, a failed attempt this many hours. Neither touches the torrent or its files.
+    completed_visible_days: int = Field(default=7, ge=1)
+    failed_visible_hours: int = Field(default=24, ge=1)
+
     # The tested qBittorrent WebAPI floor (D-22); an older server stops bootstrap.
     min_webapi_version: str = "2.15.1"
 
@@ -125,6 +130,14 @@ class Settings(BaseSettings):
     @property
     def session_max_age_seconds(self) -> int:
         return self.session_max_age_days * 24 * 3600
+
+    @property
+    def completed_visible_seconds(self) -> int:
+        return self.completed_visible_days * 24 * 3600
+
+    @property
+    def failed_visible_seconds(self) -> int:
+        return self.failed_visible_hours * 3600
 
     @property
     def login_window_seconds(self) -> float:
