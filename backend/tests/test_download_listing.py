@@ -3,6 +3,7 @@
 No I/O: rows go in, items come out. Settings are built like `tests.conftest.settings` does.
 """
 
+import asyncio
 import hashlib
 import hmac
 import re
@@ -11,7 +12,10 @@ import pytest
 from pydantic import SecretStr, ValidationError
 
 from app.config import Settings
+from app.download import jobs as jobs_module
+from app.download.jobs import Job, JobRegistry, JobState
 from app.download.listing import (
+    FAILED_JOB_STATES,
     READY_STATES,
     build_items,
     display_name,
@@ -330,3 +334,283 @@ def test_downloads_list_windows_have_the_documented_defaults() -> None:
         make_settings(completed_visible_days=0)
     with pytest.raises(ValidationError):
         make_settings(failed_visible_hours=0)
+
+
+# -- job rows (D-29, D-30, D-27) ------------------------------------------------------------
+
+JOB_ID = "0123456789abcdef"
+FAILURES = [JobState.REJECTED, JobState.UNSUPPORTED, JobState.UNAVAILABLE, JobState.FAILED]
+ITEM_KEYS = {"id", "name", "type", "state", "progress", "eta_seconds", "action"}
+
+
+def job(
+    job_id: str = JOB_ID,
+    state: JobState = JobState.PREPARING,
+    *,
+    torrent_hash: str | None = None,
+    name: str | None = "Sintel",
+    created_at: float = NOW - 100,
+    finished_at: float | None = None,
+) -> Job:
+    return Job(
+        job_id=job_id,
+        result_id="r" * 16,
+        type="film",
+        state=state,
+        torrent_hash=torrent_hash,
+        created_at=created_at,
+        name=name,
+        finished_at=finished_at,
+    )
+
+
+def items_with_jobs(rows: list[dict], jobs: list[Job]) -> list[dict]:
+    return build_items(rows, make_settings(), now=NOW, secret=SECRET, jobs=jobs)
+
+
+def test_the_listed_failure_states_are_the_four_failures() -> None:
+    assert FAILED_JOB_STATES == {"rejected", "unsupported", "unavailable", "failed"}
+
+
+def test_a_preparing_job_without_a_torrent_is_listed_with_cancel() -> None:
+    (item,) = items_with_jobs([], [job()])
+
+    assert set(item) == ITEM_KEYS
+    assert item == {
+        "id": JOB_ID,
+        "name": "Sintel",
+        "type": "film",
+        "state": "preparing",
+        "progress": 0,
+        "eta_seconds": None,
+        "action": "cancel",
+    }
+
+
+def test_a_preparing_job_gives_way_to_the_torrent_carrying_its_job_tag() -> None:
+    tagged = row("a" * 40, state="stoppedDL", tags=PENDING_TAGS, name="a" * 40)
+
+    shown = items_with_jobs([tagged], [job()])
+
+    assert [item["id"] for item in shown] == [download_id(SECRET, "a" * 40)]
+
+
+def test_a_preparing_job_gives_way_to_the_torrent_with_its_hash() -> None:
+    shown = items_with_jobs([row("b" * 40)], [job(torrent_hash="b" * 40)])
+
+    assert [item["id"] for item in shown] == [download_id(SECRET, "b" * 40)]
+
+
+def test_a_preparing_job_whose_hash_is_not_listed_still_shows() -> None:
+    # The torrent is in another category (or gone): nothing represents the attempt.
+    other = row("c" * 40, category="Other")
+
+    shown = items_with_jobs([other], [job(torrent_hash="c" * 40)])
+
+    assert [item["id"] for item in shown] == [JOB_ID]
+
+
+@pytest.mark.parametrize("state", [JobState.STARTED, JobState.DUPLICATE])
+def test_started_and_duplicate_jobs_never_get_a_row(state: JobState) -> None:
+    assert items_with_jobs([], [job(state=state, finished_at=NOW - 10)]) == []
+
+
+@pytest.mark.parametrize("state", FAILURES)
+def test_a_young_failure_is_listed_with_its_plain_state(state: JobState) -> None:
+    (item,) = items_with_jobs([], [job(state=state, finished_at=NOW - 60)])
+
+    assert item["state"] == state.value
+    assert item["action"] is None
+    assert item["progress"] == 0
+    assert item["eta_seconds"] is None
+
+
+def test_a_failure_row_leaves_exactly_at_the_window() -> None:
+    window = 24 * 3600
+
+    old = items_with_jobs([], [job(state=JobState.FAILED, finished_at=NOW - window)])
+    young = items_with_jobs([], [job(state=JobState.FAILED, finished_at=NOW - window + 1)])
+
+    assert old == []
+    assert [item["id"] for item in young] == [JOB_ID]
+
+
+def test_a_failure_job_that_has_not_ended_is_not_listed() -> None:
+    assert items_with_jobs([], [job(state=JobState.FAILED, finished_at=None)]) == []
+
+
+def test_a_bare_hash_torrent_takes_the_name_of_the_job_with_its_hash() -> None:
+    magnet = row("d" * 40, name="d" * 40, state="metaDL")
+
+    (item,) = items_with_jobs([magnet], [job(torrent_hash="d" * 40, name="Sintel (2010)")])
+
+    assert item["name"] == "Sintel (2010)"
+
+
+def test_a_bare_hash_torrent_takes_the_name_of_the_job_its_tag_names() -> None:
+    magnet = row("e" * 40, name="e" * 40, state="stoppedDL", tags=PENDING_TAGS)
+
+    (item,) = items_with_jobs([magnet], [job(name="Sintel (2010)")])
+
+    assert item["name"] == "Sintel (2010)"
+
+
+def test_a_bare_hash_torrent_without_a_job_stays_unnamed() -> None:
+    (item,) = items_with_jobs(
+        [row("f" * 40, name="f" * 40)], [job("1" * 16, torrent_hash="9" * 40)]
+    )
+
+    assert item["name"] is None
+
+
+def test_a_real_torrent_name_is_never_replaced_by_the_job_name() -> None:
+    (item,) = items_with_jobs([row("a" * 40, name="Real Name")], [job(torrent_hash="a" * 40)])
+
+    assert item["name"] == "Real Name"
+
+
+def test_every_film_or_serie_torrent_appears_exactly_once() -> None:
+    admin = row("1" * 40, name="By hand", state="stalledDL")
+    started = row("2" * 40, state="downloading")
+    preparing = row(
+        "3" * 40, name="3" * 40, state="stoppedDL", tags="fx, fx-pending, fx-job-" + "c" * 16
+    )
+    leftover = row("4" * 40, state="downloading")
+    jobs = [
+        job("a" * 16, JobState.STARTED, torrent_hash="2" * 40, finished_at=NOW - 5),
+        job("c" * 16, JobState.PREPARING),
+        job("d" * 16, JobState.FAILED, torrent_hash="4" * 40, finished_at=NOW - 5),
+        job("e" * 16, JobState.PREPARING),  # a torrent-less preparing job: the one extra row
+    ]
+
+    shown = items_with_jobs([admin, started, preparing, leftover], jobs)
+
+    ids = [item["id"] for item in shown]
+    for torrent_hash in "1234":
+        assert ids.count(download_id(SECRET, torrent_hash * 40)) == 1
+    assert ids.count("e" * 16) == 1
+    assert ids.count("c" * 16) == 0  # represented by its torrent
+    assert ids.count("a" * 16) == 0
+    assert ids.count("d" * 16) == 1  # the failed attempt is a row of its own
+    assert len(shown) == 4 + 2  # four torrents plus the preparing and the failed job rows
+    assert len(set(ids)) == len(ids)
+
+
+def test_job_rows_join_the_order_by_group_then_newest_first() -> None:
+    downloading = row("1" * 40, state="downloading", added_on=int(NOW) - 5000)
+    ready = row("2" * 40, state="uploading", completion_on=int(NOW) - 2000)
+    jobs = [
+        job("b" * 16, JobState.REJECTED, finished_at=NOW - 1000),
+        job("a" * 16, JobState.FAILED, finished_at=NOW - 3000),
+        job("c" * 16, JobState.PREPARING, created_at=NOW - 10),
+    ]
+
+    shown = items_with_jobs([ready, downloading], jobs)
+
+    assert [item["id"] for item in shown] == [
+        "c" * 16,  # active group, newest first: created 10 s ago beats the add 5000 s ago
+        download_id(SECRET, "1" * 40),
+        "b" * 16,  # second group: finished 1000 s ago
+        download_id(SECRET, "2" * 40),  # completed 2000 s ago
+        "a" * 16,  # finished 3000 s ago
+    ]
+
+
+def test_equal_job_timestamps_fall_back_to_the_id() -> None:
+    jobs = [
+        job("b" * 16, JobState.FAILED, finished_at=NOW - 50),
+        job("a" * 16, JobState.FAILED, finished_at=NOW - 50),
+    ]
+
+    assert [item["id"] for item in items_with_jobs([], jobs)] == ["a" * 16, "b" * 16]
+
+
+async def test_the_registry_stamps_finished_at_once_for_every_ending() -> None:
+    now = [100.0]
+    registry = JobRegistry(clock=lambda: now[0])
+    done, crashed, cancelled = job("1" * 16), job("2" * 16), job("3" * 16)
+
+    async def fine() -> None:
+        done.state = JobState.STARTED
+
+    async def boom() -> None:
+        raise RuntimeError("x")
+
+    async def wait_forever() -> None:
+        await asyncio.sleep(3600)
+
+    registry.spawn(done, fine())
+    registry.spawn(crashed, boom())
+    task = registry.spawn(cancelled, wait_forever())
+    await asyncio.sleep(0.01)
+    assert cancelled.finished_at is None  # still running
+    now[0] = 250.0
+    task.cancel()
+    await asyncio.gather(
+        *(registry.task(j.job_id) for j in (done, crashed, cancelled)), return_exceptions=True
+    )
+
+    assert done.finished_at == 100.0
+    assert crashed.finished_at == 100.0
+    assert crashed.state is JobState.FAILED
+    assert cancelled.finished_at == 250.0
+
+
+async def test_pruning_drops_the_oldest_finished_job_and_never_a_running_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(jobs_module, "MAX_JOBS", 3)
+    now = [0.0]
+    registry = JobRegistry(clock=lambda: now[0])
+    gate = asyncio.Event()
+    first, second, third = job("1" * 16), job("2" * 16), job("3" * 16)
+
+    async def finish_when_open() -> None:
+        await gate.wait()
+        first.state = JobState.STARTED
+
+    async def finish_now(target: Job) -> None:
+        target.state = JobState.STARTED
+
+    registry.spawn(first, finish_when_open())  # inserted first, finishes last
+    now[0] = 10.0
+    registry.spawn(second, finish_now(second))
+    await asyncio.sleep(0.01)  # second ends at 10
+    now[0] = 20.0
+    registry.spawn(third, finish_now(third))
+    await asyncio.sleep(0.01)  # third ends at 20
+    now[0] = 30.0
+    gate.set()
+    await asyncio.sleep(0.01)  # first ends at 30
+    assert (first.finished_at, second.finished_at, third.finished_at) == (30.0, 10.0, 20.0)
+
+    fourth = job("4" * 16)
+    registry.spawn(fourth, finish_now(fourth))
+
+    assert registry.get("2" * 16) is None  # the oldest finished one went
+    assert registry.get("1" * 16) is not None
+    assert registry.get("3" * 16) is not None
+
+
+async def test_pruning_never_drops_a_running_job(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(jobs_module, "MAX_JOBS", 2)
+    registry = JobRegistry(clock=lambda: 1.0)
+    running, ended = job("1" * 16), job("2" * 16)
+
+    async def hold() -> None:
+        await asyncio.sleep(3600)
+
+    async def finish() -> None:
+        ended.state = JobState.STARTED
+
+    registry.spawn(running, hold())
+    registry.spawn(ended, finish())
+    await asyncio.sleep(0.01)
+
+    other = job("3" * 16)
+    registry.spawn(other, hold())
+
+    assert registry.get("1" * 16) is running
+    assert registry.get("2" * 16) is None
+    assert registry.get("3" * 16) is other
+    await registry.shutdown()
