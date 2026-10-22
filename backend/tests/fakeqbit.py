@@ -57,6 +57,13 @@ class FakeQbit:
         self.register("GET", "/api/v2/torrents/categories", self._serve_categories)
         self.register("POST", "/api/v2/torrents/createCategory", self._create_category)
         self.register("POST", "/api/v2/torrents/editCategory", self._edit_category)
+        # Search plugins: qBittorrent ships with none. An installed plugin shows up in the
+        # list only after `plugin_install_delay_calls` further GETs, like the real download.
+        self.plugins: list[dict] = []
+        self.plugin_install_delay_calls = 0
+        self._pending_plugins: list[list] = []  # [remaining_gets, plugin]
+        self.register("GET", "/api/v2/search/plugins", self._serve_plugins)
+        self.register("POST", "/api/v2/search/installPlugin", self._install_plugin)
 
     @property
     def transport(self) -> httpx.MockTransport:
@@ -105,6 +112,30 @@ class FakeQbit:
         if name not in self.category_table:
             return httpx.Response(409, text="Unable to edit category")
         self.category_table[name]["savePath"] = form.get("savePath", "")
+        return httpx.Response(200)
+
+    def _serve_plugins(self, request: httpx.Request) -> httpx.Response:
+        for pending in list(self._pending_plugins):
+            if pending[0] > 0:
+                pending[0] -= 1
+            else:
+                self._pending_plugins.remove(pending)
+                self.plugins.append(pending[1])
+        return httpx.Response(200, json=self.plugins)
+
+    def _install_plugin(self, request: httpx.Request) -> httpx.Response:
+        sources = dict(parse_qsl(request.content.decode())).get("sources", "")
+        for url in filter(None, sources.split("|")):
+            name = url.rsplit("/", 1)[-1].removesuffix(".py")
+            plugin = {
+                "name": name,
+                "enabled": True,
+                "version": "1.0",
+                "url": url,
+                "fullName": name,
+                "supportedCategories": [{"id": "all", "name": "All categories"}],
+            }
+            self._pending_plugins.append([self.plugin_install_delay_calls, plugin])
         return httpx.Response(200)
 
     def calls_to(self, path: str) -> list[Call]:

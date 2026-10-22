@@ -9,6 +9,7 @@ from pydantic import SecretStr
 
 from app.config import Settings
 from app.download.allowlist import EXCLUDED_FILE_PATTERNS
+from app.qbit import bootstrap as bootstrap_module
 from app.qbit.bootstrap import Bootstrapper, Readiness, build_preferences, require_ready
 from app.qbit.client import QbitClient
 from app.tools import doctor
@@ -518,3 +519,205 @@ async def test_conflict_on_create_without_the_category_appearing_is_an_error_not
 
     assert readiness.state == "starting"
     assert fake_qbit.calls_to(EDIT) == []
+
+
+# --- Task 3: pinned official search plugins (D-19) and seeding policy (D-21) ------------------
+
+
+PLUGINS = "/api/v2/search/plugins"
+INSTALL = "/api/v2/search/installPlugin"
+REF = "2beb5c67b0edbf2387a031a02d1881fab4bec3c3"
+PLUGIN_NAMES = [
+    "eztv",
+    "limetorrents",
+    "piratebay",
+    "solidtorrents",
+    "torlock",
+    "torrentproject",
+    "torrentscsv",
+]
+
+
+def test_plugin_url_points_at_the_pinned_official_repository() -> None:
+    assert bootstrap_module.plugin_url(REF, "piratebay") == (
+        "https://raw.githubusercontent.com/qbittorrent/search-plugins/"
+        f"{REF}/nova3/engines/piratebay.py"
+    )
+
+
+async def test_missing_plugins_are_installed_once_each_from_the_pinned_url(
+    fake_qbit: FakeQbit, settings: Settings
+) -> None:
+    bootstrapper, readiness = make_bootstrapper(fake_qbit, settings)
+
+    await bootstrapper.run_once()
+
+    installs = [call.form for call in fake_qbit.calls_to(INSTALL)]
+    assert installs == [
+        {"sources": bootstrap_module.plugin_url(REF, name)} for name in PLUGIN_NAMES
+    ]
+    assert sorted(p["name"] for p in fake_qbit.plugins) == PLUGIN_NAMES
+    assert readiness.state == "ready"
+
+
+async def test_plugin_install_runs_after_categories(
+    fake_qbit: FakeQbit, settings: Settings
+) -> None:
+    bootstrapper, _ = make_bootstrapper(fake_qbit, settings)
+
+    await bootstrapper.run_once()
+
+    paths = wire_paths(fake_qbit)
+    assert paths.index(PLUGINS) > max(i for i, p in enumerate(paths) if p == CREATE)
+
+
+async def test_installed_but_disabled_plugin_is_neither_reinstalled_nor_enabled(
+    fake_qbit: FakeQbit, settings: Settings
+) -> None:
+    fake_qbit.plugins = [{"name": "piratebay", "enabled": False, "version": "1.0"}]
+    bootstrapper, _ = make_bootstrapper(fake_qbit, settings)
+
+    await bootstrapper.run_once()
+
+    installed = [call.form["sources"] for call in fake_qbit.calls_to(INSTALL)]
+    assert bootstrap_module.plugin_url(REF, "piratebay") not in installed
+    assert len(installed) == len(PLUGIN_NAMES) - 1
+    assert not [c for c in fake_qbit.calls if "enablePlugin" in c.path or "updatePlugins" in c.path]
+    assert fake_qbit.plugins[0]["enabled"] is False
+
+
+async def test_second_run_installs_no_plugin_again(fake_qbit: FakeQbit, settings: Settings) -> None:
+    bootstrapper, _ = make_bootstrapper(fake_qbit, settings)
+    await bootstrapper.run_once()
+    fake_qbit.calls.clear()
+
+    await bootstrapper.run_once()
+
+    assert fake_qbit.calls_to(INSTALL) == []
+
+
+async def test_bootstrap_waits_for_slow_plugins_polling_every_two_seconds(
+    fake_qbit: FakeQbit, settings: Settings, caplog: pytest.LogCaptureFixture
+) -> None:
+    fake_qbit.plugin_install_delay_calls = 2
+    sleeps = SleepLog()
+    bootstrapper, readiness = make_bootstrapper(fake_qbit, settings, sleep=sleeps)
+
+    with caplog.at_level("WARNING"):
+        await bootstrapper.run_once()
+
+    assert sleeps.delays == [2, 2]
+    assert sorted(p["name"] for p in fake_qbit.plugins) == PLUGIN_NAMES
+    assert not [r for r in caplog.records if r.levelname == "WARNING"]
+    assert readiness.state == "ready"
+
+
+async def test_plugins_still_missing_after_thirty_seconds_warn_once_and_stay_ready(
+    fake_qbit: FakeQbit, settings: Settings, caplog: pytest.LogCaptureFixture
+) -> None:
+    fake_qbit.plugin_install_delay_calls = 10_000
+    sleeps = SleepLog()
+    bootstrapper, readiness = make_bootstrapper(fake_qbit, settings, sleep=sleeps)
+
+    with caplog.at_level("WARNING"):
+        await bootstrapper.run_once()
+
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1
+    assert sum(sleeps.delays) == 30
+    assert readiness.state == "ready"
+
+
+def test_preferences_set_the_seeding_policy_to_stop_at_ratio_one_or_24_hours(
+    settings: Settings,
+) -> None:
+    prefs = build_preferences(settings, "")
+
+    assert prefs["max_ratio_enabled"] is True
+    assert prefs["max_ratio"] == 1.0
+    assert prefs["max_seeding_time_enabled"] is True
+    assert prefs["max_seeding_time"] == 1440
+    assert prefs["max_ratio_act"] == 0
+
+
+async def test_seeding_policy_reads_back_from_qbittorrent(
+    fake_qbit: FakeQbit, settings: Settings
+) -> None:
+    bootstrapper, _ = make_bootstrapper(fake_qbit, settings)
+
+    await bootstrapper.run_once()
+
+    prefs = fake_qbit.preferences
+    assert (prefs["max_ratio"], prefs["max_seeding_time"], prefs["max_ratio_act"]) == (1.0, 1440, 0)
+
+
+def make_client(fake: FakeQbit, settings: Settings) -> QbitClient:
+    return QbitClient(
+        settings.qbittorrent_url,
+        settings.qbittorrent_user,
+        settings.qbittorrent_pass,
+        transport=fake.transport,
+    )
+
+
+async def test_doctor_lists_share_limits_and_every_plugin_when_compliant(
+    fake_qbit: FakeQbit, settings: Settings
+) -> None:
+    bootstrapper, _ = make_bootstrapper(fake_qbit, settings)
+    await bootstrapper.run_once()
+    client = make_client(fake_qbit, settings)
+
+    checks = await doctor.collect(client, settings)
+
+    text = "\n".join(t for _, t in checks)
+    assert all(ok for ok, _ in checks)
+    assert "max_ratio 1.0" in text and "max_seeding_time 1440" in text
+    for name in PLUGIN_NAMES:
+        assert f"plugin {name} installed enabled True" in text
+    await client.aclose()
+
+
+async def test_doctor_fails_when_a_configured_plugin_is_missing(
+    fake_qbit: FakeQbit, settings: Settings
+) -> None:
+    bootstrapper, _ = make_bootstrapper(fake_qbit, settings)
+    await bootstrapper.run_once()
+    fake_qbit.plugins = [p for p in fake_qbit.plugins if p["name"] != "torlock"]
+    client = make_client(fake_qbit, settings)
+
+    checks = await doctor.collect(client, settings)
+
+    failed = [t for ok, t in checks if not ok]
+    assert failed == ["plugin torlock missing"]
+    await client.aclose()
+
+
+async def test_doctor_fails_when_a_share_limit_differs(
+    fake_qbit: FakeQbit, settings: Settings
+) -> None:
+    bootstrapper, _ = make_bootstrapper(fake_qbit, settings)
+    await bootstrapper.run_once()
+    fake_qbit.preferences["max_seeding_time"] = 60
+    client = make_client(fake_qbit, settings)
+
+    checks = await doctor.collect(client, settings)
+
+    assert any(not ok and "max_seeding_time 60" in t for ok, t in checks)
+    await client.aclose()
+
+
+async def test_doctor_accepts_a_plugin_an_admin_disabled(
+    fake_qbit: FakeQbit, settings: Settings
+) -> None:
+    bootstrapper, _ = make_bootstrapper(fake_qbit, settings)
+    await bootstrapper.run_once()
+    fake_qbit.plugins[0]["enabled"] = False
+    client = make_client(fake_qbit, settings)
+
+    checks = await doctor.collect(client, settings)
+
+    assert all(ok for ok, _ in checks)
+    assert any(
+        f"plugin {fake_qbit.plugins[0]['name']} installed enabled False" in t for _, t in checks
+    )
+    await client.aclose()
