@@ -1,8 +1,9 @@
 """Download flow against the real pinned qBittorrent (research A8, FILT-01, FILT-02, DOWN-03).
 
-Only two torrents are ever added: the Sintel open-movie demo magnet (Blender Foundation,
-CC BY 3.0) and a locally bencoded synthetic torrent. Both are deleted with their files at the
-end, and a torrent that already exists before the test is never touched.
+Only two kinds of torrent are ever added: the Sintel open-movie demo magnet (Blender
+Foundation, CC BY 3.0) and locally bencoded synthetic torrents. A test deletes (with files) only
+what it added itself; a torrent that already exists before the test, such as the household's
+real Sintel download, is never touched and makes the Sintel test skip.
 """
 
 import asyncio
@@ -76,9 +77,8 @@ async def wait_until(predicate, seconds: float):
 async def test_sintel_magnet_flow(
     real_app: FastAPI, real_api: httpx.AsyncClient, real_qbit: QbitClient, record_property
 ) -> None:
-    assert await torrent_row(real_qbit, SINTEL_BTIH) is None, (
-        "the Sintel torrent already exists in qBittorrent; remove it and rerun"
-    )
+    if await torrent_row(real_qbit, SINTEL_BTIH) is not None:
+        pytest.skip("the Sintel torrent already exists in qBittorrent; it is never touched")
     real_app.state.search._cache[RESULT_ID] = CachedResult(
         result_id=RESULT_ID,
         engine="test",
@@ -98,6 +98,7 @@ async def test_sintel_magnet_flow(
 
     real_app.state.qbit.start = spy_start
 
+    added_by_test = True
     try:
         response = await real_api.post(
             "/api/download", json={"result_id": RESULT_ID, "type": "film"}
@@ -128,9 +129,12 @@ async def test_sintel_magnet_flow(
         assert evidence, "start was never called"
         record_property("downloaded_bytes_before_start", evidence[0])
         print(f"A8 evidence: downloaded={evidence[0]} bytes just before torrents/start")
+        # The guarantee itself (WR-04): not one payload byte before the allowlist ran.
+        assert evidence[0] == 0, f"{evidence[0]} payload bytes were downloaded before start"
     finally:
         real_app.state.qbit.start = real_start
-        await real_qbit.delete([SINTEL_BTIH], True)
+        if added_by_test:
+            await real_qbit.delete([SINTEL_BTIH], True)
 
 
 async def test_synthetic_torrent_exclusions(real_settings: Settings, real_app: FastAPI) -> None:
@@ -175,3 +179,120 @@ async def test_synthetic_torrent_exclusions(real_settings: Settings, real_app: F
             assert kept == {"Movie/Movie.mkv"}
         finally:
             await qbit.delete([torrent_hash], True)
+
+
+STOPPED_STATES = {"stoppedDL", "pausedDL"}
+LAYOUT = [
+    (["Movie.mkv"], 100_000),
+    (["setup.exe"], 1_000),
+    (["readme.txt"], 500),
+    (["Sample", "sample.mkv"], 5_000),
+]
+
+
+async def add_synthetic(real_settings: Settings, payload: bytes, data: dict) -> None:
+    user, password = credentials()
+    async with httpx.AsyncClient(base_url=real_settings.qbittorrent_url) as http:
+        login = await http.post("/api/v2/auth/login", data={"username": user, "password": password})
+        assert login.status_code in (200, 204) and login.text.strip() != "Fails."
+        added = await http.post(
+            "/api/v2/torrents/add",
+            files={"torrents": ("movie.torrent", payload, "application/x-bittorrent")},
+            data=data,
+        )
+        assert added.status_code == 200, added.status_code
+
+
+async def listed_files(qbit: QbitClient, torrent_hash: str) -> list[dict]:
+    async def listed():
+        try:
+            return await qbit.torrent_files(torrent_hash)
+        except QbitError:  # the torrent is not registered yet
+            return []
+
+    rows = await wait_until(listed, 20)
+    assert rows, "qBittorrent never listed the synthetic torrent's files"
+    return rows
+
+
+async def test_a_metadata_complete_torrent_added_stopped_holds_still_until_the_pipeline_starts_it(
+    real_settings: Settings, real_app: FastAPI, real_qbit: QbitClient
+) -> None:
+    """The non-magnet path (WR-04): a .torrent that has its metadata at add is added `stopped`.
+
+    The pipeline adds such a result with `stopped=true` and then runs `reconcile`'s resume path
+    here, which is the same `_process` the download job runs: allowlist, priorities, verify,
+    start. Before the start the torrent must be stopped with zero payload and a readable file list.
+    """
+    job_id = secrets.token_hex(8)
+    payload, torrent_hash = synthetic_torrent(LAYOUT)
+    try:
+        await add_synthetic(
+            real_settings,
+            payload,
+            {
+                "category": "Film",
+                "autoTMM": "true",
+                "stopped": "true",
+                "tags": f"fx,fx-pending,fx-job-{job_id}",
+            },
+        )
+        rows = await listed_files(real_qbit, torrent_hash)
+
+        async def stopped():
+            row = await torrent_row(real_qbit, torrent_hash)
+            assert row is not None
+            assert int(row["downloaded"]) == 0
+            # checkingResumeData is the moment right after the add, before the stopped state.
+            return row if row["state"] in STOPPED_STATES else None
+
+        assert await wait_until(stopped, 20), "the torrent never settled in a stopped state"
+        assert {r["name"] for r in rows} >= {"Movie/Movie.mkv", "Movie/setup.exe"}
+
+        await real_app.state.pipeline.reconcile()
+        task = real_app.state.jobs.task(job_id)
+        assert task is not None, "reconcile did not resume the torrent"
+        await asyncio.wait_for(task, 60)
+
+        assert real_app.state.jobs.get(job_id).state.value == "started"
+        priorities = {r["name"]: r["priority"] for r in await real_qbit.torrent_files(torrent_hash)}
+        assert priorities["Movie/Movie.mkv"] >= 1
+        assert priorities["Movie/setup.exe"] == 0
+        assert priorities["Movie/readme.txt"] == 0
+        assert priorities["Movie/Sample/sample.mkv"] == 0
+
+        async def running():
+            row = await torrent_row(real_qbit, torrent_hash)
+            return row if row is not None and row["state"] not in STOPPED_STATES else None
+
+        after = await wait_until(running, 20)
+        assert after is not None, "the torrent never left the stopped state after start"
+        assert {t.strip() for t in after["tags"].split(",")} == {"fx"}
+    finally:
+        await real_qbit.delete([torrent_hash], True)
+
+
+async def test_records_what_a_stop_condition_does_to_a_torrent_that_already_has_metadata(
+    real_settings: Settings, real_app: FastAPI, real_qbit: QbitClient, record_property
+) -> None:
+    """Evidence only (WR-04): the pipeline no longer relies on the answer.
+
+    Adds a synthetic .torrent with `stopCondition=MetadataReceived` and records the state qBittorrent
+    reports a few seconds later. A stopped state would mean the condition also holds a
+    metadata-complete torrent; anything else is why non-magnet adds use `stopped=true` instead.
+    """
+    payload, torrent_hash = synthetic_torrent(LAYOUT)
+    try:
+        await add_synthetic(
+            real_settings,
+            payload,
+            {"category": "Film", "autoTMM": "true", "stopCondition": "MetadataReceived"},
+        )
+        await listed_files(real_qbit, torrent_hash)
+        await asyncio.sleep(5)
+        row = await torrent_row(real_qbit, torrent_hash)
+        assert row is not None
+        record_property("state_with_stop_condition_and_metadata_at_add", row["state"])
+        print(f"WR-04 evidence: state={row['state']} downloaded={row['downloaded']}")
+    finally:
+        await real_qbit.delete([torrent_hash], True)

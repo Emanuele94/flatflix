@@ -332,6 +332,17 @@ class FakeQbit:
         # A magnet added fully stopped never fetches its metadata (research Pitfall 1).
         stopped = form.get("stopped", "").lower() == "true"
         blocked = is_magnet and stopped
+        # What the real engine does with a torrent that is not stopped. A magnet with
+        # stopCondition=MetadataReceived stops itself before any payload (research A8). Whether
+        # that condition also stops a torrent that has its metadata at add is NOT proven, so the
+        # fake assumes it does not: such a torrent runs and fetches payload at once. Only `stopped`
+        # holds it back. A pipeline that relied on the condition there would show `downloaded > 0`.
+        stop_condition = form.get("stopCondition") == "MetadataReceived"
+        runs = not stopped and not (is_magnet and stop_condition)
+        if runs:
+            torrent.started = True
+            if torrent.hash in self._metadata:
+                torrent.downloaded = 1
         if not is_magnet:
             if not form.get("downloader"):
                 # Without the plugin's downloader a page URL never becomes a torrent.

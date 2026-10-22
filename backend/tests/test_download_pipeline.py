@@ -146,6 +146,7 @@ async def test_film_download_is_added_in_film_category_filtered_and_started(rig:
     assert add.form["category"] == "Film"
     assert add.form["autoTMM"] == "true"
     assert add.form["stopCondition"] == "MetadataReceived"
+    assert rig.fake.torrents[BTIH].downloaded == 0  # no payload was ever requested before start
     tags = add.form["tags"].split(",")
     assert tags[:2] == ["fx", "fx-pending"]
     assert tags[2] == f"fx-job-{body['job_id']}"
@@ -513,6 +514,25 @@ async def test_add_torrent_refuses_a_multi_line_url_before_any_request(
     await client.aclose()
 
 
+async def test_add_torrent_sends_a_stop_condition_or_stopped_never_both_nor_neither(
+    settings: Settings, fake_qbit: FakeQbit
+) -> None:
+    client = QbitClient(
+        settings.qbittorrent_url,
+        settings.qbittorrent_user,
+        settings.qbittorrent_pass,
+        transport=fake_qbit.transport,
+    )
+    await client.add_torrent(MAGNET, "Film", ["fx"])
+    await client.add_torrent(PAGE_URL, "Film", ["fx"], downloader="limetorrents", stopped=True)
+    magnet_form, page_form = (call.form for call in fake_qbit.calls_to(ADD))
+    assert magnet_form["stopCondition"] == "MetadataReceived"
+    assert "stopped" not in magnet_form
+    assert page_form["stopped"] == "true"
+    assert "stopCondition" not in page_form
+    await client.aclose()
+
+
 async def test_delete_always_sends_the_delete_files_flag(
     settings: Settings, fake_qbit: FakeQbit
 ) -> None:
@@ -550,6 +570,11 @@ async def test_a_non_magnet_result_is_added_with_its_downloader_and_found_by_tag
     (add,) = rig.adds()
     assert add.form["downloader"] == "limetorrents"
     assert add.form["category"] == "Film"
+    # WR-04: its metadata exists at add, so nothing may rely on a stop condition; it is added
+    # stopped, and no payload was requested before the allowlist ran.
+    assert add.form["stopped"] == "true"
+    assert "stopCondition" not in add.form
+    assert rig.fake.torrents[page_hash].downloaded == 0
     lookups = rig.fake.calls_to("/api/v2/torrents/info")
     assert any(call.params.get("tag") == f"fx-job-{body['job_id']}" for call in lookups)
     assert rig.fake.torrents[page_hash].started is True
