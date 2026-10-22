@@ -49,6 +49,8 @@ def create_app(settings: Settings | None = None, qbit: QbitClient | None = None)
             app.state.bootstrap_task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await app.state.bootstrap_task
+            # Before the client closes, so running searches do not linger in qBittorrent.
+            await app.state.search.close()
             await app.state.qbit.aclose()
 
     app = FastAPI(

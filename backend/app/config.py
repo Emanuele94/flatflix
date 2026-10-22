@@ -14,6 +14,8 @@ from argon2.exceptions import InvalidHashError
 from pydantic import Field, SecretStr, ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.search.filters import DEFAULT_SUSPICIOUS_TERMS
+
 PLACEHOLDER_PREFIX = "change-me"
 SECRET_KEY_MIN_LENGTH = 32
 ARGON2ID_PREFIX = "$argon2id$"
@@ -92,6 +94,14 @@ class Settings(BaseSettings):
     @property
     def category_paths(self) -> dict[str, str]:
         return {self.category_film: self.save_path_film, self.category_tv: self.save_path_tv}
+
+    @property
+    def suspicious_term_list(self) -> tuple[str, ...]:
+        """SUSPICIOUS_TERMS trimmed and case-folded; empty means the built-in list."""
+        terms = tuple(
+            term.strip().casefold() for term in self.suspicious_terms.split(",") if term.strip()
+        )
+        return terms or DEFAULT_SUSPICIOUS_TERMS
 
     @property
     def search_plugin_names(self) -> list[str]:
