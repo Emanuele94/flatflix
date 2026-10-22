@@ -11,7 +11,7 @@ from pydantic import SecretStr
 
 from app.config import Settings
 from app.main import create_app
-from app.qbit.client import QbitAuthError, QbitBanned, QbitClient, QbitUnavailable
+from app.qbit.client import QbitAuthError, QbitBanned, QbitClient, QbitError, QbitUnavailable
 from tests.conftest import QBIT_PASS, QBIT_URL, QBIT_USER
 from tests.fakeqbit import FakeQbit
 
@@ -222,3 +222,106 @@ async def test_configuration_error_carries_status_but_not_the_response_body(
     assert "500" in str(caught.value)
     assert "secret-body-text" not in str(caught.value)
     await client.aclose()
+
+
+LOGIN_OK = {"set-cookie": "QBT_SID_8088=abc123; HttpOnly; path=/"}
+
+
+async def test_search_start_wire_format_is_exactly_pattern_category_plugins() -> None:
+    with respx.mock(base_url=QBIT_URL, assert_all_called=False) as router:
+        router.post("/api/v2/auth/login").respond(204, headers=LOGIN_OK)
+        start = router.post("/api/v2/search/start").respond(200, json={"id": 1962241670})
+        client = QbitClient(QBIT_URL, QBIT_USER, SecretStr(QBIT_PASS))
+
+        search_id = await client.search_start("sintel 2010", "movies", "enabled")
+        await client.aclose()
+
+    request = start.calls.last.request
+    assert search_id == 1962241670
+    assert request.headers["content-type"] == "application/x-www-form-urlencoded"
+    assert parse_qs(request.content.decode()) == {
+        "pattern": ["sintel 2010"],
+        "category": ["movies"],
+        "plugins": ["enabled"],
+    }
+    assert "referer" not in request.headers and "origin" not in request.headers
+
+
+async def test_search_start_defaults_to_enabled_plugins() -> None:
+    with respx.mock(base_url=QBIT_URL, assert_all_called=False) as router:
+        router.post("/api/v2/auth/login").respond(204, headers=LOGIN_OK)
+        start = router.post("/api/v2/search/start").respond(200, json={"id": 7})
+        client = QbitClient(QBIT_URL, QBIT_USER, SecretStr(QBIT_PASS))
+
+        await client.search_start("sintel", "tv")
+        await client.aclose()
+
+    assert parse_qs(start.calls.last.request.content.decode())["plugins"] == ["enabled"]
+
+
+async def test_search_start_conflict_raises_qbit_error_carrying_the_status_only() -> None:
+    with respx.mock(base_url=QBIT_URL, assert_all_called=False) as router:
+        router.post("/api/v2/auth/login").respond(204, headers=LOGIN_OK)
+        router.post("/api/v2/search/start").respond(409, text="secret-looking body")
+        client = QbitClient(QBIT_URL, QBIT_USER, SecretStr(QBIT_PASS))
+
+        with pytest.raises(QbitError) as caught:
+            await client.search_start("sintel", "movies")
+        await client.aclose()
+
+    assert caught.value.status == 409
+    assert "secret-looking" not in str(caught.value)
+
+
+async def test_search_results_and_status_use_query_parameters() -> None:
+    with respx.mock(base_url=QBIT_URL, assert_all_called=False) as router:
+        router.post("/api/v2/auth/login").respond(204, headers=LOGIN_OK)
+        results = router.get("/api/v2/search/results").respond(
+            200, json={"results": [{"fileName": "x"}], "status": "Running", "total": 1}
+        )
+        status = router.get("/api/v2/search/status").respond(
+            200, json=[{"id": 5, "status": "Running", "total": 1}]
+        )
+        client = QbitClient(QBIT_URL, QBIT_USER, SecretStr(QBIT_PASS))
+
+        payload = await client.search_results(5)
+        paged = await client.search_results(5, limit=10, offset=20)
+        one = await client.search_status(5)
+        every = await client.search_status()
+        await client.aclose()
+
+    assert payload["status"] == "Running" and payload["results"] == [{"fileName": "x"}]
+    assert paged["total"] == 1
+    first, second = (call.request.url.params for call in results.calls)
+    assert dict(first) == {"id": "5", "limit": "0", "offset": "0"}
+    assert dict(second) == {"id": "5", "limit": "10", "offset": "20"}
+    assert one == every == [{"id": 5, "status": "Running", "total": 1}]
+    assert [dict(call.request.url.params) for call in status.calls] == [{"id": "5"}, {}]
+
+
+async def test_search_stop_and_delete_post_the_id_and_tolerate_an_unknown_search() -> None:
+    with respx.mock(base_url=QBIT_URL, assert_all_called=False) as router:
+        router.post("/api/v2/auth/login").respond(204, headers=LOGIN_OK)
+        stop = router.post("/api/v2/search/stop").respond(200)
+        delete = router.post("/api/v2/search/delete").respond(404, text="Not Found")
+        client = QbitClient(QBIT_URL, QBIT_USER, SecretStr(QBIT_PASS))
+
+        await client.search_stop(9)
+        await client.search_delete(9)  # already gone: not an error
+        await client.aclose()
+
+    assert parse_qs(stop.calls.last.request.content.decode()) == {"id": ["9"]}
+    assert parse_qs(delete.calls.last.request.content.decode()) == {"id": ["9"]}
+
+
+async def test_search_stop_failure_other_than_not_found_raises() -> None:
+    with respx.mock(base_url=QBIT_URL, assert_all_called=False) as router:
+        router.post("/api/v2/auth/login").respond(204, headers=LOGIN_OK)
+        router.post("/api/v2/search/stop").respond(500, text="boom")
+        client = QbitClient(QBIT_URL, QBIT_USER, SecretStr(QBIT_PASS))
+
+        with pytest.raises(QbitError) as caught:
+            await client.search_stop(9)
+        await client.aclose()
+
+    assert caught.value.status == 500
