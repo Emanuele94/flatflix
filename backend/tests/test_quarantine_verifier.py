@@ -397,17 +397,6 @@ async def test_a_text_subtitle_is_screened_without_the_vm_and_linked_with_the_fi
     assert rig.media_files() == ["Film/Movie/movie.en.srt", "Film/Movie/movie.mkv"]
 
 
-async def test_a_binary_subtitle_holds_the_whole_torrent(rig: Rig) -> None:
-    rig.add_finished(FILM_HASH, "Movie", [(FILM_FILE, 4 * GB), ("Movie/movie.en.srt", 64)])
-    rig.runner.script(FILM_REL, film_facts(duration=6000.0))  # the srt is sparse: all NUL bytes
-
-    outcome = await rig.verifier.check_torrent(await rig.only_row())
-
-    assert outcome == "held"
-    assert rig.media_files() == []
-    assert rig.tag_calls() == []
-
-
 async def test_a_restart_after_a_half_finished_hand_off_links_the_rest_without_duplicates(
     rig: Rig, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -738,10 +727,10 @@ def test_a_hardlink_is_idempotent_and_never_overwrites_another_file(
     other = media / "Other" / "a.mkv"
     other.parent.mkdir()
     other.write_bytes(b"different")
-    with pytest.raises(HandoffError) as collision:
-        link_into_media(src, other, media_dir=str(media))
-    assert collision.value.why == "collision"
+    used = link_into_media(src, other, media_dir=str(media))
+    assert used == media / "Other" / "a (2).mkv"  # the next free name, never the existing file
     assert other.read_bytes() == b"different"
+    assert os.stat(used).st_ino == os.stat(src).st_ino
 
 
 def test_a_symlinked_media_folder_is_refused(folders: tuple[Path, Path], tmp_path: Path) -> None:
@@ -775,3 +764,335 @@ def test_a_link_across_filesystems_names_the_errno(
         link_into_media(src, media_target(str(media), "a.mkv"), media_dir=str(media))
 
     assert failed.value.why == "EXDEV"
+
+
+# --- plan 02.1-07 Task 2: mixed packs, subtitles, collisions, link failures ---------------------------
+
+from tests.fakerunner import failed_facts  # noqa: E402
+
+TEXT_SUBTITLE = "1\n00:00:01,000 --> 00:00:02,000\nHello\n"
+
+
+def held_files(rig: Rig, torrent_hash: str = FILM_HASH) -> list[str]:
+    """Every file held in the rejected folder of a torrent, relative to its folder."""
+    folder = Path(rig.settings.rejected_root) / download_id(
+        rig.settings.secret_key.get_secret_value(), torrent_hash
+    )
+    if not folder.exists():
+        return []
+    return sorted(str(p.relative_to(folder)) for p in folder.rglob("*") if p.is_file())
+
+
+def stored_outcome(rig: Rig, torrent_hash: str = FILM_HASH) -> dict:
+    outcome_id = download_id(rig.settings.secret_key.get_secret_value(), torrent_hash)
+    return json.loads((Path(rig.settings.rejected_root) / f"{outcome_id}.json").read_text())
+
+
+async def test_a_mixed_series_pack_delivers_the_good_episodes_and_holds_the_bad_one(
+    rig: Rig, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="app.audit")
+    names = [f"Show.S01/Show.S01E0{n}.mkv" for n in (1, 2, 3)]
+    rig.add_finished(
+        "c" * 40, "Show.S01", [(name, 700_000_000) for name in names], category="SerieTV"
+    )
+    rig.runner.script(f"SerieTV/{names[0]}", film_facts(duration=3000.0, size=700_000_000))
+    rig.runner.script(f"SerieTV/{names[1]}", failed_facts("probe_failed"))
+    rig.runner.script(f"SerieTV/{names[2]}", film_facts(duration=3000.0, size=700_000_000))
+
+    outcome = await rig.verifier.check_torrent(await rig.only_row("c" * 40))
+
+    assert outcome == "partial"
+    assert rig.media_files() == [f"SerieTV/{names[0]}", f"SerieTV/{names[2]}"]
+    assert held_files(rig, "c" * 40) == [names[1]]
+    stored = stored_outcome(rig, "c" * 40)
+    assert (stored["kind"], stored["skipped"], stored["type"]) == ("ready", 1, "serie")
+    assert rig.fake.deleted == [("c" * 40, True)]  # a torrent that held a suspect file never seeds
+    assert rig.tag_calls() == []
+    lines = audit_lines(caplog)
+    assert sorted(line.split()[0] for line in lines) == [
+        "event=quarantine.passed",
+        "event=quarantine.rejected",
+    ]
+    for name in (names[0], names[2]):  # the delete took the quarantine name, not the media link
+        assert os.stat(rig.media / "SerieTV" / name).st_nlink >= 2
+
+
+async def test_a_mixed_film_delivers_the_main_video_and_holds_the_failing_extra(
+    rig: Rig,
+) -> None:
+    rig.add_finished(
+        FILM_HASH, "Movie", [(FILM_FILE, 3 * GB), ("Movie/extras/making-of.mkv", 300_000_000)]
+    )
+    rig.runner.script(FILM_REL, film_facts(duration=6000.0))
+    rig.runner.script(
+        "Film/Movie/extras/making-of.mkv",
+        film_facts(duration=1200.0, format_name="mov,mp4,m4a,3gp,3g2,mj2"),
+    )
+
+    outcome = await rig.verifier.check_torrent(await rig.only_row())
+
+    assert outcome == "partial"
+    assert rig.media_files() == ["Film/Movie/movie.mkv"]
+    assert held_files(rig) == ["Movie/extras/making-of.mkv"]
+    assert stored_outcome(rig)["skipped"] == 1
+    assert rig.fake.deleted == [(FILM_HASH, True)]
+
+
+async def test_a_main_video_shorter_than_the_film_minimum_is_rejected_but_an_extra_is_not(
+    rig: Rig, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="app.audit")
+    rig.add_finished(FILM_HASH, "Movie", [(FILM_FILE, 3 * GB)])
+    rig.runner.script(FILM_REL, film_facts(duration=1800.0))  # 30 minutes, minimum is 40
+
+    assert await rig.verifier.check_torrent(await rig.only_row()) == "rejected"
+    assert "reason=too_short" in audit_lines(caplog)[0]
+
+    rig.add_finished(
+        "b" * 40, "Other", [("Other/o.mkv", 3 * GB), ("Other/extra.mkv", 100_000_000)]
+    )
+    rig.runner.script("Film/Other/o.mkv", film_facts(duration=6000.0))
+    rig.runner.script("Film/Other/extra.mkv", film_facts(duration=300.0))  # no minimum on extras
+
+    assert await rig.verifier.check_torrent(await rig.only_row("b" * 40)) == "passed"
+    assert rig.media_files() == ["Film/Other/extra.mkv", "Film/Other/o.mkv"]
+
+
+async def test_a_text_subtitle_next_to_a_passing_video_keeps_the_torrent_seeding(
+    rig: Rig,
+) -> None:
+    rig.add_finished(FILM_HASH, "Movie", [(FILM_FILE, 4 * GB), ("Movie/movie.en.srt", 64)])
+    (Path(rig.settings.save_path_film) / "Movie/movie.en.srt").write_text(TEXT_SUBTITLE)
+    rig.runner.script(FILM_REL, film_facts(duration=6000.0))
+
+    assert await rig.verifier.check_torrent(await rig.only_row()) == "passed"
+
+    assert rig.media_files() == ["Film/Movie/movie.en.srt", "Film/Movie/movie.mkv"]
+    assert len(rig.tag_calls()) == 1
+    assert rig.fake.deleted == []
+
+
+async def test_a_binary_subtitle_is_held_with_the_early_removal_but_is_not_a_skipped_video(
+    rig: Rig,
+) -> None:
+    rig.add_finished(FILM_HASH, "Movie", [(FILM_FILE, 4 * GB), ("Movie/movie.srt", 64)])
+    rig.runner.script(FILM_REL, film_facts(duration=6000.0))  # the srt is sparse: all NUL bytes
+
+    outcome = await rig.verifier.check_torrent(await rig.only_row())
+
+    assert outcome == "partial"
+    assert rig.media_files() == ["Film/Movie/movie.mkv"]
+    assert held_files(rig) == ["Movie/movie.srt"]
+    stored = stored_outcome(rig)
+    assert (stored["kind"], stored["skipped"]) == ("ready", 0)
+    assert rig.fake.deleted == [(FILM_HASH, True)]
+    assert rig.tag_calls() == []
+
+
+async def test_a_subtitle_never_moves_when_its_video_failed(rig: Rig) -> None:
+    rig.add_finished(FILM_HASH, "Movie", [(FILM_FILE, 4 * GB), ("Movie/movie.srt", 64)])
+    (Path(rig.settings.save_path_film) / "Movie/movie.srt").write_text(TEXT_SUBTITLE)
+    rig.runner.script(FILM_REL, failed_facts("timeout"))
+
+    assert await rig.verifier.check_torrent(await rig.only_row()) == "rejected"
+
+    assert rig.media_files() == []
+    assert held_files(rig) == ["Movie/movie.mkv"]  # the subtitle is neither linked nor held
+    assert stored_outcome(rig)["skipped"] == 1
+    assert rig.runner.calls == [FILM_REL, FILM_REL]  # a timeout is retried once too
+
+
+async def test_a_torrent_with_nothing_to_check_is_rejected_with_no_video(
+    rig: Rig, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="app.audit")
+    rig.add_finished(
+        FILM_HASH, "Movie", [("Movie/Sample/sample.mkv", 10_000_000), ("Movie/movie.nfo", 100)]
+    )
+
+    assert await rig.verifier.check_torrent(await rig.only_row()) == "rejected"
+
+    assert rig.runner.calls == []
+    assert rig.media_files() == []
+    stored = stored_outcome(rig)
+    assert (stored["kind"], stored["skipped"]) == ("rejected", 0)
+    assert rig.fake.deleted == [(FILM_HASH, True)]
+    (line,) = audit_lines(caplog)
+    assert "file=null" in line
+    assert "reason=no_video" in line
+
+
+async def test_an_empty_file_list_is_a_host_fault_and_deletes_nothing(rig: Rig) -> None:
+    rig.add_finished(FILM_HASH, "Movie", [])  # qBittorrent has not listed the files yet
+
+    assert await rig.verifier.check_torrent(await rig.only_row()) == "held"
+
+    assert rig.fake.deleted == []
+    assert not Path(rig.settings.rejected_root).exists()
+
+
+async def test_a_name_collision_in_media_takes_the_next_free_name_and_keeps_the_old_file(
+    rig: Rig,
+) -> None:
+    add_film(rig)
+    existing = rig.media / "Film" / "Movie" / "movie.mkv"
+    existing.parent.mkdir(parents=True)
+    existing.write_bytes(b"another film")
+
+    assert await rig.verifier.check_torrent(await rig.only_row()) == "passed"
+
+    assert existing.read_bytes() == b"another film"
+    assert rig.media_files() == ["Film/Movie/movie (2).mkv", "Film/Movie/movie.mkv"]
+    source = rig.quarantine / "Film" / "Movie" / "movie.mkv"
+    assert os.stat(rig.media / "Film/Movie/movie (2).mkv").st_ino == os.stat(source).st_ino
+
+
+async def test_a_second_collision_takes_the_third_name(rig: Rig) -> None:
+    add_film(rig)
+    folder = rig.media / "Film" / "Movie"
+    folder.mkdir(parents=True)
+    (folder / "movie.mkv").write_bytes(b"one")
+    (folder / "movie (2).mkv").write_bytes(b"two")
+
+    assert await rig.verifier.check_torrent(await rig.only_row()) == "passed"
+
+    assert (folder / "movie (3).mkv").exists()
+    assert (folder / "movie.mkv").read_bytes() == b"one"
+    assert (folder / "movie (2).mkv").read_bytes() == b"two"
+
+
+async def test_a_target_that_already_is_the_same_file_is_reused_not_renamed(rig: Rig) -> None:
+    add_film(rig)
+    folder = rig.media / "Film" / "Movie"
+    folder.mkdir(parents=True)
+    os.link(rig.quarantine / "Film" / "Movie" / "movie.mkv", folder / "movie.mkv")
+
+    assert await rig.verifier.check_torrent(await rig.only_row()) == "passed"
+
+    assert rig.media_files() == ["Film/Movie/movie.mkv"]
+    assert len(rig.tag_calls()) == 1
+
+
+async def test_when_every_name_is_taken_the_torrent_stays_checking_and_collision_is_logged(
+    rig: Rig, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="app.audit")
+    add_film(rig)
+    folder = rig.media / "Film" / "Movie"
+    folder.mkdir(parents=True)
+    (folder / "movie.mkv").write_bytes(b"x")
+    for n in range(2, 100):
+        (folder / f"movie ({n}).mkv").write_bytes(b"x")
+
+    for _ in range(2):
+        assert await rig.verifier.check_torrent(await rig.only_row()) == "held"
+
+    assert len(list(folder.iterdir())) == 99  # nothing new was linked
+    assert rig.tag_calls() == []
+    assert rig.fake.deleted == []
+    assert audit_lines(caplog) == ['event=quarantine.link_failed name="Movie" why=collision']
+
+
+async def test_a_failed_hardlink_never_becomes_a_copy_and_is_logged_once_over_two_ticks(
+    rig: Rig, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import shutil
+
+    caplog.set_level(logging.INFO, logger="app.audit")
+    add_film(rig)
+    copies: list[str] = []
+
+    def cross_device(*args, **kwargs):
+        raise OSError(18, "Invalid cross-device link")
+
+    def no_copy(*args, **kwargs):
+        copies.append("called")
+        raise AssertionError("a copy fallback must never run")
+
+    monkeypatch.setattr(os, "link", cross_device)
+    for name in ("copy", "copy2", "copyfile", "copytree", "move"):
+        monkeypatch.setattr(shutil, name, no_copy)
+
+    await rig.verifier.run_once()
+    await rig.verifier.run_once()
+
+    assert copies == []
+    assert rig.media_files() == []
+    assert rig.tag_calls() == []
+    assert rig.fake.deleted == []
+    assert not list(Path(rig.settings.rejected_root).glob("*.json"))  # no outcome either
+    assert audit_lines(caplog) == ['event=quarantine.link_failed name="Movie" why=EXDEV']
+    assert len(rig.runner.calls) == 2  # still a candidate: probed again on the second tick
+
+
+async def test_a_failed_link_into_rejected_deletes_nothing_either(
+    rig: Rig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig.add_finished(FILM_HASH, "Movie", [(FILM_FILE, 8 * 1024 * 1024)])
+    rig.runner.script(FILM_REL, failed_facts("probe_failed"))
+
+    def refused(*args, **kwargs):
+        raise OSError(1, "Operation not permitted")
+
+    monkeypatch.setattr(os, "link", refused)
+
+    assert await rig.verifier.check_torrent(await rig.only_row()) == "held"
+
+    assert rig.fake.deleted == []
+    assert not list(Path(rig.settings.rejected_root).glob("*.json"))
+
+
+async def test_a_torrent_that_already_has_an_outcome_is_not_probed_again_only_deleted(
+    rig: Rig,
+) -> None:
+    from app.quarantine.outcomes import Outcome, OutcomeStore
+
+    add_film(rig)  # completion_on 100
+    outcome_id = download_id(rig.settings.secret_key.get_secret_value(), FILM_HASH)
+    OutcomeStore(rig.settings.rejected_root).write(
+        Outcome(outcome_id, "Movie", "film", "rejected", 1, NOW)
+    )
+
+    await rig.verifier.run_once()  # a delete that failed earlier is retried
+
+    assert rig.runner.calls == []
+    assert rig.fake.deleted == [(FILM_HASH, True)]
+    assert rig.media_files() == []
+
+
+async def test_an_old_outcome_does_not_stop_the_same_film_from_being_downloaded_again(
+    rig: Rig,
+) -> None:
+    from app.quarantine.outcomes import Outcome, OutcomeStore
+
+    add_film(rig, completion_on=int(NOW) + 500)  # finished after the old outcome was stored
+    outcome_id = download_id(rig.settings.secret_key.get_secret_value(), FILM_HASH)
+    OutcomeStore(rig.settings.rejected_root).write(
+        Outcome(outcome_id, "Movie", "film", "rejected", 1, NOW)
+    )
+
+    await rig.verifier.run_once()
+
+    assert rig.runner.calls == [FILM_REL]  # checked like any new download
+    assert rig.media_files() == ["Film/Movie/movie.mkv"]
+    assert rig.fake.deleted == []
+
+
+def test_a_stale_held_file_of_a_returning_torrent_is_replaced_not_a_collision(
+    tmp_path: Path,
+) -> None:
+    from app.quarantine.handoff import link_into_rejected
+
+    src = tmp_path / "q.mkv"
+    src.write_bytes(b"new")
+    held = tmp_path / "rejected" / "0123456789abcdef"
+    stale = held / "Movie" / "movie.mkv"
+    stale.parent.mkdir(parents=True)
+    stale.write_bytes(b"old")
+
+    used = link_into_rejected(src, held, "Movie/movie.mkv")
+
+    assert used == stale
+    assert os.stat(stale).st_ino == os.stat(src).st_ino
+    assert stat.S_IMODE(os.stat(stale).st_mode) == 0o600
