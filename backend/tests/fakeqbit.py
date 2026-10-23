@@ -63,6 +63,9 @@ class FakeTorrent:
     eta: int = 8640000  # qBittorrent's "infinite"
     completion_on: int = -1  # -1 until the torrent has finished
     size: int = 0
+    # Where the torrent's files live; `content_path` defaults to save_path + "/" + the name.
+    save_path: str = ""
+    content_path: str = ""
 
 
 @dataclass
@@ -139,6 +142,7 @@ class FakeQbit:
         self.register("POST", "/api/v2/torrents/filePrio", self._torrents_file_prio)
         self.register("POST", "/api/v2/torrents/start", self._torrents_start)
         self.register("POST", "/api/v2/torrents/delete", self._torrents_delete)
+        self.register("POST", "/api/v2/torrents/addTags", self._torrents_add_tags)
         self.register("POST", "/api/v2/torrents/removeTags", self._torrents_remove_tags)
         self.register("POST", "/api/v2/torrents/deleteTags", self._torrents_delete_tags)
 
@@ -296,15 +300,21 @@ class FakeQbit:
         return infohash(url) or hashlib.sha1(url.encode()).hexdigest()
 
     def set_metadata(
-        self, torrent_hash: str, files: list[tuple[str, int]], delay_polls: int = 0
+        self,
+        torrent_hash: str,
+        files: list[tuple[str, int]],
+        delay_polls: int = 0,
+        progress: float = 0.0,
     ) -> None:
         """Say which files `torrents/files` will return, after `delay_polls` empty answers.
+
+        `progress` is the download progress every file row reports (1.0 for a finished torrent).
 
         Call it before or after the torrent is added. Files matching the exclusion list in
         `self.preferences` come out at priority 0, like the real engine does at add.
         """
         rows = [
-            {"index": i, "name": name, "size": size, "priority": 1, "progress": 0.0}
+            {"index": i, "name": name, "size": size, "priority": 1, "progress": progress}
             for i, (name, size) in enumerate(files)
         ]
         self._metadata[torrent_hash] = (rows, delay_polls)
@@ -421,6 +431,7 @@ class FakeQbit:
         completion_on: int = -1,
         added_on: float | None = None,
         started: bool = False,
+        save_path: str = "",
     ) -> FakeTorrent:
         """Place a torrent as if it was added outside the portal (the admin in the WebUI, D-25).
 
@@ -439,6 +450,7 @@ class FakeQbit:
             progress=progress,
             eta=eta,
             completion_on=completion_on,
+            save_path=save_path,
         )
         self.torrents[torrent_hash] = torrent
         return torrent
@@ -456,6 +468,9 @@ class FakeQbit:
             "eta": torrent.eta,
             "completion_on": torrent.completion_on,
             "size": torrent.size,
+            "save_path": torrent.save_path,
+            "content_path": torrent.content_path
+            or f"{torrent.save_path}/{torrent.name or torrent.hash}",
         }
 
     def _torrents_info(self, request: httpx.Request) -> httpx.Response:
@@ -512,6 +527,15 @@ class FakeQbit:
         for torrent_hash in form.get("hashes", "").split("|"):
             if self.torrents.pop(torrent_hash, None) is not None:
                 self.deleted.append((torrent_hash, form["deleteFiles"] == "true"))
+        return httpx.Response(200)
+
+    def _torrents_add_tags(self, request: httpx.Request) -> httpx.Response:
+        form = self._form(request)
+        added = [t.strip() for t in form.get("tags", "").split(",") if t.strip()]
+        for torrent_hash in form.get("hashes", "").split("|"):
+            torrent = self.torrents.get(torrent_hash)
+            if torrent is not None:
+                torrent.tags.extend(t for t in added if t not in torrent.tags)
         return httpx.Response(200)
 
     def _torrents_remove_tags(self, request: httpx.Request) -> httpx.Response:

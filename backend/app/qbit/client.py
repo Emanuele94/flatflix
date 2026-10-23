@@ -363,6 +363,13 @@ class QbitClient:
             data={"hashes": _pipe(hashes), "tags": ",".join(tags)},
         )
 
+    async def add_tags(self, hashes: str | Sequence[str], tags: Sequence[str]) -> None:
+        await self._checked(
+            "POST",
+            "/api/v2/torrents/addTags",
+            data={"hashes": _pipe(hashes), "tags": ",".join(tags)},
+        )
+
     async def delete_tags(self, tags: Sequence[str]) -> None:
         await self._checked("POST", "/api/v2/torrents/deleteTags", data={"tags": ",".join(tags)})
 
