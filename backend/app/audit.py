@@ -112,6 +112,51 @@ def quarantine_runner_unavailable(why: str) -> None:
     audit_logger.info("event=quarantine.runner_unavailable why=%s", _token(why))
 
 
+def quarantine_rejected(
+    name: str | None,
+    file: str | None,
+    reason: str,
+    fmt: str | None,
+    codec: str | None,
+    duration: str | None,
+    size: int | None,
+    ffmpeg: str | None,
+) -> None:
+    """A file failed its check and is held in the rejected folder; the admin reads why here (D-60).
+
+    The reason is a token and the probe fields are short facts; there is no path, no hash and no
+    ffprobe or exception text, because a media file's own tags are attacker-controlled. `file` is
+    the name inside the torrent (None when the torrent had no video to check at all).
+    """
+    audit_logger.info(
+        "event=quarantine.rejected name=%s file=%s reason=%s format=%s codec=%s duration=%s "
+        "size=%s ffmpeg=%s",
+        _text(name),
+        _text(file),
+        _token(reason),
+        _token(fmt),
+        _token(codec),
+        _token(duration),
+        _token(size),
+        _token(ffmpeg),
+    )
+
+
+def quarantine_link_failed(name: str | None, why: str) -> None:
+    """A hardlink could not be made; nothing was copied or deleted and the torrent keeps waiting."""
+    audit_logger.info("event=quarantine.link_failed name=%s why=%s", _text(name), _token(why))
+
+
+def quarantine_purged(count: int) -> None:
+    """Held files and outcomes older than the retention were removed (D-55)."""
+    audit_logger.info("event=quarantine.purged count=%s", _token(count))
+
+
+def quarantine_seeding_done(name: str | None) -> None:
+    """A verified torrent finished seeding and left qBittorrent; its media link stays (D-47)."""
+    audit_logger.info("event=quarantine.seeding_done name=%s", _text(name))
+
+
 def error(where: str, exc_class: str, status: int | None, ip: str | None = None) -> None:
     """Class name and status only: an exception text could carry a URL or a credential."""
     where_text = f"event=error where={_token(where)}"

@@ -1,4 +1,4 @@
-"""The hand-off: the only code that writes into the media folders (D-46, D-48).
+"""The hand-off: the only code that writes into the media and rejected folders (D-46, D-48).
 
 A checked file becomes visible to Jellyfin as a hardlink of the quarantine file: `os.link` only,
 never a copy and never a move, so the torrent keeps seeding from quarantine (D-21) and a failed
@@ -123,6 +123,64 @@ def link_into_media(src: Path, dst: Path, *, media_dir: str | None = None) -> Pa
                 return dst
             raise HandoffError("collision")
         os.link(src, dst, follow_symlinks=False)
+    except OSError as exc:
+        raise HandoffError(errno.errorcode.get(exc.errno or 0, "OSError")) from None
+    return dst
+
+
+def _private_dir(path: Path) -> None:
+    """A real folder (never a symlink) that only the owner can enter; created when missing."""
+    try:
+        mode = os.lstat(path).st_mode
+    except FileNotFoundError:
+        os.mkdir(path, 0o700)
+        os.chmod(path, 0o700)  # umask-proof
+        return
+    if not stat.S_ISDIR(mode):
+        raise HandoffError("unsafe_path")
+
+
+def link_into_rejected(src: Path, rejected_dir: Path, name: str) -> Path:
+    """Hold a failing file where only the owner can read it: a hardlink at `rejected_dir/name`.
+
+    A link, not a rename, so a crash never leaves a torrent with missing files (RESEARCH Pattern 5);
+    the torrent's delete afterwards removes the quarantine name and leaves this one. Folders are
+    created 0700 and the file is set to 0600, so it is never executable and never world readable.
+    The rejected folder belongs to the backend, so a stale file at the target (a torrent that came
+    back under the same id) is replaced; a target that already is this file is left alone.
+    """
+    segments = _safe_segments(name)
+    try:
+        src_stat = os.lstat(src)
+    except FileNotFoundError:
+        raise HandoffError("missing") from None
+    except OSError as exc:
+        raise HandoffError(errno.errorcode.get(exc.errno or 0, "unsafe_path")) from None
+    if not stat.S_ISREG(src_stat.st_mode):
+        raise HandoffError("unsafe_path")
+    dst = rejected_dir.joinpath(*segments)
+    try:
+        current = rejected_dir.parent
+        os.makedirs(current, exist_ok=True)
+        for part in (rejected_dir.name, *segments[:-1]):
+            current = current / part
+            _private_dir(current)
+        try:
+            existing = os.lstat(dst)
+        except FileNotFoundError:
+            existing = None
+        if existing is not None and not (
+            stat.S_ISREG(existing.st_mode)
+            and existing.st_dev == src_stat.st_dev
+            and existing.st_ino == src_stat.st_ino
+        ):
+            if stat.S_ISDIR(existing.st_mode):
+                raise HandoffError("collision")
+            os.unlink(dst)
+            existing = None
+        if existing is None:
+            os.link(src, dst, follow_symlinks=False)
+        os.chmod(dst, 0o600)
     except OSError as exc:
         raise HandoffError(errno.errorcode.get(exc.errno or 0, "OSError")) from None
     return dst

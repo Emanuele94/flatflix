@@ -6,8 +6,10 @@ film costs nothing. Tests watch what reaches the media folder, what the fake qBi
 """
 
 import asyncio
+import json
 import logging
 import os
+import stat
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -16,6 +18,7 @@ import pytest
 from pydantic import SecretStr
 
 from app.config import Settings
+from app.download.listing import download_id
 from app.main import create_app
 from app.qbit.bootstrap import Readiness
 from app.qbit.client import QbitClient
@@ -252,29 +255,58 @@ async def test_runner_down_503_names_its_reason_and_stops_the_tick(
     assert audit_lines(caplog) == ["event=quarantine.runner_unavailable why=kvm"]
 
 
-async def test_a_failing_video_leaves_the_torrent_untouched_and_checking(rig: Rig) -> None:
+async def test_a_renamed_executable_fails_twice_and_is_held_owner_only_then_deleted(
+    rig: Rig, caplog: pytest.LogCaptureFixture
+) -> None:
     from tests.fakerunner import failed_facts
 
-    add_film(rig)
+    caplog.set_level(logging.INFO, logger="app.audit")
+    rig.add_finished(FILM_HASH, "Movie", [(FILM_FILE, 8 * 1024 * 1024)])
     rig.runner.script(FILM_REL, failed_facts("probe_failed"))
+    outcome_id = download_id(rig.settings.secret_key.get_secret_value(), FILM_HASH)
 
     outcome = await rig.verifier.check_torrent(await rig.only_row())
 
-    assert outcome == "held"
+    assert outcome == "rejected"
+    assert rig.runner.calls == [FILM_REL, FILM_REL]  # probed once more in a fresh VM (D-57)
+    held = Path(rig.settings.rejected_root) / outcome_id / "Movie" / "movie.mkv"
+    assert held.exists()
+    assert stat.S_IMODE(os.stat(held).st_mode) == 0o600
+    assert stat.S_IMODE(os.stat(held.parent).st_mode) == 0o700
+    assert stat.S_IMODE(os.stat(held.parent.parent).st_mode) == 0o700
+    sidecar = Path(rig.settings.rejected_root) / f"{outcome_id}.json"
+    stored = json.loads(sidecar.read_text())
+    assert set(stored) == {"id", "name", "type", "kind", "skipped", "at"}
+    assert (stored["id"], stored["name"], stored["type"]) == (outcome_id, "Movie", "film")
+    assert (stored["kind"], stored["skipped"], stored["at"]) == ("rejected", 1, NOW)
+    assert stat.S_IMODE(os.stat(sidecar).st_mode) == 0o600
+    assert rig.fake.deleted == [(FILM_HASH, True)]
     assert rig.media_files() == []
     assert rig.tag_calls() == []
-    assert rig.fake.deleted == []
+    (line,) = audit_lines(caplog)
+    assert "event=quarantine.rejected" in line
+    assert "reason=probe_failed" in line
+    assert 'file="Movie/movie.mkv"' in line
+    assert "size=8388608" in line
+    assert "/data" not in line
+    assert FILM_HASH not in line
 
 
-async def test_a_file_the_runner_refuses_is_unprobeable_and_held(rig: Rig) -> None:
+async def test_a_file_the_runner_refuses_is_unprobeable_and_rejected_without_a_retry(
+    rig: Rig, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="app.audit")
     rig.add_finished(FILM_HASH, "Movie", [(FILM_FILE, 4 * GB)])  # nothing scripted: 404
 
     outcome = await rig.verifier.check_torrent(await rig.only_row())
 
-    assert outcome == "held"
+    assert outcome == "rejected"
+    assert rig.runner.calls == [FILM_REL]  # a refused path is not retried
     assert rig.media_files() == []
-    assert rig.tag_calls() == []
-    assert rig.fake.deleted == []
+    assert rig.fake.deleted == [(FILM_HASH, True)]
+    (line,) = audit_lines(caplog)
+    assert "reason=unprobeable" in line
+    assert "format=none codec=none duration=none" in line
 
 
 NOT_CANDIDATES = {

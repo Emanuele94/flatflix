@@ -9,11 +9,14 @@ is hardlinked into the media folder of its category and then the torrent is tagg
 tick checks it again (D-63).
 
 Faults of the host are never verdicts (D-58): a runner that cannot answer stops the tick, writes one
-audit line per outage and leaves every row Checking. A file that fails or cannot be probed, in this
-plan, leaves its torrent untouched in quarantine, which is the fail-closed base that plan 02.1-07's
-rejection path replaces. The hand-off runs under the torrent's lock and re-reads the torrent and
-the files inside it, so a cancel, a vanished torrent or a changed file links nothing (RESEARCH
-Pattern 5, Pitfall 10).
+audit line per outage and leaves every row Checking, and so does a hardlink that cannot be made
+(never a copy, D-48). A video whose probe times out or crashes is probed once more in a fresh VM
+before it fails (D-57). When no video passes, every failing video is hardlinked into the rejected
+folder, an outcome sidecar is written and only then the torrent is deleted with its files, so a
+suspect file is never seeded and a crash at any point leaves the torrent in qBittorrent to be
+decided again (RESEARCH Pattern 5). The hand-off runs under the torrent's lock and re-reads the
+torrent and the files inside it, so a cancel, a vanished torrent or a changed file links nothing
+(Pitfall 10).
 """
 
 import asyncio
@@ -26,28 +29,36 @@ from pathlib import Path
 
 from app import audit
 from app.config import Settings
-from app.content_type import type_for_category
+from app.content_type import ContentType, type_for_category
 from app.download.allowlist import final_extension
-from app.download.listing import READY_STATES, display_name, tags_of
+from app.download.listing import READY_STATES, display_name, download_id, tags_of
 from app.qbit.bootstrap import Readiness
 from app.qbit.client import QbitClient, QbitError
 from app.quarantine.guard import HandoffGuard
 from app.quarantine.handoff import (
     HandoffError,
     link_into_media,
+    link_into_rejected,
     media_target,
     source_path,
 )
+from app.quarantine.outcomes import Outcome, OutcomeStore
 from app.quarantine.rules import (
     FileToCheck,
     files_to_check,
     in_quarantine,
     judge,
     min_minutes_for,
+    summary,
     verified_at,
     verified_tag,
 )
-from app.quarantine.runner_client import RunnerClient, RunnerRefused, RunnerUnavailable
+from app.quarantine.runner_client import (
+    ProbeFacts,
+    RunnerClient,
+    RunnerRefused,
+    RunnerUnavailable,
+)
 from app.quarantine.subtitles import check_subtitle
 
 logger = logging.getLogger(__name__)
@@ -60,11 +71,22 @@ READINESS_WAIT_SECONDS = 1
 
 
 @dataclass(frozen=True, slots=True)
-class _Passed:
-    """A file that passed in this run, with the identity it had when it was probed (T-02.1-23)."""
+class _Checked:
+    """A file that was checked in this run, with the identity it had at its probe (T-02.1-23)."""
 
     file: FileToCheck
     identity: tuple[int, int, int]
+    passed: bool
+    reason: str | None = None
+    facts: ProbeFacts | None = None
+
+
+class _Stop(Exception):
+    """Ends the check of one torrent early with the outcome token to report."""
+
+    def __init__(self, outcome: str) -> None:
+        super().__init__(outcome)
+        self.outcome = outcome
 
 
 def is_candidate(row: dict, settings: Settings) -> bool:
@@ -88,6 +110,7 @@ class Verifier:
         clock: Callable[[], float] = time.time,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         readiness: Readiness | None = None,
+        outcomes: OutcomeStore | None = None,
     ) -> None:
         self._qbit = qbit
         self._runner = runner
@@ -96,7 +119,9 @@ class Verifier:
         self._clock = clock
         self._sleep = sleep
         self._readiness = readiness
+        self._outcomes = outcomes if outcomes is not None else OutcomeStore(settings.rejected_root)
         self._runner_down: str | None = None
+        self._link_failures: set[tuple[str, str]] = set()
 
     @property
     def runner_down(self) -> str | None:
@@ -122,6 +147,7 @@ class Verifier:
         listed = {str(row.get("hash") or "").lower() for row in rows}
         for gone in self._guard.known() - listed:
             self._guard.forget(gone)
+        self._link_failures = {key for key in self._link_failures if key[0] in listed}
         candidates = [row for row in rows if is_candidate(row, self._settings)]
         candidates.sort(key=lambda row: (row.get("completion_on") or 0, str(row.get("hash"))))
         for row in candidates:
@@ -133,18 +159,27 @@ class Verifier:
             audit.quarantine_runner_unavailable(why)
         self._runner_down = why
 
+    def _link_failed(self, row: dict, why: str) -> None:
+        """One audit line per torrent and reason per process: a stuck link must not flood the log."""
+        key = (str(row["hash"]).lower(), why)
+        if key not in self._link_failures:
+            self._link_failures.add(key)
+            audit.quarantine_link_failed(display_name(row), why)
+
+    def _outcome_id(self, row: dict) -> str:
+        return download_id(self._settings.secret_key.get_secret_value(), str(row["hash"]))
+
     async def check_torrent(self, row: dict) -> str:
         """Probe, judge and hand off one torrent.
 
-        Returns "passed" (linked and tagged), "waiting" (the runner is down), "aborted" (a cancel,
-        a vanished torrent or a changed file: nothing linked) or "held" (a file failed or could
-        not be checked, or a link failed: nothing more happens to the torrent here).
+        Returns "passed" (linked and tagged), "rejected" (no video passed: held and deleted),
+        "waiting" (the runner is down), "aborted" (a cancel, a vanished torrent or a changed file:
+        nothing linked) or "held" (a file cannot be read, or a link failed: the torrent stays
+        Checking and nothing else happens to it).
         """
         settings = self._settings
         torrent_hash = str(row["hash"])
-        category = str(row["category"])
-        save_path = str(row["save_path"])
-        content_type = type_for_category(settings, category)
+        content_type = type_for_category(settings, str(row["category"]))
         if content_type is None:
             return "held"
         if self._guard.cancel_requested(torrent_hash):
@@ -156,66 +191,109 @@ class Verifier:
                 return "aborted"  # deleted between the listing and now
             raise
         files = files_to_check(file_rows, content_type)
-        if not any(f.kind == "video" for f in files):
+        videos = [f for f in files if f.kind == "video"]
+        if not videos:
             return "held"
-        passed: list[_Passed] = []
-        for file in files:
-            if self._guard.cancel_requested(torrent_hash):
-                return "aborted"
+        try:
+            checked = [await self._check_video(row, file, content_type) for file in videos]
+        except _Stop as stop:
+            return stop.outcome
+        if all(item.passed for item in checked):
             try:
-                src = source_path(save_path, file.name, settings.quarantine_root)
-                identity = _identity(src)
-            except (HandoffError, OSError):
-                return "held"
-            size = identity[1]
-            if file.kind == "video":
-                try:
-                    facts = await self._runner.probe(os.path.relpath(src, settings.quarantine_root))
-                except RunnerUnavailable as exc:
-                    self._runner_unavailable(exc.why)
-                    return "waiting"
-                except RunnerRefused:
-                    self._runner_down = None  # it answered: about this file, not the host
-                    return "held"
-                self._runner_down = None
-                verdict = judge(
-                    final_extension(file.name),
-                    facts,
-                    size,
-                    min_minutes=min_minutes_for(
-                        content_type,
-                        file.is_main,
-                        film_minutes=settings.min_film_duration_minutes,
-                        episode_minutes=settings.min_episode_duration_minutes,
-                    ),
-                    min_kbps=settings.min_bitrate_kbps,
-                    max_kbps=settings.max_bitrate_kbps,
-                )
-            else:
-                head = await asyncio.to_thread(_read_head, src, settings.subtitle_text_max_bytes)
-                verdict = check_subtitle(
-                    final_extension(file.name),
-                    size,
-                    head,
-                    text_max_bytes=settings.subtitle_text_max_bytes,
-                    bitmap_max_bytes=settings.subtitle_bitmap_max_bytes,
-                )
-            if not verdict.passed:
-                return "held"
-            passed.append(_Passed(file, identity))
-        return await self._hand_off(row, passed)
+                checked += [
+                    await self._check_subtitle(row, file)
+                    for file in files
+                    if file.kind == "subtitle"
+                ]
+            except _Stop as stop:
+                return stop.outcome
+        if all(item.passed for item in checked):
+            return await self._hand_off(row, checked, content_type)
+        if any(item.passed for item in checked):
+            return "held"  # a mixed pack: the next task of this plan delivers what passed
+        return await self._hand_off(row, checked, content_type)
 
-    async def _hand_off(self, row: dict, passed: list[_Passed]) -> str:
-        """Link every passed file and tag the torrent, all under the torrent's lock (D-54).
+    def _resolve(self, row: dict, file: FileToCheck) -> tuple[Path, tuple[int, int, int]]:
+        try:
+            src = source_path(str(row["save_path"]), file.name, self._settings.quarantine_root)
+            return src, _identity(src)
+        except (HandoffError, OSError):
+            raise _Stop("held") from None
+
+    async def _check_video(self, row: dict, file: FileToCheck, content_type: ContentType) -> _Checked:
+        """Probe one video, once more when the probe crashed or timed out (D-57), and judge it."""
+        settings = self._settings
+        torrent_hash = str(row["hash"])
+        if self._guard.cancel_requested(torrent_hash):
+            raise _Stop("aborted")
+        src, identity = self._resolve(row, file)
+        relative = os.path.relpath(src, settings.quarantine_root)
+        facts: ProbeFacts | None = None
+        for _attempt in range(2):
+            if self._guard.cancel_requested(torrent_hash):
+                raise _Stop("aborted")
+            try:
+                facts = await self._runner.probe(relative)
+            except RunnerUnavailable as exc:
+                self._runner_unavailable(exc.why)
+                raise _Stop("waiting") from None
+            except RunnerRefused:
+                # It answered, about this file and not about the host: this file cannot be probed.
+                self._runner_down = None
+                return _Checked(file, identity, False, "unprobeable")
+            self._runner_down = None
+            if facts.status == "ok":
+                break
+        assert facts is not None
+        verdict = judge(
+            final_extension(file.name),
+            facts,
+            identity[1],
+            min_minutes=min_minutes_for(
+                content_type,
+                file.is_main,
+                film_minutes=settings.min_film_duration_minutes,
+                episode_minutes=settings.min_episode_duration_minutes,
+            ),
+            min_kbps=settings.min_bitrate_kbps,
+            max_kbps=settings.max_bitrate_kbps,
+        )
+        return _Checked(file, identity, verdict.passed, verdict.reason, facts)
+
+    async def _check_subtitle(self, row: dict, file: FileToCheck) -> _Checked:
+        """Screen a subtitle in the backend itself: it never reaches the VM."""
+        settings = self._settings
+        if self._guard.cancel_requested(str(row["hash"])):
+            raise _Stop("aborted")
+        src, identity = self._resolve(row, file)
+        head = await asyncio.to_thread(_read_head, src, settings.subtitle_text_max_bytes)
+        verdict = check_subtitle(
+            final_extension(file.name),
+            identity[1],
+            head,
+            text_max_bytes=settings.subtitle_text_max_bytes,
+            bitmap_max_bytes=settings.subtitle_bitmap_max_bytes,
+        )
+        return _Checked(file, identity, verdict.passed, verdict.reason)
+
+    async def _hand_off(self, row: dict, checked: list[_Checked], content_type: ContentType) -> str:
+        """Deliver the outcome of a check, all under the torrent's lock (D-54).
 
         Inside the lock the torrent is read again and every file is re-resolved and compared with
         the identity it had at its probe, so nothing is linked that was cancelled, deleted or
-        changed since the VM looked at it.
+        changed since the VM looked at it. Everything that can fail comes first and the delete
+        comes last: links, then the outcome sidecar, then the audit lines, then the delete.
+
+        Every checked file passed: link all into media and tag the torrent (it keeps seeding).
+        Otherwise a video failed: link the failing files into the rejected folder, store a
+        sidecar, and delete the torrent with its files, so a suspect file is never seeded (D-61).
         """
         settings = self._settings
         torrent_hash = str(row["hash"])
         category = str(row["category"])
         media_dir = settings.media_paths[category]
+        passing = [item for item in checked if item.passed]
+        failing = [item for item in checked if not item.passed]
         async with self._guard.lock(torrent_hash):
             if self._guard.cancel_requested(torrent_hash):
                 return "aborted"
@@ -235,8 +313,8 @@ class Verifier:
                 return "aborted"
             if self._guard.cancel_requested(torrent_hash):
                 return "aborted"
-            sources: list[Path] = []
-            for item in passed:
+            sources: dict[int, Path] = {}
+            for item in checked:
                 try:
                     src = source_path(
                         str(row["save_path"]), item.file.name, settings.quarantine_root
@@ -245,17 +323,52 @@ class Verifier:
                         return "aborted"
                 except (HandoffError, OSError):
                     return "aborted"
-                sources.append(src)
+                sources[item.file.index] = src
+            rejected_dir = self._outcomes.rejected_dir(self._outcome_id(row))
             try:
-                for item, src in zip(passed, sources, strict=True):
+                for item in passing:
                     link_into_media(
-                        src, media_target(media_dir, item.file.name), media_dir=media_dir
+                        sources[item.file.index],
+                        media_target(media_dir, item.file.name),
+                        media_dir=media_dir,
                     )
-            except HandoffError:
+                for item in failing:
+                    link_into_rejected(sources[item.file.index], rejected_dir, item.file.name)
+            except HandoffError as exc:
+                self._link_failed(row, exc.why)
                 return "held"
-            await self._qbit.add_tags([torrent_hash], [verified_tag(self._clock())])
-        audit.quarantine_passed(display_name(row), len(passed))
-        return "passed"
+            if not failing:
+                await self._qbit.add_tags([torrent_hash], [verified_tag(self._clock())])
+                audit.quarantine_passed(display_name(row), len(passing))
+                return "passed"
+            skipped = sum(1 for item in failing if item.file.kind == "video")
+            self._outcomes.write(
+                Outcome(
+                    self._outcome_id(row),
+                    display_name(row),
+                    content_type,
+                    "rejected",
+                    skipped,
+                    self._clock(),
+                )
+            )
+            for item in failing:
+                self._audit_rejected(row, item)
+            await self._qbit.delete([torrent_hash], delete_files=True)
+        return "rejected"
+
+    def _audit_rejected(self, row: dict, item: _Checked) -> None:
+        facts = summary(item.facts) if item.facts is not None else {}
+        audit.quarantine_rejected(
+            display_name(row),
+            item.file.name,
+            item.reason or "failed",
+            facts.get("format"),
+            facts.get("codec"),
+            facts.get("duration"),
+            item.identity[1],
+            item.facts.ffmpeg if item.facts is not None else None,
+        )
 
 
 def _identity(path: Path) -> tuple[int, int, int]:
