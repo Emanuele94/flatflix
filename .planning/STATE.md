@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: "02.1"
 current_phase_name: Download Quarantine & Firecracker Validation (INSERTED)
 status: executing
-stopped_at: Completed 02.1-07-PLAN.md
-last_updated: "2026-10-23T20:16:02.346Z"
+stopped_at: Completed 02.1-08-PLAN.md
+last_updated: "2026-10-23T20:35:45.371Z"
 last_activity: 2026-10-23
 last_activity_desc: Phase 02.1 execution started
-state_head: c4a50c03d5b3ebdc63d6d23886728d23388b1af3
+state_head: 94936bdf1a8cc21ea75842b339a18316e14c3e3d
 progress:
   total_phases: 7
   completed_phases: 2
   total_plans: 36
-  completed_plans: 34
+  completed_plans: 35
   percent: 29
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-23)
 ## Current Position
 
 Phase: 02.1 (Download Quarantine & Firecracker Validation (INSERTED)) — EXECUTING
-Plan: 8 of 9
+Plan: 9 of 9
 Status: Ready to execute
 Last activity: 2026-10-23 — Phase 02.1 execution started
 
@@ -91,6 +91,7 @@ Progress: [███░░░░░░░] 29%
 | Phase 02.1 P05 | 38 min | 3 tasks | 13 files |
 | Phase 02.1 P06 | 8 min | 2 tasks | 9 files |
 | Phase 02.1 P07 | 14 min | 3 tasks | 8 files |
+| Phase 02.1 P08 | 40 min | 3 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -162,6 +163,9 @@ Recent decisions affecting current work:
 - [Phase 02.1]: 02.1-07: a stored outcome is a pending delete only when it is not older than the torrent's completion_on; a re-downloaded film is checked again
 - [Phase 02.1]: 02.1-07: an empty qBittorrent file list is a host fault (torrent stays Checking), only a non-empty list with nothing checkable is rejected with no_video
 - [Phase 02.1]: 02.1-07: seeding-end removal runs in the verifier poll (stoppedUP/pausedUP + fx-ok tag + in quarantine); qBittorrent max_ratio_act stays Stop
+- [Phase 02.1]: 02.1-08: deleteFiles keys on the save path: always true under quarantine (a verified film survives through its media hardlink), Phase 2 rule for legacy torrents; row_action and delete_files_for are the single rule for button and DELETE
+- [Phase 02.1]: 02.1-08: a verified row ages from its fx-ok tag; a checking row is never dropped by age and turns problem after 6 h; check_failed rows last 24 h, ready-with-note rows 7 d, and an outcome is never listed next to its torrent
+- [Phase 02.1]: 02.1-08: Cancel raises the HandoffGuard flag and deletes inside the per-torrent lock; the flag is lowered after the cancel (HandoffGuard.clear_cancel) so a re-added torrent is still checked
 
 ### Pending Todos
 
@@ -192,6 +196,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-23T20:16:01.144Z
-Stopped at: Completed 02.1-07-PLAN.md
+Last session: 2026-10-23T20:35:45.113Z
+Stopped at: Completed 02.1-08-PLAN.md
 Resume file: None
