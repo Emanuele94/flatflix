@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: "02.1"
 current_phase_name: Download Quarantine & Firecracker Validation (INSERTED)
 status: executing
-stopped_at: Completed 02.1-03-PLAN.md
-last_updated: "2026-10-23T19:26:55.963Z"
+stopped_at: Completed 02.1-04-PLAN.md
+last_updated: "2026-10-23T19:32:29.403Z"
 last_activity: 2026-10-23
 last_activity_desc: Phase 02.1 execution started
-state_head: b0c616a8c065947fbf3df22d800e28c026ac87d7
+state_head: 8516ccdf4fc09e6e2393b43929d1541f847c81c7
 progress:
   total_phases: 7
   completed_phases: 2
   total_plans: 36
-  completed_plans: 30
+  completed_plans: 31
   percent: 29
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-23)
 ## Current Position
 
 Phase: 02.1 (Download Quarantine & Firecracker Validation (INSERTED)) — EXECUTING
-Plan: 4 of 9
+Plan: 5 of 9
 Status: Ready to execute
 Last activity: 2026-10-23 — Phase 02.1 execution started
 
@@ -87,6 +87,7 @@ Progress: [███░░░░░░░] 29%
 | Phase 02.1 P01 | 9 min | 3 tasks | 13 files |
 | Phase 02.1 P02 | 8 min | 3 tasks | 7 files |
 | Phase 02.1 P03 | 7 min | 3 tasks | 8 files |
+| Phase 02.1 P04 | 8 min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -150,6 +151,7 @@ Recent decisions affecting current work:
 - [Phase 02.1]: 02.1-02: host faults (kvm, artifacts, boot, permission) answer 503 runner_unavailable, never a verdict; console reader keeps the first MAX_CONSOLE_BYTES and drains the rest
 - [Phase 02.1]: 02.1-03: bitrate band compared as bits against kbps*1000*duration so bounds are exactly inclusive; runner host faults are RunnerUnavailable (wait), refusals RunnerRefused (unprobeable)
 - [Phase 02.1]: 02.1-03: check_subtitle never vouches for an unread file (no head bytes = subtitle_empty); summary() tokens are sanitised for audit lines
+- [Phase 02.1]: 02.1-04: Ready-row note renders only for ready with skipped > 0; a missing skipped counts as 0
 
 ### Pending Todos
 
@@ -180,6 +182,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-23T19:26:55.648Z
-Stopped at: Completed 02.1-03-PLAN.md
+Last session: 2026-10-23T19:32:29.139Z
+Stopped at: Completed 02.1-04-PLAN.md
 Resume file: None
