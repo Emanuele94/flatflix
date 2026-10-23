@@ -65,8 +65,16 @@ def create_app(
         app.state.qbit = qbit or QbitClient.from_settings(settings)
         app.state.search = SearchService(app.state.qbit, settings)
         app.state.jobs = JobRegistry()
+        # Shared by the pipeline (Cancel, ready-row removal) and the verifier (hand-off, outcomes).
+        app.state.guard = HandoffGuard()
+        app.state.outcomes = OutcomeStore(settings.rejected_root)
         app.state.pipeline = DownloadPipeline(
-            app.state.qbit, settings, app.state.search, app.state.jobs
+            app.state.qbit,
+            settings,
+            app.state.search,
+            app.state.jobs,
+            guard=app.state.guard,
+            outcomes=app.state.outcomes,
         )
         # One bootstrap per process; the strong reference keeps the task from being collected.
         app.state.bootstrap_task = asyncio.create_task(
@@ -81,8 +89,6 @@ def create_app(
         app.state.runner = runner or RunnerClient(
             settings.sandbox_url, timeout=settings.probe_timeout_seconds
         )
-        app.state.guard = HandoffGuard()
-        app.state.outcomes = OutcomeStore(settings.rejected_root)
         app.state.verifier = Verifier(
             app.state.qbit,
             app.state.runner,

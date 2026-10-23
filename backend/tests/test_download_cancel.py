@@ -18,7 +18,7 @@ from app.config import Settings
 from app.download.jobs import Job, JobRegistry, JobState
 from app.download.listing import download_id
 from app.download.pipeline import DownloadPipeline
-from app.qbit.client import QbitClient
+from app.qbit.client import QbitClient, QbitError
 from app.quarantine.guard import HandoffGuard
 from app.quarantine.outcomes import Outcome, OutcomeStore
 from app.quarantine.runner_client import RunnerClient
@@ -482,10 +482,25 @@ async def test_every_rows_action_equals_what_delete_then_does(
         assert files_deleted is (item["action"] == "cancel")
 
 
+def install_store(app: FastAPI, root: Path) -> OutcomeStore:
+    """Point the list and the pipeline at a temporary outcome folder (the real one is /data)."""
+    state = app.state
+    state.outcomes = OutcomeStore(root)
+    state.pipeline = DownloadPipeline(
+        state.qbit,
+        state.settings,
+        state.search,
+        state.jobs,
+        guard=state.guard,
+        outcomes=state.outcomes,
+    )
+    return state.outcomes
+
+
 async def test_removing_a_ready_outcome_row_deletes_its_sidecar_only(
     user_api: httpx.AsyncClient, fake_qbit: FakeQbit, app: FastAPI, tmp_path: Path
 ) -> None:
-    store = app.state.outcomes = OutcomeStore(tmp_path / "rejected")
+    store = install_store(app, tmp_path / "rejected")
     outcome_id = download_id(PORTAL_SECRET_KEY, "9" * 40)
     store.write(Outcome(outcome_id, "Dune", "film", "ready", 1, time.time() - DAY))
 
@@ -501,7 +516,7 @@ async def test_removing_a_ready_outcome_row_deletes_its_sidecar_only(
 async def test_a_check_failed_outcome_row_has_no_action_and_delete_answers_404(
     user_api: httpx.AsyncClient, fake_qbit: FakeQbit, app: FastAPI, tmp_path: Path
 ) -> None:
-    store = app.state.outcomes = OutcomeStore(tmp_path / "rejected")
+    store = install_store(app, tmp_path / "rejected")
     outcome_id = download_id(PORTAL_SECRET_KEY, "9" * 40)
     store.write(Outcome(outcome_id, "Dune", "film", "rejected", 0, time.time() - 60))
 
@@ -548,6 +563,17 @@ async def test_a_cancel_during_the_probe_wins_and_the_verifier_links_nothing(
         JobRegistry(),
         guard=vrig.guard,
     )
+    seen_at_delete: list[tuple[bool, bool]] = []
+    real_delete = vrig.fake._torrents_delete
+
+    def spy(request: httpx.Request) -> httpx.Response:
+        # The flag is up and the torrent's lock is held when the delete goes out.
+        seen_at_delete.append(
+            (vrig.guard.cancel_requested("a" * 40), vrig.guard.lock("a" * 40).locked())
+        )
+        return real_delete(request)
+
+    vrig.fake.register("POST", "/api/v2/torrents/delete", spy)
     check = asyncio.create_task(vrig.verifier.run_once())
     await asyncio.wait_for(vrig.runner.started.wait(), 5)
 
@@ -558,8 +584,49 @@ async def test_a_cancel_during_the_probe_wins_and_the_verifier_links_nothing(
     await asyncio.wait_for(check, 5)
 
     assert outcome is not None and outcome.action == "cancel"
-    assert vrig.guard.cancel_requested("a" * 40)
+    assert seen_at_delete == [(True, True)]
+    assert not vrig.guard.cancel_requested("a" * 40)  # over: a re-added torrent is checked again
     assert vrig.fake.deleted == [("a" * 40, True)]
     assert vrig.media_files() == []
     assert vrig.tag_calls() == []
     assert vrig.fake.torrents == {}
+
+
+async def test_a_failed_delete_lowers_the_flag_so_the_torrent_can_still_be_checked(
+    vrig: VerifierRig,
+) -> None:
+    vrig.add_finished("a" * 40, "Movie", [("Movie/movie.mkv", 4 * GB)])
+    vrig.runner.script("Film/Movie/movie.mkv", film_facts(duration=6000.0))
+    vrig.fake.register("POST", "/api/v2/torrents/delete", lambda request: httpx.Response(500))
+    pipeline = DownloadPipeline(
+        vrig.qbit,
+        vrig.settings,
+        SearchService(vrig.qbit, vrig.settings),
+        JobRegistry(),
+        guard=vrig.guard,
+    )
+
+    with pytest.raises(QbitError):
+        await pipeline.cancel(download_id(vrig.settings.secret_key.get_secret_value(), "a" * 40))
+    await vrig.verifier.run_once()
+
+    assert not vrig.guard.cancel_requested("a" * 40)
+    assert vrig.media_files() == ["Film/Movie/movie.mkv"]  # nothing was lost: it is verified
+
+
+async def test_a_torrent_added_again_after_a_cancel_is_checked(vrig: VerifierRig) -> None:
+    vrig.add_finished("a" * 40, "Movie", [("Movie/movie.mkv", 4 * GB)])
+    vrig.runner.script("Film/Movie/movie.mkv", film_facts(duration=6000.0))
+    pipeline = DownloadPipeline(
+        vrig.qbit,
+        vrig.settings,
+        SearchService(vrig.qbit, vrig.settings),
+        JobRegistry(),
+        guard=vrig.guard,
+    )
+    await pipeline.cancel(download_id(vrig.settings.secret_key.get_secret_value(), "a" * 40))
+
+    vrig.add_finished("a" * 40, "Movie", [("Movie/movie.mkv", 4 * GB)])  # the same hash again
+    await vrig.verifier.run_once()
+
+    assert vrig.media_files() == ["Film/Movie/movie.mkv"]

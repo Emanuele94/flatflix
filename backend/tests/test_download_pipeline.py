@@ -103,6 +103,8 @@ class Rig:
             clock=self.clock,
             sleep=sleep,
             resolver=self.resolver,
+            guard=state.guard,
+            outcomes=state.outcomes,
         )
 
     async def post(self, result_id: str = RESULT_ID, type: str = "film", **extra) -> httpx.Response:

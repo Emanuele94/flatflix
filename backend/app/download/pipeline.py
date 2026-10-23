@@ -42,15 +42,18 @@ from app.download.listing import (
     TAG_JOB_PREFIX,
     TAG_PENDING,
     TAG_PORTAL,
-    cancel_deletes_files,
+    delete_files_for,
     display_name,
     find_torrent,
     job_tag_of,
+    row_action,
     tags_of,
 )
 from app.netutil import resolve_host
 from app.qbit.bootstrap import repair_drift
 from app.qbit.client import QbitClient, QbitError
+from app.quarantine.guard import HandoffGuard
+from app.quarantine.outcomes import OutcomeStore
 from app.search.filters import infohash, is_public_address, is_safe_torrent_url
 from app.search.service import SearchService
 
@@ -122,6 +125,8 @@ class DownloadPipeline:
         clock: Callable[[], float] = time.time,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         resolver: Resolver = resolve_host,
+        guard: HandoffGuard | None = None,
+        outcomes: OutcomeStore | None = None,
     ) -> None:
         self._qbit = qbit
         self._settings = settings
@@ -131,6 +136,11 @@ class DownloadPipeline:
         self._clock = clock
         self._sleep = sleep
         self._resolver = resolver
+        # Shared with the verifier: a Cancel raises the flag and deletes under the torrent's lock,
+        # the same lock the verifier hands off under (D-47, RESEARCH Pitfall 10).
+        self._guard = guard if guard is not None else HandoffGuard()
+        # None means no outcome rows: a ready outcome can then not be removed from here.
+        self._outcomes = outcomes
         # One cancel at a time: two taps on one id send one torrents/delete (idempotent cancel).
         self._cancel_lock = asyncio.Lock()
 
@@ -353,13 +363,26 @@ class DownloadPipeline:
         """Cancel or remove one download by its opaque id; None when the id names nothing.
 
         The order matters. The torrent is read and checked here (category comes from the live row,
-        never from the browser), then the job behind it is stopped and marked cancelled, the row is
-        read once more to decide on the files, and only then does `torrents/delete` go out.
-        Deleting first would let a job that still waits for metadata run into `METADATA_TIMEOUT`
-        and show a "Not available" row for a download the household cancelled (research Pitfall
-        1), and a job left active would swallow the next tap on the same result for a minute
-        (Pitfall 2).
-        Files are deleted only for a torrent the server reads as in progress (D-32, D-33).
+        never from the browser), the HandoffGuard cancel flag goes up, then the job behind the
+        torrent is stopped and marked cancelled, the row is read once more to decide on the files,
+        and only then does `torrents/delete` go out. Deleting first would let a job that still
+        waits for metadata run into `METADATA_TIMEOUT` and show a "Not available" row for a
+        download the household cancelled (research Pitfall 1), and a job left active would
+        swallow the next tap on the same result for a minute (Pitfall 2).
+
+        The re-read and the delete happen inside the torrent's lock, the lock the verifier hands
+        off under, so a Cancel tapped while a file is being probed always wins: either the
+        hand-off finished first, or the verifier sees the flag (or the vanished torrent) and
+        links nothing (Pitfall 10).
+
+        What goes is decided by `delete_files_for`, the rule the list's button also follows. D-47
+        amends D-33: for a torrent saved under quarantine DELETE always sends `deleteFiles=true`,
+        which for a verified film removes only the quarantine name (the media hardlink keeps the
+        film). A Phase 1-2 torrent outside quarantine keeps the Phase 2 rule (D-79): a finished one
+        is never deleted from disk, so Remove never touches a film that is in a media folder.
+
+        An id that names no torrent may name a ready outcome row (a pack or a seeding-end that left
+        its torrent behind): Remove deletes just its stored note. A rejected outcome has no action.
         """
         secret = self._settings.secret_key.get_secret_value()
         async with self._cancel_lock:
@@ -369,26 +392,35 @@ class DownloadPipeline:
                 return await self._cancel_job_without_torrent(download_id)
             torrent_hash = str(row["hash"])
             job_tag = job_tag_of(tags_of(row))
+            self._guard.request_cancel(torrent_hash)
             job = await self._registry.cancel_for(
                 torrent_hash=torrent_hash,
                 job_id=job_tag.removeprefix(TAG_JOB_PREFIX) if job_tag else None,
             )
             try:
-                # Stopping the job can take a while and the torrent may finish meanwhile, so the
-                # files are decided on the row as it is right before the delete, not on the first
-                # read (D-33). A torrent that is gone has no files left to protect.
-                fresh = await self._qbit.torrents_info(hashes=torrent_hash)
-                row = fresh[0] if fresh else row
-                deletes = bool(fresh) and cancel_deletes_files(row)
-                await self._discard(torrent_hash, job_tag, delete_files=deletes)
+                async with self._guard.lock(torrent_hash):
+                    # Stopping the job can take a while and the torrent may finish meanwhile, so
+                    # the files are decided on the row as it is right before the delete, not on
+                    # the first read (D-33). A torrent that is gone has no files left to protect.
+                    fresh = await self._qbit.torrents_info(hashes=torrent_hash)
+                    row = fresh[0] if fresh else row
+                    deletes = bool(fresh) and delete_files_for(row, self._settings)
+                    action = row_action(row, self._settings)
+                    await self._discard(torrent_hash, job_tag, delete_files=deletes)
             except QbitError:
                 if job is not None and job_tag is not None:
                     # The job is cancelled and its torrent stays hidden from the list, so keep
                     # trying to delete it for a while instead of leaving it behind.
                     self._start_sweep(job, job_tag, self._clock() + self._settings.metadata_timeout)
+                else:
+                    # Nothing will delete it: the torrent stays, so it must stay checkable.
+                    self._guard.clear_cancel(torrent_hash)
                 raise
+            # The torrent is gone: a flag left up would stop the next download of the same
+            # info-hash from ever being checked.
+            self._guard.clear_cancel(torrent_hash)
             return CancelOutcome(
-                "cancel" if deletes else "remove",
+                action,
                 display_name(row) or (job.name if job else None),
                 deletes,
             )
@@ -403,7 +435,7 @@ class DownloadPipeline:
         """
         job = self._registry.get(job_id)
         if job is None or job.state is not JobState.PREPARING:
-            return None
+            return await self._remove_ready_outcome(job_id)
         await self._registry.cancel_for(job_id=job_id)
         job_tag = TAG_JOB_PREFIX + job_id
         # The job is cancelled for good from here, so the sweep must exist before anything can
@@ -416,6 +448,22 @@ class DownloadPipeline:
             logger.warning("cancel sweep failed: %s", type(exc).__name__)
         return CancelOutcome("cancel", job.name, True)
 
+    async def _remove_ready_outcome(self, outcome_id: str) -> CancelOutcome | None:
+        """Remove the stored note of a ready outcome row; None for anything else (D-56).
+
+        A ready outcome has no torrent left, so Remove hides the row by deleting its sidecar and
+        nothing else: the film is in the media folder and stays there. A rejected outcome has no
+        action, so it answers None like an unknown id.
+        """
+        if self._outcomes is None:
+            return None
+        stored = await asyncio.to_thread(self._outcomes.get, outcome_id)
+        if stored is None or stored.kind != "ready":
+            return None
+        if not await asyncio.to_thread(self._outcomes.remove, outcome_id):
+            return None  # a second tap raced the first
+        return CancelOutcome("remove", stored.name, False)
+
     def _start_sweep(self, job: Job, job_tag: str, deadline: float) -> None:
         self._registry.spawn_background(
             self._sweep_cancelled(job_tag, deadline), name=f"cancel-sweep-{job.job_id}"
@@ -424,12 +472,14 @@ class DownloadPipeline:
     async def _sweep_once(self, job_tag: str) -> None:
         """Delete every Film or SerieTV torrent that carries a cancelled job's tag.
 
-        The files go only for a torrent the server reads as in progress, like any cancel.
+        The files go as for any cancel: `delete_files_for` decides on the row.
         """
         for row in await self._qbit.torrents_info(tag=job_tag):
             if type_for_category(self._settings, str(row.get("category") or "")) is None:
                 continue
-            await self._discard(str(row["hash"]), None, delete_files=cancel_deletes_files(row))
+            await self._discard(
+                str(row["hash"]), None, delete_files=delete_files_for(row, self._settings)
+            )
 
     async def _sweep_cancelled(self, job_tag: str, deadline: float) -> None:
         """Until `deadline`, delete a torrent that shows up under a cancelled job's tag.

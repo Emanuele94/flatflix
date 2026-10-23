@@ -25,6 +25,14 @@ class HandoffGuard:
     def request_cancel(self, torrent_hash: str) -> None:
         self._cancels.add(torrent_hash.lower())
 
+    def clear_cancel(self, torrent_hash: str) -> None:
+        """Lower a flag whose cancel is over, keeping the lock (a waiter may hold it).
+
+        Without this a torrent added again under the same info-hash right after a Cancel would
+        inherit the flag until the verifier's next tick, or for good if it listed the new torrent.
+        """
+        self._cancels.discard(torrent_hash.lower())
+
     def cancel_requested(self, torrent_hash: str) -> bool:
         return torrent_hash.lower() in self._cancels
 
