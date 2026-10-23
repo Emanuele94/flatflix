@@ -90,13 +90,18 @@ def _refuse_symlinked_parents(dst: Path, media_dir: str) -> None:
             raise HandoffError(errno.errorcode.get(exc.errno or 0, "unsafe_path")) from None
 
 
-def link_into_media(src: Path, dst: Path, *, media_dir: str | None = None) -> Path:
-    """Hardlink `src` at `dst`; idempotent and never a copy.
+MAX_COLLISION_NAME = 99
 
-    A target that is already the same file (same device and inode) is left alone, so a hand-off
-    interrupted half way is finished by the next try. A different file at the target is a
-    collision, never overwritten. `media_dir`, when given, is the folder the target must stay in
-    and under which no existing parent may be a symlink.
+
+def link_into_media(src: Path, dst: Path, *, media_dir: str | None = None) -> Path:
+    """Hardlink `src` at `dst` or, when another file holds that name, at the first free
+    "<stem> (n)<ext>" for n = 2..99; returns the path it used. Never a copy (D-48).
+
+    Never overwrite: a different file at the target stays as it is (RESEARCH A12; Phase 4 renames
+    the files anyway). A target that is already this file (same device and inode) is reused, so a
+    hand-off interrupted half way is finished by the next try without a second link. When all names
+    up to (99) are taken the answer is HandoffError("collision"). `media_dir`, when given, is the
+    folder the target must stay in and under which no existing parent may be a symlink.
     """
     try:
         src_stat = os.lstat(src)
@@ -110,22 +115,24 @@ def link_into_media(src: Path, dst: Path, *, media_dir: str | None = None) -> Pa
         os.makedirs(dst.parent, mode=0o775, exist_ok=True)
         if media_dir is not None:
             _refuse_symlinked_parents(dst, media_dir)
-        try:
-            existing = os.lstat(dst)
-        except FileNotFoundError:
-            existing = None
-        if existing is not None:
+        candidates = [dst] + [
+            dst.with_name(f"{dst.stem} ({n}){dst.suffix}") for n in range(2, MAX_COLLISION_NAME + 1)
+        ]
+        for candidate in candidates:
+            try:
+                existing = os.lstat(candidate)
+            except FileNotFoundError:
+                os.link(src, candidate, follow_symlinks=False)
+                return candidate
             if (
                 stat.S_ISREG(existing.st_mode)
                 and existing.st_dev == src_stat.st_dev
                 and existing.st_ino == src_stat.st_ino
             ):
-                return dst
-            raise HandoffError("collision")
-        os.link(src, dst, follow_symlinks=False)
+                return candidate
     except OSError as exc:
         raise HandoffError(errno.errorcode.get(exc.errno or 0, "OSError")) from None
-    return dst
+    raise HandoffError("collision")
 
 
 def _private_dir(path: Path) -> None:

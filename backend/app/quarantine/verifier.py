@@ -172,7 +172,8 @@ class Verifier:
     async def check_torrent(self, row: dict) -> str:
         """Probe, judge and hand off one torrent.
 
-        Returns "passed" (linked and tagged), "rejected" (no video passed: held and deleted),
+        Returns "passed" (everything linked, torrent tagged), "partial" (what passed is in media,
+        the rest held, torrent deleted), "rejected" (no video passed: held, torrent deleted),
         "waiting" (the runner is down), "aborted" (a cancel, a vanished torrent or a changed file:
         nothing linked) or "held" (a file cannot be read, or a link failed: the torrent stays
         Checking and nothing else happens to it).
@@ -184,34 +185,51 @@ class Verifier:
             return "held"
         if self._guard.cancel_requested(torrent_hash):
             return "aborted"
+        pending = self._pending_outcome(row)
+        if pending is not None:
+            return await self._finish_delete(torrent_hash, pending)
         try:
             file_rows = await self._qbit.torrent_files(torrent_hash)
         except QbitError as exc:
             if exc.status == 404:
                 return "aborted"  # deleted between the listing and now
             raise
+        if not file_rows:
+            return "held"  # no file list at all is qBittorrent not being ready, never a verdict
         files = files_to_check(file_rows, content_type)
         videos = [f for f in files if f.kind == "video"]
-        if not videos:
-            return "held"
         try:
             checked = [await self._check_video(row, file, content_type) for file in videos]
-        except _Stop as stop:
-            return stop.outcome
-        if all(item.passed for item in checked):
-            try:
+            if any(item.passed for item in checked):  # subtitles follow a passing video (D-62)
                 checked += [
                     await self._check_subtitle(row, file)
                     for file in files
                     if file.kind == "subtitle"
                 ]
-            except _Stop as stop:
-                return stop.outcome
-        if all(item.passed for item in checked):
-            return await self._hand_off(row, checked, content_type)
-        if any(item.passed for item in checked):
-            return "held"  # a mixed pack: the next task of this plan delivers what passed
+        except _Stop as stop:
+            return stop.outcome
         return await self._hand_off(row, checked, content_type)
+
+    def _pending_outcome(self, row: dict) -> Outcome | None:
+        """The stored outcome of a torrent whose delete failed earlier, else None.
+
+        A torrent that finished after its outcome was stored is a new download of the same hash
+        (someone fetched the film again), not a pending delete: it is checked like any other.
+        """
+        outcome = self._outcomes.get(self._outcome_id(row))
+        if outcome is None:
+            return None
+        try:
+            completed = float(row.get("completion_on") or 0)
+        except (TypeError, ValueError):
+            completed = 0.0
+        return outcome if outcome.at >= completed else None
+
+    async def _finish_delete(self, torrent_hash: str, outcome: Outcome) -> str:
+        """Retry the delete of a torrent whose links and outcome are already stored."""
+        async with self._guard.lock(torrent_hash):
+            await self._qbit.delete([torrent_hash], delete_files=True)
+        return "rejected" if outcome.kind == "rejected" else "partial"
 
     def _resolve(self, row: dict, file: FileToCheck) -> tuple[Path, tuple[int, int, int]]:
         try:
@@ -285,8 +303,11 @@ class Verifier:
         comes last: links, then the outcome sidecar, then the audit lines, then the delete.
 
         Every checked file passed: link all into media and tag the torrent (it keeps seeding).
-        Otherwise a video failed: link the failing files into the rejected folder, store a
-        sidecar, and delete the torrent with its files, so a suspect file is never seeded (D-61).
+        Otherwise a file failed, or there was no video to check: link what passed into media and
+        the failing files into the rejected folder, store a sidecar ("ready" when a video
+        passed, else "rejected"), and delete the torrent with its files at once, so a torrent
+        that held a suspect file is never seeded (D-61, D-62). The delete removes only the
+        quarantine names; the media links keep the files that passed.
         """
         settings = self._settings
         torrent_hash = str(row["hash"])
@@ -337,25 +358,32 @@ class Verifier:
             except HandoffError as exc:
                 self._link_failed(row, exc.why)
                 return "held"
-            if not failing:
+            if not failing and checked:
                 await self._qbit.add_tags([torrent_hash], [verified_tag(self._clock())])
                 audit.quarantine_passed(display_name(row), len(passing))
                 return "passed"
+            video_passed = any(item.file.kind == "video" for item in passing)
             skipped = sum(1 for item in failing if item.file.kind == "video")
             self._outcomes.write(
                 Outcome(
                     self._outcome_id(row),
                     display_name(row),
                     content_type,
-                    "rejected",
+                    "ready" if video_passed else "rejected",
                     skipped,
                     self._clock(),
                 )
             )
             for item in failing:
                 self._audit_rejected(row, item)
+            if not checked:  # nothing to check at all: a torrent without a video to keep
+                audit.quarantine_rejected(
+                    display_name(row), None, "no_video", None, None, None, None, None
+                )
             await self._qbit.delete([torrent_hash], delete_files=True)
-        return "rejected"
+            if video_passed:
+                audit.quarantine_passed(display_name(row), len(passing))
+        return "partial" if video_passed else "rejected"
 
     def _audit_rejected(self, row: dict, item: _Checked) -> None:
         facts = summary(item.facts) if item.facts is not None else {}

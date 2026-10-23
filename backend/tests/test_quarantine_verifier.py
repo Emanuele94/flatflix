@@ -30,7 +30,7 @@ from app.quarantine.runner_client import RunnerClient
 from app.quarantine.verifier import Verifier, is_candidate
 from tests.conftest import PORTAL_PASS_HASH, QBIT_PASS, QBIT_USER, wait_for_bootstrap
 from tests.fakeqbit import FakeQbit
-from tests.fakerunner import FakeRunner, film_facts
+from tests.fakerunner import FakeRunner, failed_facts, film_facts
 
 NOW = 1_700_000_000.0
 FILM_HASH = "a" * 40
@@ -258,8 +258,6 @@ async def test_runner_down_503_names_its_reason_and_stops_the_tick(
 async def test_a_renamed_executable_fails_twice_and_is_held_owner_only_then_deleted(
     rig: Rig, caplog: pytest.LogCaptureFixture
 ) -> None:
-    from tests.fakerunner import failed_facts
-
     caplog.set_level(logging.INFO, logger="app.audit")
     rig.add_finished(FILM_HASH, "Movie", [(FILM_FILE, 8 * 1024 * 1024)])
     rig.runner.script(FILM_REL, failed_facts("probe_failed"))
@@ -768,8 +766,6 @@ def test_a_link_across_filesystems_names_the_errno(
 
 # --- plan 02.1-07 Task 2: mixed packs, subtitles, collisions, link failures ---------------------------
 
-from tests.fakerunner import failed_facts  # noqa: E402
-
 TEXT_SUBTITLE = "1\n00:00:01,000 --> 00:00:02,000\nHello\n"
 
 
@@ -994,7 +990,7 @@ async def test_when_every_name_is_taken_the_torrent_stays_checking_and_collision
     assert audit_lines(caplog) == ['event=quarantine.link_failed name="Movie" why=collision']
 
 
-async def test_a_failed_hardlink_never_becomes_a_copy_and_is_logged_once_over_two_ticks(
+async def test_a_link_fail_with_exdev_never_becomes_a_copy_and_is_logged_once_over_two_ticks(
     rig: Rig, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import shutil
@@ -1026,7 +1022,7 @@ async def test_a_failed_hardlink_never_becomes_a_copy_and_is_logged_once_over_tw
     assert len(rig.runner.calls) == 2  # still a candidate: probed again on the second tick
 
 
-async def test_a_failed_link_into_rejected_deletes_nothing_either(
+async def test_a_link_fail_into_rejected_deletes_nothing_either(
     rig: Rig, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     rig.add_finished(FILM_HASH, "Movie", [(FILM_FILE, 8 * 1024 * 1024)])
