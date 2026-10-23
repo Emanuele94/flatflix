@@ -11,6 +11,7 @@ compose files implement it; the infra invariant tests enforce it.
 | backend (FastAPI) | 8000 | not published | Reachable only on network `edge`. |
 | qBittorrent WebUI | 8088 | not published; admin override `127.0.0.1:8088` only | Reachable by the backend on network `qbit`. |
 | qBittorrent peers | 6881 tcp and udp | not published | Downloads work through outgoing connections. See "Peer port" below. |
+| sandbox (runner) | 8090 | never published | Only on network `sandbox`; the backend calls it, and the opt-in real-sandbox tests go through `docker compose exec backend`. It has no login, so it must never be published. |
 | Jellyfin | 8096 | reserved for Phase 3 | Reached through Caddy, never published directly. |
 
 No service uses 8080. That resolves the clash in `qbit-wrapper.md` section 11,
@@ -49,6 +50,11 @@ deliberately.
 - `qbit`: backend and qbittorrent. Not `internal: true`, because search plugins
   and peers need Internet egress. Isolation comes from network membership and
   from publishing no ports.
+- `sandbox`: backend and the sandbox runner only. `internal: true`, so there is no
+  Internet and no other service on it. The sandbox mounts only `quarantine`,
+  read-only: it cannot see `media`, `rejected` or `incomplete`. It runs as uid
+  10002 with the KVM group, no capabilities and a read-only root, and each probe
+  boots a throwaway microVM that has no network device at all.
 
 Docker-published ports bypass host firewalls such as ufw on the Ubuntu box
 (Docker writes its own iptables rules). That is why nothing but web is ever

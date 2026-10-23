@@ -206,3 +206,71 @@ def test_no_tracked_file_contains_a_lan_address():
 def test_no_tracked_file_contains_a_complete_password_hash():
     offenders = _scan(find_secret_material)
     assert offenders == [], "\n".join(offenders)
+
+
+# -- the sandbox is built from the repo, never committed as binaries (QUAR-05, T-02.1-20) ------
+
+_BINARY_SUFFIXES = ("vmlinux", ".ext4", ".img", ".tgz")
+
+
+def _tracked_paths() -> list[str]:
+    return [raw.decode() for raw in _git("ls-files", "-z").stdout.split(b"\0") if raw]
+
+
+def find_committed_sandbox_binaries(paths: list[str]) -> list[str]:
+    """Tracked paths that look like a kernel, a disk image, a release tarball or the VMM."""
+    return [
+        path
+        for path in paths
+        if path.endswith(_BINARY_SUFFIXES) or path.rsplit("/", 1)[-1] == "firecracker"
+    ]
+
+
+def find_nul_files(root: Path, paths: list[str], folder: str) -> list[str]:
+    offenders = []
+    for path in paths:
+        if not path.startswith(folder + "/") or not (root / path).is_file():
+            continue
+        if b"\0" in (root / path).read_bytes():
+            offenders.append(path)
+    return offenders
+
+
+def test_the_binary_finder_has_teeth():
+    found = find_committed_sandbox_binaries(
+        ["sandbox/vmlinux", "a/rootfs.ext4", "x.img", "fc.tgz", "bin/firecracker", "sandbox/Dockerfile"]
+    )
+    assert found == ["sandbox/vmlinux", "a/rootfs.ext4", "x.img", "fc.tgz", "bin/firecracker"]
+
+
+def test_no_kernel_rootfs_or_firecracker_binary_is_tracked():
+    assert find_committed_sandbox_binaries(_tracked_paths()) == []
+
+
+def test_no_tracked_file_under_sandbox_contains_a_nul_byte():
+    assert find_nul_files(ROOT, _tracked_paths(), "sandbox") == []
+
+
+def test_the_nul_finder_has_teeth(tmp_path):
+    (tmp_path / "sandbox").mkdir()
+    (tmp_path / "sandbox" / "blob").write_bytes(b"ab\0cd")
+    (tmp_path / "sandbox" / "text").write_text("plain")
+    assert find_nul_files(tmp_path, ["sandbox/blob", "sandbox/text"], "sandbox") == [
+        "sandbox/blob"
+    ]
+
+
+def test_the_sandbox_build_pins_and_checks_its_downloads():
+    text = (ROOT / "sandbox" / "Dockerfile").read_text(encoding="utf-8")
+    assert re.search(r"^ARG FIRECRACKER_VERSION=1\.17\.0$", text, flags=re.MULTILINE)
+    assert re.search(r"^ARG KERNEL_VERSION=6\.18\.58$", text, flags=re.MULTILINE)
+    for name in ("FIRECRACKER_SHA256", "KERNEL_SHA256"):
+        assert re.search(rf"^ARG {name}=[0-9a-f]{{64}}$", text, flags=re.MULTILINE), name
+    assert re.search(r"^ARG FFMPEG_APK_VERSION=\S+$", text, flags=re.MULTILINE)
+    assert 'ffmpeg=${FFMPEG_APK_VERSION}"' in text
+    assert text.count("sha256sum -c") >= 2
+
+
+def test_the_guest_init_is_a_tracked_executable():
+    out = _git("ls-files", "-s", "sandbox/guest/init").stdout.decode()
+    assert out.startswith("100755 "), out
