@@ -14,6 +14,9 @@ const STATES = {
     barClass: 'is-stalled',
     hint: MSG.stalledHint,
   },
+  // The safety check after the download: no measurable progress, so no bar and no percent.
+  checking: { text: MSG.stateChecking, tone: 'normal', bar: null, spinner: true, hint: MSG.checkingHint },
+  check_failed: { text: MSG.checkFailed, tone: 'warn', bar: null },
   ready: { text: MSG.stateReady, tone: 'ok', bar: 'value', barClass: 'is-ready' },
   problem: { text: MSG.stateProblem, tone: 'error', bar: null, hint: MSG.problemBody },
   rejected: { text: MSG.rejected, tone: 'warn', bar: null },
@@ -22,9 +25,15 @@ const STATES = {
   failed: { text: MSG.downloadFailed, tone: 'error', bar: null },
 };
 
+// Cancel confirm body by state, chosen at render time: a checking or problem row is a finished
+// download (or its state is unknown), so "partly downloaded" would be wrong.
+const CONFIRM_BODY_DONE = new Set(['checking', 'problem']);
+
 const BADGE = { film: MSG.typeFilm, serie: MSG.typeSerie };
 
-// One download. Names are attacker-controlled text: only ever rendered as text children.
+// One download. States: preparing, downloading, stalled, checking (safety check), ready, problem,
+// rejected, check_failed, unsupported, unavailable, failed.
+// Names are attacker-controlled text: only ever rendered as text children.
 // The action area follows the backend's `action` field: 'cancel' (asks once, in the row, D-32),
 // 'remove' (one tap, the files stay, D-33) or null (no control, D-29). `stale` disables it (D-36).
 export function DownloadRow({
@@ -115,7 +124,9 @@ export function DownloadRow({
                 }}
               >
                 <p class="confirm-title">{MSG.cancelConfirmTitle}</p>
-                <p class="muted">{MSG.cancelConfirmBody}</p>
+                <p class="muted">
+                  {CONFIRM_BODY_DONE.has(item.state) ? MSG.cancelConfirmBodyDone : MSG.cancelConfirmBody}
+                </p>
                 <div class="confirm-actions">
                   <button
                     class="btn btn-destructive"

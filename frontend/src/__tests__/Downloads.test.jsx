@@ -596,3 +596,38 @@ describe('one confirm panel at a time, and only while it is true', () => {
     expect(screen.queryByText('Sintel.2010')).toBeNull();
   });
 });
+
+const CHECKING = (id, name, extra = {}) =>
+  item(id, name, {
+    state: 'checking',
+    action: 'cancel',
+    progress: 99,
+    eta_seconds: null,
+    skipped: 0,
+    ...extra,
+  });
+
+describe('safety check tracer (D-53)', () => {
+  it('a checking row shows Checking… with its hint, no bar, and cancels with the finished-download confirm', async () => {
+    const net = stubApi({
+      list: [jsonResponse({ items: [CHECKING('a', 'Sintel.2010')] })],
+      del: [NO_CONTENT],
+    });
+    const { container } = render(<Downloads onGoToSearch={() => {}} />);
+    await tick(0);
+    const row = screen.getByText('Sintel.2010').closest('li');
+    expect(row.querySelector('.download-state').textContent).toBe(MSG.stateChecking);
+    expect(row.querySelector('.spinner')).not.toBeNull();
+    expect(screen.getByText(MSG.checkingHint)).toBeTruthy();
+    expect(container.querySelector('progress')).toBeNull();
+    expect(container.textContent).not.toContain('%');
+    click(MSG.cancelDownload);
+    expect(screen.getByText(MSG.cancelConfirmTitle)).toBeTruthy();
+    expect(screen.getByText(MSG.cancelConfirmBodyDone)).toBeTruthy();
+    expect(screen.queryByText(MSG.cancelConfirmBody)).toBeNull();
+    click(MSG.cancelConfirmYes);
+    await tick(0);
+    expect(net.deletes()).toEqual([{ path: `/api/downloads/${ID_A}`, method: 'DELETE', body: undefined }]);
+    expect(screen.queryByText('Sintel.2010')).toBeNull();
+  });
+});

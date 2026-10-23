@@ -66,4 +66,11 @@ export const MSG = {
   etaMinutes: 'about {n} min left',
   etaHours: 'about {n} h left',
   etaOverDay: 'more than a day left',
+  // Phase 2.1: safety check
+  stateChecking: 'Checking…',
+  checkingHint: 'Making sure the file is safe to watch. It can take a few minutes.',
+  checkFailed: 'This file didn’t pass the safety check. Try another result.',
+  skippedOne: '1 file didn’t pass the safety check.',
+  skippedMany: '{n} files didn’t pass the safety check.',
+  cancelConfirmBodyDone: 'The downloaded files will be deleted.',
 };
