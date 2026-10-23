@@ -23,6 +23,7 @@ from app.proxy import TrustedProxyHeaders
 from app.qbit.bootstrap import Bootstrapper, Readiness
 from app.qbit.client import QbitClient
 from app.quarantine.guard import HandoffGuard
+from app.quarantine.outcomes import OutcomeStore
 from app.quarantine.runner_client import RunnerClient
 from app.quarantine.verifier import Verifier
 from app.routers import auth, download, downloads, health, search
@@ -81,11 +82,13 @@ def create_app(
             settings.sandbox_url, timeout=settings.probe_timeout_seconds
         )
         app.state.guard = HandoffGuard()
+        app.state.outcomes = OutcomeStore(settings.rejected_root)
         app.state.verifier = Verifier(
             app.state.qbit,
             app.state.runner,
             settings,
             guard=app.state.guard,
+            outcomes=app.state.outcomes,
             readiness=app.state.readiness,
         )
         # No phone needs to be open for a finished download to be checked (D-50). It starts

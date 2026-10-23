@@ -8,11 +8,15 @@ It never holds a reason, a path or an info-hash: the reason is for the admin, in
 (D-60), and the household reads a plain sentence built from `kind` and `skipped`.
 
 Writes are atomic (a temp file, then `os.replace`) and owner-only. Nothing here follows a symlink.
+Sidecars and held folders are purged after the retention (D-55); a purge never raises and logs
+only the class name of a failure.
 """
 
 import json
+import logging
 import os
 import re
+import shutil
 import stat
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,7 +26,10 @@ from app.content_type import ContentType
 
 OutcomeKind = Literal["rejected", "ready"]
 
+logger = logging.getLogger(__name__)
+
 _ID = re.compile(r"[0-9a-f]{16}")
+_SIDECAR = re.compile(r"([0-9a-f]{16})\.json")
 _KEYS = frozenset({"id", "name", "type", "kind", "skipped", "at"})
 _KINDS = ("rejected", "ready")
 _TYPES = ("film", "serie")
@@ -138,3 +145,79 @@ class OutcomeStore:
         if not valid_id(outcome_id):
             return None
         return _parse(_read_json(str(self._sidecar(outcome_id))), outcome_id)
+
+    def load_all(self) -> list[Outcome]:
+        """Every well-formed outcome; never raises. Anything else in the folder is ignored."""
+        found: list[Outcome] = []
+        try:
+            with os.scandir(self._root) as entries:
+                listing = sorted(entries, key=lambda entry: entry.name)
+        except OSError:
+            return found
+        for entry in listing:
+            match = _SIDECAR.fullmatch(entry.name)
+            if match is None:
+                continue
+            try:
+                if entry.is_symlink() or not entry.is_file(follow_symlinks=False):
+                    continue
+            except OSError:
+                continue
+            outcome = _parse(_read_json(entry.path), match.group(1))
+            if outcome is not None:
+                found.append(outcome)
+        return found
+
+    def remove(self, outcome_id: str) -> bool:
+        """Delete the sidecar of an id; True only when there was one to delete."""
+        if not valid_id(outcome_id):
+            return False
+        try:
+            os.unlink(self._sidecar(outcome_id))
+        except OSError:
+            return False
+        return True
+
+    def purge(self, now: float, retention_seconds: float) -> int:
+        """Remove sidecars and held folders older than the retention; returns how many entries.
+
+        A sidecar is aged by its `at` (its file time when unreadable), a folder or a stray file by
+        its own modification time. A symlink is never one of ours: it is removed as a link at once
+        and never followed, and `shutil.rmtree` does not follow links inside a folder. Never raises.
+        """
+        cutoff = now - retention_seconds
+        try:
+            with os.scandir(self._root) as entries:
+                listing = [entry.path for entry in entries]
+        except OSError:
+            return 0
+        removed = 0
+        for path in listing:
+            try:
+                if self._purge_entry(path, cutoff):
+                    removed += 1
+            except Exception as exc:  # noqa: BLE001 - one stubborn entry must not stop the rest
+                logger.error("purge of a held entry failed (%s)", type(exc).__name__)
+        return removed
+
+    @staticmethod
+    def _purge_entry(path: str, cutoff: float) -> bool:
+        info = os.lstat(path)
+        if stat.S_ISLNK(info.st_mode):
+            os.unlink(path)
+            return True
+        if stat.S_ISDIR(info.st_mode):
+            if info.st_mtime >= cutoff:
+                return False
+            shutil.rmtree(path)
+            return True
+        stored_at = info.st_mtime
+        match = _SIDECAR.fullmatch(os.path.basename(path))
+        if match is not None:
+            outcome = _parse(_read_json(path), match.group(1))
+            if outcome is not None:
+                stored_at = outcome.at
+        if stored_at >= cutoff:
+            return False
+        os.unlink(path)
+        return True

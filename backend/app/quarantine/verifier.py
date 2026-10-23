@@ -65,6 +65,8 @@ logger = logging.getLogger(__name__)
 
 # A re-hash of a finished torrent is not a candidate until it settles.
 CANDIDATE_STATES = READY_STATES - {"checkingUP"}
+# A finished torrent that stopped seeding (qBittorrent 5.x says stoppedUP, 4.x pausedUP).
+SEEDING_END_STATES = frozenset({"stoppedUP", "pausedUP"})
 # While bootstrap has not marked qBittorrent ready (its categories do not point at quarantine yet),
 # the loop does not touch qBittorrent at all; it looks again after this many seconds.
 READINESS_WAIT_SECONDS = 1
@@ -153,6 +155,58 @@ class Verifier:
         for row in candidates:
             if await self.check_torrent(row) == "waiting":
                 break  # the runner is down: later torrents would only hit the same wall
+        await self._purge()
+        await self._finish_seeding(rows)
+
+    async def _purge(self) -> None:
+        """Remove held files and outcomes older than the retention (D-55)."""
+        removed = await asyncio.to_thread(
+            self._outcomes.purge, self._clock(), self._settings.rejected_retention_seconds
+        )
+        if removed > 0:
+            audit.quarantine_purged(removed)
+
+    async def _finish_seeding(self, rows: list[dict]) -> None:
+        """Delete a verified torrent whose seeding ended, keeping its film (D-47).
+
+        Only a Film or SerieTV torrent saved inside quarantine that carries the verified tag and
+        has stopped (stoppedUP or pausedUP) qualifies: a legacy torrent in media, an unchecked one
+        and one that is still seeding are never touched. The film is already hardlinked into media
+        (the tag is written after the links), so `deleteFiles=true` removes only the quarantine
+        name and the media link keeps the file. The household's Ready row is stored first, while
+        the torrent is still young enough to be shown (D-28).
+
+        The backend does this, not qBittorrent's share-limit action (RESEARCH Anti-Patterns): with
+        `max_ratio_act` set to RemoveWithContent qBittorrent would also delete torrents that were
+        never checked, so its action stays "Stop" and the verifier removes what it verified.
+        """
+        settings = self._settings
+        now = self._clock()
+        for row in rows:
+            content_type = type_for_category(settings, str(row.get("category") or ""))
+            verified = verified_at(tags_of(row))
+            if (
+                content_type is None
+                or verified is None
+                or str(row.get("state") or "") not in SEEDING_END_STATES
+                or not in_quarantine(str(row.get("save_path") or ""), settings.quarantine_root)
+            ):
+                continue
+            torrent_hash = str(row["hash"])
+            async with self._guard.lock(torrent_hash):
+                if now - verified < settings.completed_visible_seconds:
+                    self._outcomes.write(
+                        Outcome(
+                            self._outcome_id(row),
+                            display_name(row),
+                            content_type,
+                            "ready",
+                            0,
+                            verified,
+                        )
+                    )
+                await self._qbit.delete([torrent_hash], delete_files=True)
+            audit.quarantine_seeding_done(display_name(row))
 
     def _runner_unavailable(self, why: str) -> None:
         if self._runner_down is None:  # one line per outage, not one per tick
@@ -238,7 +292,9 @@ class Verifier:
         except (HandoffError, OSError):
             raise _Stop("held") from None
 
-    async def _check_video(self, row: dict, file: FileToCheck, content_type: ContentType) -> _Checked:
+    async def _check_video(
+        self, row: dict, file: FileToCheck, content_type: ContentType
+    ) -> _Checked:
         """Probe one video, once more when the probe crashed or timed out (D-57), and judge it."""
         settings = self._settings
         torrent_hash = str(row["hash"])
