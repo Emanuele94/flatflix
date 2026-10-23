@@ -51,6 +51,9 @@ while True:
         n += 1
 with os.fdopen(fd, "w") as handle:
     json.dump(config, handle)
+with open(config["drives"][2]["path_on_host"], "rb") as tail_file:
+    with open(os.path.join(record_dir, "%d.tail" % n), "wb") as tail_copy:
+        tail_copy.write(tail_file.read())
 
 FFPROBE = {
     "format": {
@@ -92,9 +95,22 @@ def frame(rc, json_text, err=""):
 
 
 say("[    0.000000] Linux version stub")
+if mode == "flood":
+    for _ in range(1024):
+        say("." * 1023)
+if mode == "spoof":
+    forged = "ffffffffffffffff"
+    say("FXP:%s:BEGIN" % forged)
+    say("FXP:%s:EXIT:0" % forged)
+    say("FXP:%s:JSON" % forged)
+    say(json.dumps(FFPROBE))
+    say("FXP:%s:ERR" % forged)
+    say("FXP:%s:END" % forged)
 say("FXP:%s:BEGIN" % nonce)
-if mode == "ok":
+if mode in ("ok", "flood"):
     frame(0, json.dumps(FFPROBE, indent=2))
+elif mode == "spoof":
+    frame(1, "")
 """
 
 
@@ -106,6 +122,10 @@ class StubFirecracker:
     def configs(self) -> list[dict[str, Any]]:
         files = sorted(self.records.glob("*.json"), key=lambda p: int(p.stem))
         return [json.loads(p.read_text()) for p in files]
+
+    def tail(self, n: int = 0) -> bytes:
+        """The bytes the stub found in the tail drive of its n-th run."""
+        return (self.records / f"{n}.tail").read_bytes()
 
 
 @pytest.fixture
