@@ -4,6 +4,7 @@ The runner boots a throwaway microVM per file and answers plain facts; it never 
 turns the JSON into `ProbeFacts`. Every failure that is not a contract answer is a `RunnerError`.
 """
 
+import re
 from dataclasses import dataclass
 
 import httpx
@@ -105,6 +106,52 @@ def _stream(raw: object) -> StreamFacts:
     )
 
 
+_REFUSAL_CODES = frozenset({"invalid_json", "invalid_path", "not_found", "not_regular_file"})
+_REFUSAL_BY_STATUS = {400: "invalid_path", 404: "not_found", 409: "not_regular_file"}
+_WHY = re.compile(r"[a-z_]{1,32}")
+HEALTH_KEYS = ("ok", "kvm", "firecracker", "kernel", "alpine", "ffmpeg")
+
+
+def _json_or_none(response: httpx.Response) -> object:
+    try:
+        return response.json()
+    except ValueError:
+        return None
+
+
+def _answer(response: httpx.Response) -> object:
+    """The parsed JSON of a 200 answer; every other outcome raises one of the two exceptions.
+
+    A host fault must never become a rejection (D-58): anything that is not a contract answer
+    means "wait" (RunnerUnavailable). A refusal (400, 404, 409) is about the file, so the verifier
+    treats it as unprobeable. Messages are fixed text plus a short token, never a body or a path.
+    """
+    status = response.status_code
+    if status == 200:
+        try:
+            return response.json()
+        except ValueError:
+            raise RunnerUnavailable("bad_answer") from None
+    if status == 503:
+        body = _json_or_none(response)
+        why = body.get("why") if isinstance(body, dict) else None
+        raise RunnerUnavailable(why if isinstance(why, str) and _WHY.fullmatch(why) else "unknown")
+    if status >= 500:
+        raise RunnerUnavailable("server_error")
+    if status in _REFUSAL_BY_STATUS:
+        body = _json_or_none(response)
+        error = body.get("error") if isinstance(body, dict) else None
+        raise RunnerRefused(error if error in _REFUSAL_CODES else _REFUSAL_BY_STATUS[status])
+    raise RunnerUnavailable("unexpected_status")
+
+
+def _facts(body: object) -> ProbeFacts:
+    try:
+        return ProbeFacts.from_json(body)
+    except ValueError:
+        raise RunnerUnavailable("bad_answer") from None
+
+
 class RunnerClient:
     def __init__(
         self,
@@ -124,16 +171,29 @@ class RunnerClient:
     def __repr__(self) -> str:
         return f"RunnerClient(base_url={self._base_url!r})"
 
-    async def _send(self, method: str, path: str, **kwargs) -> httpx.Response:
+    async def _send(self, method: str, path: str, **kwargs) -> object:
         try:
-            return await self._http.request(method, path, **kwargs)
-        except httpx.TransportError as exc:
-            raise RunnerUnavailable("unreachable") from exc
+            response = await self._http.request(method, path, **kwargs)
+        except httpx.TimeoutException:
+            raise RunnerUnavailable("timeout") from None
+        except httpx.TransportError:
+            raise RunnerUnavailable("unreachable") from None
+        return _answer(response)
 
     async def probe(self, rel_path: str) -> ProbeFacts:
         """Probe one file, given relative to the quarantine root."""
-        response = await self._send("POST", "/probe", json={"path": rel_path})
-        return ProbeFacts.from_json(response.json())
+        return _facts(await self._send("POST", "/probe", json={"path": rel_path}))
+
+    async def health(self) -> dict:
+        """The runner's `/health` body; all six keys must be there."""
+        body = await self._send("GET", "/health")
+        if not isinstance(body, dict) or any(key not in body for key in HEALTH_KEYS):
+            raise RunnerUnavailable("bad_answer")
+        return body
+
+    async def selftest(self) -> ProbeFacts:
+        """Boot a VM on the clip baked into the image and return its facts (used by the doctor)."""
+        return _facts(await self._send("POST", "/selftest"))
 
     async def aclose(self) -> None:
         await self._http.aclose()

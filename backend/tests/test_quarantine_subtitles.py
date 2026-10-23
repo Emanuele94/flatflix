@@ -74,6 +74,11 @@ def test_an_empty_file_is_refused() -> None:
     assert check(".sub", b"", size=0) == Verdict(False, "subtitle_empty")
 
 
+def test_a_non_empty_file_with_no_head_bytes_is_not_vouched_for() -> None:
+    assert check(".srt", b"", size=100) == Verdict(False, "subtitle_empty")
+    assert check(".srt", b"\xef\xbb\xbf") == Verdict(False, "subtitle_binary")
+
+
 def test_text_size_cap_is_inclusive() -> None:
     assert check(".srt", SRT, size=TEXT_MAX) == PASS
     assert check(".srt", SRT, size=TEXT_MAX + 1) == Verdict(False, "subtitle_too_big")
