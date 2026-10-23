@@ -51,6 +51,10 @@ while True:
         n += 1
 with os.fdopen(fd, "w") as handle:
     json.dump(config, handle)
+with open(os.path.join(record_dir, "%d.pid" % n), "w") as handle:
+    handle.write(str(os.getpid()))
+with open(os.path.join(record_dir, "%d.start" % n), "w") as handle:
+    handle.write(repr(time.time()))
 with open(config["drives"][2]["path_on_host"], "rb") as tail_file:
     with open(os.path.join(record_dir, "%d.tail" % n), "wb") as tail_copy:
         tail_copy.write(tail_file.read())
@@ -94,7 +98,16 @@ def frame(rc, json_text, err=""):
     say("FXP:%s:END" % nonce)
 
 
+def stopped():
+    with open(os.path.join(record_dir, "%d.stop" % n), "w") as handle:
+        handle.write(repr(time.time()))
+
+
 say("[    0.000000] Linux version stub")
+if mode == "noboot":
+    sys.exit(1)
+if mode == "hang_before_begin":
+    time.sleep(60)
 if mode == "flood":
     for _ in range(1024):
         say("." * 1023)
@@ -111,6 +124,21 @@ if mode in ("ok", "flood"):
     frame(0, json.dumps(FFPROBE, indent=2))
 elif mode == "spoof":
     frame(1, "")
+elif mode == "nonzero":
+    frame(1, "", "Invalid data found when processing input")
+elif mode == "badjson":
+    frame(0, "not json")
+elif mode == "slow":
+    time.sleep(0.5)
+    frame(0, json.dumps(FFPROBE))
+    stopped()
+elif mode == "sleep":
+    import subprocess
+
+    child = subprocess.Popen(["sleep", "60"])
+    with open(os.path.join(record_dir, "%d.child" % n), "w") as handle:
+        handle.write(str(child.pid))
+    time.sleep(60)
 """
 
 
@@ -122,6 +150,11 @@ class StubFirecracker:
     def configs(self) -> list[dict[str, Any]]:
         files = sorted(self.records.glob("*.json"), key=lambda p: int(p.stem))
         return [json.loads(p.read_text()) for p in files]
+
+    def number(self, kind: str) -> list[float]:
+        """Per run, in order: the recorded pid ('pid'), 'child' pid or a time ('start', 'stop')."""
+        files = sorted(self.records.glob(f"*.{kind}"), key=lambda p: int(p.stem))
+        return [float(p.read_text()) for p in files]
 
     def tail(self, n: int = 0) -> bytes:
         """The bytes the stub found in the tail drive of its n-th run."""
