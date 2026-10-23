@@ -45,10 +45,10 @@ Requirements for the initial release. Each maps to exactly one roadmap phase.
 
 - [x] **FILT-01**: At startup the backend sets qBittorrent's global excluded-file-names list (executables, scripts, shortcuts, archives, disk images, e.g. `*.exe`, `*.bat`, `*.cmd`, `*.ps1`, `*.scr`, `*.lnk`, `*.msi`, `*.zip`, `*.rar`, `*.7z`, `*.iso`), so such files are never downloaded. (user)
 - [x] **FILT-02**: The backend adds every torrent with `stopCondition=MetadataReceived` (it stops itself as soon as metadata arrives, before any file data is downloaded; a magnet added fully stopped never fetches metadata, see 01-RESEARCH.md Pitfall 1), waits for its metadata and reads the file list against an allowlist (video: `.mkv`, `.mp4`, `.avi`, `.m4v`; subtitles: `.srt`, `.ass`, `.ssa`, `.sub`, `.idx`). A torrent with no allowed video file is removed before any data is downloaded and the user sees a plain message; in an accepted torrent every non-allowed file gets priority 0; only then is the torrent started. (user)
-- [ ] **QUAR-01**: Completed downloads are saved to a quarantine folder (per category) outside the media folders that Jellyfin reads; no file moves to a media folder without passing validation. (user)
+- [x] **QUAR-01**: Completed downloads are saved to a quarantine folder (per category) outside the media folders that Jellyfin reads; no file moves to a media folder without passing validation. (user)
 - [x] **QUAR-02**: Each completed video file is probed with ffprobe inside a fresh Firecracker microVM: no network device, the file attached read-only, fixed vCPU and memory limits, a hard wall-clock timeout, and the VM destroyed after the check; a crash or timeout counts as a failure. (user)
 - [x] **QUAR-03**: A file passes only if its real container (per ffprobe) matches its extension, it has at least one video stream with a known codec, and its duration and size are plausible for its type (configurable thresholds for film and episode). (user)
-- [ ] **QUAR-04**: Passing files move to the media folder of their category (Phase 4 later adds renaming to this move); failing files never reach a media folder, their torrent is removed from qBittorrent, the download list shows a plain "verifying" then "ready" or "rejected" state, and the reason is logged for the admin. (user)
+- [x] **QUAR-04**: Passing files move to the media folder of their category (Phase 4 later adds renaming to this move); failing files never reach a media folder, their torrent is removed from qBittorrent, the download list shows a plain "verifying" then "ready" or "rejected" state, and the reason is logged for the admin. (user)
 - [x] **QUAR-05**: The microVM runner uses a pinned Firecracker version and a guest kernel plus ffprobe rootfs built by scripts in the repo (no binaries committed); documented steps set it up on the dev machine (WSL2 with `/dev/kvm`) and on the production Ubuntu Server box; the portal calls it through one stable interface so the sandbox can be swapped. (user)
 
 ### Shared Infrastructure
@@ -167,10 +167,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | MEDIA-01 | Phase 1 | Complete |
 | FILT-01 | Phase 1 | Complete |
 | FILT-02 | Phase 1 | Complete |
-| QUAR-01 | Phase 2.1 | Pending |
+| QUAR-01 | Phase 2.1 | Complete |
 | QUAR-02 | Phase 2.1 | Complete |
 | QUAR-03 | Phase 2.1 | Complete |
-| QUAR-04 | Phase 2.1 | Pending |
+| QUAR-04 | Phase 2.1 | Complete |
 | QUAR-05 | Phase 2.1 | Complete |
 | MEDIA-02 | Phase 4 | Pending |
 | MEDIA-03 | Phase 4 | Pending |

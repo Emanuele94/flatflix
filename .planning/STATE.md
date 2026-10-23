@@ -2,17 +2,17 @@
 gsd_state_version: "1.0"
 current_phase: "02.1"
 current_phase_name: Download Quarantine & Firecracker Validation (INSERTED)
-status: executing
-stopped_at: Completed 02.1-08-PLAN.md
-last_updated: "2026-10-23T20:35:45.371Z"
+status: verifying
+stopped_at: Completed 02.1-09-PLAN.md
+last_updated: "2026-10-23T21:13:35.796Z"
 last_activity: 2026-10-23
 last_activity_desc: Phase 02.1 execution started
-state_head: 94936bdf1a8cc21ea75842b339a18316e14c3e3d
+state_head: deb0f7962a2cd5f659bf701abf08a191fb9fda2d
 progress:
   total_phases: 7
   completed_phases: 2
   total_plans: 36
-  completed_plans: 35
+  completed_plans: 36
   percent: 29
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-10-23)
 
 Phase: 02.1 (Download Quarantine & Firecracker Validation (INSERTED)) — EXECUTING
 Plan: 9 of 9
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-10-23 — Phase 02.1 execution started
 
 Progress: [███░░░░░░░] 29%
@@ -92,6 +92,7 @@ Progress: [███░░░░░░░] 29%
 | Phase 02.1 P06 | 8 min | 2 tasks | 9 files |
 | Phase 02.1 P07 | 14 min | 3 tasks | 8 files |
 | Phase 02.1 P08 | 40 min | 3 tasks | 12 files |
+| Phase 02.1 P09 | 55 min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -166,6 +167,8 @@ Recent decisions affecting current work:
 - [Phase 02.1]: 02.1-08: deleteFiles keys on the save path: always true under quarantine (a verified film survives through its media hardlink), Phase 2 rule for legacy torrents; row_action and delete_files_for are the single rule for button and DELETE
 - [Phase 02.1]: 02.1-08: a verified row ages from its fx-ok tag; a checking row is never dropped by age and turns problem after 6 h; check_failed rows last 24 h, ready-with-note rows 7 d, and an outcome is never listed next to its torrent
 - [Phase 02.1]: 02.1-08: Cancel raises the HandoffGuard flag and deletes inside the per-torrent lock; the flag is lowered after the cancel (HandoffGuard.clear_cancel) so a re-added torrent is still checked
+- [Phase 02.1]: A proxy-name DNS lookup on the request path is bounded to 1 s and shared between concurrent requests (TrustedProxyHeaders)
+- [Phase 02.1]: smoke all tracks the film it started by an id absent from the list before the run and removes only that item
 
 ### Pending Todos
 
@@ -196,6 +199,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-23T20:35:45.113Z
-Stopped at: Completed 02.1-08-PLAN.md
+Last session: 2026-10-23T21:13:35.533Z
+Stopped at: Completed 02.1-09-PLAN.md
 Resume file: None
