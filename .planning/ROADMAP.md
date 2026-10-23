@@ -13,7 +13,7 @@ flatflix gives a non-technical household a two-step flow on the home LAN: search
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Portal Search & Start Download** - Log in from a phone, search films/series, start a download into the right folder; stack, port map and media contract set up (completed 2026-10-22)
-- [ ] **Phase 2: Portal Download Management & Hardening** - See and cancel downloads, friendly errors, rate limiting and audit logs
+- [x] **Phase 2: Portal Download Management & Hardening** - See and cancel downloads, friendly errors, rate limiting and audit logs (completed 2026-10-23)
 - [ ] **Phase 2.1: Download Quarantine & Firecracker Validation** (INSERTED) - Completed downloads are verified with ffprobe inside a Firecracker microVM before they reach the media folders
 - [ ] **Phase 3: Jellyfin Server & TV Playback Gate** - Jellyfin behind Caddy, stable LAN address, real-TV compatibility verdict, naming decision recorded
 - [ ] **Phase 4: Library Hand-off** - Portal downloads appear in Jellyfin with correct names and artwork, no manual steps
@@ -95,7 +95,7 @@ Plans:
   3. When qBittorrent is down, a torrent is invalid or a category path is wrong, the user sees a plain-language message (with automatic retry when qBittorrent is unreachable), never a raw error.
   4. Rapid repeated search or download requests are throttled, and the logs record logins, searches, downloads, cancels and errors without any credentials.
 
-**Plans**: 11/11 plans executed in 5 waves
+**Plans**: 11/11 plans complete in 5 waves
 
 Plans:
 **Wave 1**
@@ -200,7 +200,7 @@ Phases execute in numeric order: 1 → 2 → 2.1 → 3 → 4 → 5 → 6 (Phases
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Portal Search & Start Download | 16/16 | Complete    | 2026-10-22 |
-| 2. Portal Download Management & Hardening | 11/11 | In Progress | - |
+| 2. Portal Download Management & Hardening | 11/11 | Complete    | 2026-10-23 |
 | 2.1 Download Quarantine & Firecracker Validation | 0/TBD | Not started | - |
 | 3. Jellyfin Server & TV Playback Gate | 0/TBD | Not started | - |
 | 4. Library Hand-off | 0/TBD | Not started | - |

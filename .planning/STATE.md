@@ -1,43 +1,43 @@
 ---
 gsd_state_version: "1.0"
-current_phase: 02
-current_phase_name: Portal Download Management & Hardening
-status: verifying
-stopped_at: Completed 02-11-PLAN.md
-last_updated: "2026-10-22T20:50:36.379Z"
-last_activity: 2026-10-22
-last_activity_desc: Phase 02 execution started
-state_head: 08b2f075152e46322fd67de5ec4ff7ca4ef52176
+current_phase: "02.1"
+current_phase_name: Download Quarantine & Firecracker Validation
+status: planning
+stopped_at: Phase 02 complete, ready to plan Phase 02.1
+last_updated: "2026-10-23T10:03:05.502Z"
+last_activity: 2026-10-23
+last_activity_desc: Phase 02 complete, transitioned to Phase 02.1
+state_head: b343a00254470b90f6fb379c4d1eeecc22917d5b
 progress:
   total_phases: 7
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 27
   completed_plans: 27
-  percent: 14
+  percent: 29
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-10-21)
+See: .planning/PROJECT.md (updated 2026-10-23)
 
 **Core value:** A non-technical household member can get a film or series onto the TV using only a phone and the TV remote, and watch it in at least 1080p with no video transcoding.
-**Current focus:** Phase 02 — Portal Download Management & Hardening
+**Current focus:** Phase 02.1 — Download Quarantine & Firecracker Validation
 
 ## Current Position
 
-Phase: 02 (Portal Download Management & Hardening) — EXECUTING
-Plan: 11 of 11
-Status: Phase complete — ready for verification
-Last activity: 2026-10-22 — Phase 02 execution started
+Phase: 02.1 — Download Quarantine & Firecracker Validation
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-10-23 — Phase 02 complete, transitioned to Phase 02.1
 
-Progress: [█░░░░░░░░░] 14%
+Progress: [███░░░░░░░] 29%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 16
+- Total plans completed: 27
 - Average duration: - min
 - Total execution time: 0.0 hours
 
@@ -46,6 +46,7 @@ Progress: [█░░░░░░░░░] 14%
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 01 | 16 | - | - |
+| 02 | 11 | - | - |
 
 **Recent Trend:**
 - Last 5 plans: none yet
@@ -139,6 +140,7 @@ Recent decisions affecting current work:
 - [Phase 02]: 02-09: RedactingFilter keeps record.args structure and is installed on root and uvicorn handlers (RESEARCH A3 confirmed: uvicorn handlers do not propagate)
 - [Phase 02]: 02-10: Cancel and Remove share one id-only DELETE handler; a removed row is remembered with the poll number so an older poll cannot resurrect it
 - [Phase 02]: 02-11: the list integration test asserts one item with the synthetic torrent's id, not one item overall, so it passes beside the household's real downloads
+- [Phase 02]: Review fixes WR-01..WR-05: cancel keeps files of any torrent that ever finished (completion_on <= 0 pinned on the real engine); cancel re-reads before delete; sweep starts before the first lookup
 
 ### Pending Todos
 
@@ -148,7 +150,8 @@ None yet.
 
 - [Phase 1]: Port map (W3) and media-folder contract (W2) must be set when the portal stack first comes up; do not reuse host port 8080 for two services.
 - [Phase 1-2]: Do not preclude any naming option (W1): keep completed-torrent info (hash, name, category, content path) reachable from the backend and avoid freezing the download request body if Phase 3 picks portal-side renaming.
-- [Phase 1]: Add torrents stopped and filter the file list (FILT-02) before starting; keep the download flow able to route completed files to quarantine later (Phase 2.1 changes the save path).
+- [Phase 2.1]: Phase 2.1 changes the save path to quarantine; the Downloads list, cancel rule (cancel_deletes_files) and Film/SerieTV category filter must keep working for torrents saved under quarantine.
+- [Phase 2]: Audit lines and rate limits see the Docker gateway address on the WSL2 dev host; confirm real client addresses on the Ubuntu Server box. Info-level review items IN-01..IN-03 remain open (02-REVIEW-DISPOSITION.md).
 - [Phase 2.1]: Firecracker needs `/dev/kvm`: present on the WSL2 dev machine; the production Ubuntu Server box must be x86_64 with VT-x (Raspberry Pi 5 likely unsuitable). Guest kernel and rootfs must be built by repo scripts, not committed.
 - [Phase 3]: Naming decision (NAME-01) must be recorded before Phase 4 starts; Phase 3's Jellyfin library stays on a scratch sample folder until then.
 - [Phase 3]: TV compatibility gate may force a mitigation (re-encode, plan B stick, N100 hardware) that changes Phase 5 and 6 scope.
@@ -168,6 +171,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-22T20:50:36.189Z
-Stopped at: Completed 02-11-PLAN.md
+Last session: 2026-10-23T10:03:37.762Z
+Stopped at: Phase 02 complete, ready to plan Phase 02.1
 Resume file: None

@@ -18,12 +18,13 @@ Full list with IDs, source references and phase mapping: `.planning/REQUIREMENTS
 
 - ✓ Portal: login-protected, mobile-friendly search of films and series, results with size/seeders/leechers/source, one-tap download into the right predefined folder (Film or SerieTV) — Phase 1
 - ✓ Download filtering: only video and subtitle files are ever downloaded (qBittorrent exclusion list + per-file allowlist), torrents without a video are rejected up front — Phase 1
+- ✓ Portal: Downloads tab with in-progress and completed Film/SerieTV downloads, 5 s refresh, cancel (files deleted only for unfinished torrents) and remove, plain messages on qBittorrent outages, search/download rate limits, audit trail with secret redaction — Phase 2
+- ✓ Portal: phones pick up a new app version after a redeploy (no-cache index.html, immutable hashed assets) — Phase 2
+- ✓ Allowlist: main-video sizing counts every video format, so a large non-allowlisted film with a small allowed trailer is unsupported, not Started — Phase 2
 
 ### Active
 
-- [ ] Portal: see in-progress and completed downloads, cancel a download, friendly errors, rate limiting, audit logs — Phase 2
-- [ ] Portal: phones pick up a new app version after a redeploy (no-cache on index.html, long cache on hashed assets) — emerged in Phase 1 UAT (stale-client report)
-- [ ] Allowlist: count non-allowlisted videos when choosing the main file, so a large .webm/.mov film with a small .mp4 trailer is not reported as Started (code review WR-01) — emerged in Phase 1
+- [ ] Portal: confirm on the production Ubuntu Server box that audit lines and rate limits see real client addresses (WSL2 dev host shows the Docker gateway) — emerged in Phase 2 UAT
 - [ ] Quarantine: completed files are verified with ffprobe inside a throwaway Firecracker microVM before reaching the media folders; rejected files never reach Jellyfin — Phase 2.1
 - [ ] Jellyfin on the laptop behind Caddy (single origin), stable LAN IP, real-TV compatibility gate (H.264/HEVC, audio, subtitles) proving no video transcoding — Phase 3
 - [ ] Downloads from the portal land in Jellyfin's required naming layout and appear in the Film / SerieTV libraries without manual steps — Phase 4
@@ -96,6 +97,9 @@ No locked decisions. No ADRs were ingested (both source docs are unlocked SPECs)
 | Keep the FILT-02 allowlist (.mkv .mp4 .avi .m4v); a torrent whose only videos are another format gets its own "unsupported" status and message | User choice (option B) over widening the allowlist | Decided (user, 2026-10-22) |
 | Reload persistence via per-tab sessionStorage only; downloads list stays in Phase 2 | Smallest Phase-1 fix for reload during Preparing | Decided (user, 2026-10-22) |
 | qBittorrent Web API v2 coverage recorded in phase-01 COVERAGE.md (12 integrate, 9 opt-out) | api-coverage gate; per-torrent controls deferred to Phase 2 | Decided (2026-10-22) |
+| Cancel deletes files only for a torrent that never finished (in-progress state, progress < 1, `completion_on <= 0`, live re-read before delete) | Protects finished films (D-33); code review WR-01/WR-02/WR-05, pinned against qBittorrent 5.2.4 | Decided (Phase 2) |
+| Rate limits per client address only: 10 searches and 20 downloads per minute, no global ceiling | Household on one LAN; shared budget accepted where the host hides addresses (AR-04) | Decided (Phase 2) |
+| Audit trail on stdout with json-file rotation (10m x 5), secrets redacted; qBittorrent password should be at least 8 characters | Admin reads `docker compose logs backend`; no log volume (D-40) | Decided (Phase 2) |
 
 ## Evolution
 
@@ -115,4 +119,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-22 after Phase 1*
+*Last updated: 2026-10-23 after Phase 2*
