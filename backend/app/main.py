@@ -22,6 +22,9 @@ from app.download.pipeline import DownloadPipeline
 from app.proxy import TrustedProxyHeaders
 from app.qbit.bootstrap import Bootstrapper, Readiness
 from app.qbit.client import QbitClient
+from app.quarantine.guard import HandoffGuard
+from app.quarantine.runner_client import RunnerClient
+from app.quarantine.verifier import Verifier
 from app.routers import auth, download, downloads, health, search
 from app.search.service import SearchService
 from app.throttle import THROTTLE_WINDOW_SECONDS, SlidingWindowThrottle
@@ -39,7 +42,11 @@ def configure_logging(level: str, secrets: Sequence[str] = ()) -> None:
     audit.install_redaction(secrets)
 
 
-def create_app(settings: Settings | None = None, qbit: QbitClient | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    qbit: QbitClient | None = None,
+    runner: RunnerClient | None = None,
+) -> FastAPI:
     # Resolved eagerly: middleware added by later plans needs settings at build time.
     settings = settings or get_settings()
     configure_logging(
@@ -70,16 +77,35 @@ def create_app(settings: Settings | None = None, qbit: QbitClient | None = None)
                 on_ready=lambda: app.state.pipeline.reconcile(),
             ).run_forever()
         )
+        app.state.runner = runner or RunnerClient(
+            settings.sandbox_url, timeout=settings.probe_timeout_seconds
+        )
+        app.state.guard = HandoffGuard()
+        app.state.verifier = Verifier(
+            app.state.qbit,
+            app.state.runner,
+            settings,
+            guard=app.state.guard,
+            readiness=app.state.readiness,
+        )
+        # No phone needs to be open for a finished download to be checked (D-50). It starts
+        # ticking only after bootstrap marked readiness ready, and the strong reference keeps the
+        # task from being collected.
+        app.state.verify_task = asyncio.create_task(app.state.verifier.run_forever())
         try:
             yield
         finally:
             app.state.bootstrap_task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await app.state.bootstrap_task
+            app.state.verify_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await app.state.verify_task
             # Running downloads stop here; whatever is still fx-pending is resumed next start.
             await app.state.jobs.shutdown()
             # Before the client closes, so running searches do not linger in qBittorrent.
             await app.state.search.close()
+            await app.state.runner.aclose()
             await app.state.qbit.aclose()
 
     app = FastAPI(

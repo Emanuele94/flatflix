@@ -211,7 +211,7 @@ def add_film(rig: Rig, **kwargs) -> None:
     rig.runner.script(FILM_REL, film_facts(duration=6000.0))
 
 
-async def test_an_unreachable_runner_waits_and_one_outage_writes_one_audit_line(
+async def test_runner_unavailable_waits_and_one_outage_writes_one_audit_line(
     rig: Rig, caplog: pytest.LogCaptureFixture
 ) -> None:
     caplog.set_level(logging.INFO, logger="app.audit")
@@ -235,7 +235,7 @@ async def test_an_unreachable_runner_waits_and_one_outage_writes_one_audit_line(
     assert len(rig.tag_calls()) == 1
 
 
-async def test_a_503_from_the_runner_names_its_reason_and_stops_the_tick(
+async def test_runner_down_503_names_its_reason_and_stops_the_tick(
     rig: Rig, caplog: pytest.LogCaptureFixture
 ) -> None:
     caplog.set_level(logging.INFO, logger="app.audit")

@@ -102,6 +102,16 @@ def removed(ip: str, action: str, name: str | None, outcome: str) -> None:
     )
 
 
+def quarantine_passed(name: str | None, files: int) -> None:
+    """A torrent passed the sandbox check and its files were linked into media (D-54)."""
+    audit_logger.info("event=quarantine.passed name=%s files=%s", _text(name), _token(files))
+
+
+def quarantine_runner_unavailable(why: str) -> None:
+    """The sandbox cannot be used right now; written once per outage, not once per tick (D-58)."""
+    audit_logger.info("event=quarantine.runner_unavailable why=%s", _token(why))
+
+
 def error(where: str, exc_class: str, status: int | None, ip: str | None = None) -> None:
     """Class name and status only: an exception text could carry a URL or a credential."""
     where_text = f"event=error where={_token(where)}"
