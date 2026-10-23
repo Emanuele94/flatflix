@@ -8,8 +8,11 @@ file is caught by the bitrate band, while BitTorrent piece hashing guarantees co
 """
 
 import math
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from typing import Literal
 
+from app.content_type import ContentType
 from app.quarantine.runner_client import ProbeFacts
 
 
@@ -78,3 +81,41 @@ def judge(
     if bits > max_kbps * 1000 * duration:
         return fail("bitrate_high")
     return PASS
+
+
+@dataclass(frozen=True, slots=True)
+class FileToCheck:
+    index: int
+    name: str
+    size: int
+    kind: Literal["video", "subtitle"]
+    is_main: bool
+
+
+def summary(facts: ProbeFacts) -> dict[str, str]:
+    return {}
+
+
+def files_to_check(rows: Sequence[dict], content_type: ContentType) -> list[FileToCheck]:
+    return []
+
+
+def min_minutes_for(
+    content_type: ContentType, is_main: bool, *, film_minutes: float, episode_minutes: float
+) -> float:
+    return 0.0
+
+
+TAG_VERIFIED_PREFIX = "fx-ok-"
+
+
+def verified_tag(epoch: float) -> str:
+    return ""
+
+
+def verified_at(tags: Iterable[str]) -> float | None:
+    return None
+
+
+def in_quarantine(save_path: str, quarantine_root: str) -> bool:
+    return False
