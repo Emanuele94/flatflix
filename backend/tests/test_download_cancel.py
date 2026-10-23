@@ -5,15 +5,28 @@ qBittorrent (`fake.deleted`) and what the list shows afterwards.
 """
 
 import asyncio
+import os
 import time
+from collections.abc import AsyncIterator
+from pathlib import Path
 
 import httpx
+import pytest
 from fastapi import FastAPI
 
-from app.download.jobs import Job, JobState
+from app.config import Settings
+from app.download.jobs import Job, JobRegistry, JobState
 from app.download.listing import download_id
-from tests.conftest import PORTAL_SECRET_KEY
+from app.download.pipeline import DownloadPipeline
+from app.qbit.client import QbitClient
+from app.quarantine.guard import HandoffGuard
+from app.quarantine.outcomes import Outcome, OutcomeStore
+from app.quarantine.runner_client import RunnerClient
+from app.quarantine.verifier import Verifier
+from app.search.service import SearchService
+from tests.conftest import PORTAL_SECRET_KEY, QBIT_PASS, QBIT_USER
 from tests.fakeqbit import FakeQbit
+from tests.fakerunner import film_facts
 
 # The download rig (fake clock, cached result, pipeline) is shared with the pipeline tests.
 from tests.test_download_pipeline import (  # noqa: F401
@@ -26,6 +39,10 @@ from tests.test_download_pipeline import (  # noqa: F401
     clock,
     rig,
 )
+
+# The verifier rig (sparse files, fake runner) is shared for the cancel-during-probe case.
+from tests.test_quarantine_verifier import GB, TrackingRunner, make_settings, put_file
+from tests.test_quarantine_verifier import Rig as VerifierRig
 
 HASH = "a" * 40
 
@@ -294,3 +311,255 @@ async def test_a_torrent_of_a_cancelled_job_is_not_listed(
 
     assert response.json() == {"items": []}
     assert download_id(PORTAL_SECRET_KEY, HASH) not in response.text
+
+
+# -- Phase 2.1: Cancel and Remove under the quarantine layout (D-47, D-49, D-53, D-79) ------------
+
+DAY = 86400
+
+
+def quarantine_path(settings: Settings, category: str = "Film") -> str:
+    return f"{settings.quarantine_root}/{category}"
+
+
+async def delete_item(user_api: httpx.AsyncClient) -> tuple[dict, httpx.Response]:
+    (item,) = (await user_api.get("/api/downloads")).json()["items"]
+    return item, await user_api.delete(f"/api/downloads/{item['id']}")
+
+
+async def test_cancel_on_a_checking_torrent_deletes_the_quarantine_files(
+    user_api: httpx.AsyncClient, fake_qbit: FakeQbit, settings: Settings, app: FastAPI
+) -> None:
+    fake_qbit.add_torrent_row(
+        HASH, category="Film", state="stalledUP", progress=1.0, completion_on=int(time.time()) - 60,
+        save_path=quarantine_path(settings),
+    )  # fmt: skip
+    wanted = download_id(PORTAL_SECRET_KEY, HASH)
+
+    outcome = await app.state.pipeline.cancel(wanted)
+
+    assert outcome is not None
+    assert (outcome.action, outcome.deleted_files) == ("cancel", True)
+    assert fake_qbit.deleted == [(HASH, True)]
+
+
+async def test_the_checking_row_says_cancel_and_delete_answers_204_with_files_deleted(
+    user_api: httpx.AsyncClient, fake_qbit: FakeQbit, settings: Settings
+) -> None:
+    fake_qbit.add_torrent_row(
+        HASH, category="Film", state="stalledUP", progress=1.0, completion_on=int(time.time()) - 60,
+        save_path=quarantine_path(settings),
+    )  # fmt: skip
+
+    item, response = await delete_item(user_api)
+
+    assert (item["state"], item["action"]) == ("checking", "cancel")
+    assert response.status_code == 204
+    assert fake_qbit.deleted == [(HASH, True)]
+
+
+async def test_cancel_on_a_problem_row_deletes_the_quarantine_files(
+    user_api: httpx.AsyncClient, fake_qbit: FakeQbit, settings: Settings
+) -> None:
+    fake_qbit.add_torrent_row(
+        HASH, category="Film", state="stalledUP", progress=1.0,
+        completion_on=int(time.time()) - 7 * 3600, save_path=quarantine_path(settings),
+    )  # fmt: skip
+
+    item, response = await delete_item(user_api)
+
+    assert (item["state"], item["action"]) == ("problem", "cancel")
+    assert response.status_code == 204
+    assert fake_qbit.deleted == [(HASH, True)]
+
+
+async def test_cancel_on_a_download_in_progress_under_quarantine_deletes_its_files(
+    user_api: httpx.AsyncClient, fake_qbit: FakeQbit, settings: Settings
+) -> None:
+    fake_qbit.add_torrent_row(
+        HASH, category="Film", state="downloading", progress=0.4,
+        save_path=quarantine_path(settings),
+    )  # fmt: skip
+
+    item, response = await delete_item(user_api)
+
+    assert item["action"] == "cancel"
+    assert response.status_code == 204
+    assert fake_qbit.deleted == [(HASH, True)]
+
+
+async def test_remove_on_a_verified_row_deletes_only_the_quarantine_name_and_keeps_the_film(
+    user_api: httpx.AsyncClient, fake_qbit: FakeQbit, settings: Settings, tmp_path: Path
+) -> None:
+    # The film is hardlinked into media; qBittorrent's delete removes the quarantine name only.
+    quarantined = put_file(tmp_path / "quarantine" / "Film" / "Movie" / "movie.mkv", 1024)
+    linked = tmp_path / "media" / "Film" / "Movie" / "movie.mkv"
+    linked.parent.mkdir(parents=True)
+    os.link(quarantined, linked)
+    now = int(time.time())
+    fake_qbit.add_torrent_row(
+        HASH, category="Film", state="stalledUP", progress=1.0, completion_on=now - 60,
+        tags=(f"fx-ok-{now}",), save_path=quarantine_path(settings),
+    )  # fmt: skip
+    real_delete = fake_qbit._torrents_delete
+
+    def delete_the_quarantine_name(request: httpx.Request) -> httpx.Response:
+        if "deleteFiles=true" in request.content.decode():
+            quarantined.unlink()
+        return real_delete(request)
+
+    fake_qbit.register("POST", "/api/v2/torrents/delete", delete_the_quarantine_name)
+
+    item, response = await delete_item(user_api)
+
+    assert (item["state"], item["action"]) == ("ready", "remove")
+    assert response.status_code == 204
+    assert fake_qbit.deleted == [(HASH, True)]
+    assert linked.exists() and not quarantined.exists()
+
+
+@pytest.mark.parametrize(
+    ("state", "progress", "deletes"),
+    [("stalledUP", 1.0, False), ("missingFiles", 1.0, False), ("downloading", 0.4, True)],
+)
+async def test_a_legacy_torrent_outside_quarantine_keeps_the_phase_two_rule(
+    user_api: httpx.AsyncClient, fake_qbit: FakeQbit, state: str, progress: float, deletes: bool
+) -> None:
+    fake_qbit.add_torrent_row(
+        HASH, category="Film", state=state, progress=progress,
+        completion_on=int(time.time()) - 60 if progress >= 1 else -1,
+        save_path="/data/media/Film",
+    )  # fmt: skip
+
+    item, response = await delete_item(user_api)
+
+    assert item["action"] == ("cancel" if deletes else "remove")
+    assert response.status_code == 204
+    assert fake_qbit.deleted == [(HASH, deletes)]
+
+
+# (raw state, progress, verified tag, save path kind): the button must name what DELETE does.
+ROWS = [
+    ("stalledUP", 1.0, False, "quarantine"),
+    ("stalledUP", 1.0, True, "quarantine"),
+    ("downloading", 0.4, False, "quarantine"),
+    ("stalledDL", 0.2, False, "quarantine"),
+    ("metaDL", 0.0, False, "quarantine"),
+    ("stoppedUP", 1.0, True, "quarantine"),
+    ("stalledUP", 1.0, False, "legacy"),
+    ("missingFiles", 1.0, False, "legacy"),
+    ("downloading", 0.4, False, "legacy"),
+    ("stalledDL", 0.2, False, "legacy"),
+]
+
+
+@pytest.mark.parametrize(("state", "progress", "verified", "where"), ROWS)
+async def test_every_rows_action_equals_what_delete_then_does(
+    user_api: httpx.AsyncClient,
+    fake_qbit: FakeQbit,
+    settings: Settings,
+    state: str,
+    progress: float,
+    verified: bool,
+    where: str,
+) -> None:
+    now = int(time.time())
+    fake_qbit.add_torrent_row(
+        HASH, category="Film", state=state, progress=progress,
+        completion_on=now - 60 if progress >= 1 else -1,
+        tags=(f"fx-ok-{now}",) if verified else (),
+        save_path=quarantine_path(settings) if where == "quarantine" else "/data/media/Film",
+    )  # fmt: skip
+
+    item, response = await delete_item(user_api)
+
+    assert response.status_code == 204
+    ((_, files_deleted),) = fake_qbit.deleted
+    if where == "quarantine":
+        assert files_deleted is True  # only the quarantine name goes; a verified film is linked
+        assert item["action"] == ("remove" if verified else "cancel")
+    else:
+        assert files_deleted is (item["action"] == "cancel")
+
+
+async def test_removing_a_ready_outcome_row_deletes_its_sidecar_only(
+    user_api: httpx.AsyncClient, fake_qbit: FakeQbit, app: FastAPI, tmp_path: Path
+) -> None:
+    store = app.state.outcomes = OutcomeStore(tmp_path / "rejected")
+    outcome_id = download_id(PORTAL_SECRET_KEY, "9" * 40)
+    store.write(Outcome(outcome_id, "Dune", "film", "ready", 1, time.time() - DAY))
+
+    item, response = await delete_item(user_api)
+
+    assert (item["id"], item["state"], item["action"]) == (outcome_id, "ready", "remove")
+    assert response.status_code == 204
+    assert store.get(outcome_id) is None
+    assert (await user_api.get("/api/downloads")).json() == {"items": []}
+    assert fake_qbit.deleted == []
+
+
+async def test_a_check_failed_outcome_row_has_no_action_and_delete_answers_404(
+    user_api: httpx.AsyncClient, fake_qbit: FakeQbit, app: FastAPI, tmp_path: Path
+) -> None:
+    store = app.state.outcomes = OutcomeStore(tmp_path / "rejected")
+    outcome_id = download_id(PORTAL_SECRET_KEY, "9" * 40)
+    store.write(Outcome(outcome_id, "Dune", "film", "rejected", 0, time.time() - 60))
+
+    response = await user_api.delete(f"/api/downloads/{outcome_id}")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "download_not_found"}
+    assert store.get(outcome_id) is not None
+    assert fake_qbit.deleted == []
+
+
+# -- a Cancel during a probe always wins (RESEARCH Pitfall 10, T-02.1-30) -------------------------
+
+
+@pytest.fixture
+async def vrig(tmp_path: Path) -> AsyncIterator[VerifierRig]:
+    settings = make_settings(tmp_path)
+    fake = FakeQbit(QBIT_USER, QBIT_PASS)
+    runner = TrackingRunner()
+    qbit = QbitClient(
+        settings.qbittorrent_url,
+        settings.qbittorrent_user,
+        settings.qbittorrent_pass,
+        transport=fake.transport,
+    )
+    runner_client = RunnerClient(settings.sandbox_url, transport=runner.transport)
+    guard = HandoffGuard()
+    verifier = Verifier(qbit, runner_client, settings, guard=guard, clock=lambda: 1_700_000_000.0)
+    yield VerifierRig(settings, fake, runner, verifier, qbit, runner_client, guard)
+    await qbit.aclose()
+    await runner_client.aclose()
+
+
+async def test_a_cancel_during_the_probe_wins_and_the_verifier_links_nothing(
+    vrig: VerifierRig,
+) -> None:
+    vrig.add_finished("a" * 40, "Movie", [("Movie/movie.mkv", 4 * GB)])
+    vrig.runner.script("Film/Movie/movie.mkv", film_facts(duration=6000.0))
+    vrig.runner.hold = asyncio.Event()
+    pipeline = DownloadPipeline(
+        vrig.qbit,
+        vrig.settings,
+        SearchService(vrig.qbit, vrig.settings),
+        JobRegistry(),
+        guard=vrig.guard,
+    )
+    check = asyncio.create_task(vrig.verifier.run_once())
+    await asyncio.wait_for(vrig.runner.started.wait(), 5)
+
+    outcome = await pipeline.cancel(
+        download_id(vrig.settings.secret_key.get_secret_value(), "a" * 40)
+    )
+    vrig.runner.hold.set()
+    await asyncio.wait_for(check, 5)
+
+    assert outcome is not None and outcome.action == "cancel"
+    assert vrig.guard.cancel_requested("a" * 40)
+    assert vrig.fake.deleted == [("a" * 40, True)]
+    assert vrig.media_files() == []
+    assert vrig.tag_calls() == []
+    assert vrig.fake.torrents == {}

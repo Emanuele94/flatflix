@@ -8,8 +8,10 @@ session cookie name or a category key. A failing assertion names the marker, nev
 
 import hashlib
 import re
+import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import httpx
 import pytest
@@ -18,8 +20,10 @@ from fastapi.routing import iter_route_contexts
 from pydantic import SecretStr
 
 from app.config import Settings
+from app.download.listing import download_id
 from app.main import create_app
 from app.qbit.client import QbitClient
+from app.quarantine.outcomes import Outcome, OutcomeStore
 from tests.conftest import (
     PORTAL_PASS_HASH,
     PORTAL_PASSWORD,
@@ -248,6 +252,39 @@ async def test_no_response_carries_a_secret_path_magnet_or_category(
         seen.record(f"auth {method} {path}", await client.request(method, path, json={}))
 
     assert len(seen.responses) > 20
+    assert seen.leaks() == []
+
+
+async def test_a_checking_torrent_and_a_rejected_outcome_leak_no_marker(
+    canary_app: tuple[FastAPI, FakeQbit], client: httpx.AsyncClient, tmp_path: Path
+) -> None:
+    app, fake = canary_app
+    seen = Seen()
+    await log_in(client)
+    fake.add_torrent_row(
+        "c" * 40,
+        name="Canary Checking",
+        category=CANARY_FILM_CATEGORY,
+        state="stalledUP",
+        progress=1.0,
+        completion_on=int(time.time()) - 60,
+        save_path=CANARY_FILM_PATH,
+    )
+    store = app.state.outcomes = OutcomeStore(tmp_path / "rejected")
+    held_id = download_id(CANARY_SECRET_KEY, "d" * 40)
+    store.write(Outcome(held_id, "Canary Rejected", "film", "rejected", 2, time.time() - 60))
+
+    listing = seen.record("downloads list", await client.get("/api/downloads"))
+    items = {item["state"]: item for item in listing.json()["items"]}
+    assert set(items) == {"checking", "check_failed"}, "the canary rows never reached the list"
+    cancel = seen.record(
+        "cancel checking", await client.delete(f"/api/downloads/{items['checking']['id']}")
+    )
+    refused = seen.record("delete rejected", await client.delete(f"/api/downloads/{held_id}"))
+    assert cancel.status_code == 204
+    assert refused.status_code == 404
+    assert fake.deleted == [("c" * 40, True)], "the cancel never reached qBittorrent"
+
     assert seen.leaks() == []
 
 
