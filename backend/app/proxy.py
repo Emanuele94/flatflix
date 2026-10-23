@@ -11,6 +11,7 @@ default). Any other peer keeps its own address, so a spoofing container is throt
 Names that do not resolve trust nobody.
 """
 
+import asyncio
 import ipaddress
 import logging
 import time
@@ -29,6 +30,10 @@ Resolver = Callable[[str], Awaitable[list[str]]]
 # into a flood of DNS queries).
 RESOLVE_TTL_SECONDS = 30.0
 RESOLVE_MIN_INTERVAL_SECONDS = 2.0
+# A lookup never holds a request longer than this. A running proxy container resolves in
+# milliseconds; a name that is not running is forwarded upstream by Docker's DNS and can take about
+# 5 s to fail, which would outlast the backend healthcheck and keep the proxy from ever starting.
+RESOLVE_TIMEOUT_SECONDS = 1.0
 
 
 def _normalize(address: str) -> str | None:
@@ -55,25 +60,34 @@ class TrustedProxyHeaders:
         self._clock = clock
         self._trusted: frozenset[str] = frozenset()
         self._resolved_at: float | None = None
+        self._lock = asyncio.Lock()
 
     async def _refresh(self) -> None:
         trusted: set[str] = set()
         for host in self._hosts:
             try:
-                addresses = await (self._resolver or netutil.resolve_host)(host)
-            except OSError:
-                continue  # not resolvable (yet): trust nobody for this name
+                addresses = await asyncio.wait_for(
+                    (self._resolver or netutil.resolve_host)(host), RESOLVE_TIMEOUT_SECONDS
+                )
+            except (OSError, TimeoutError):
+                continue  # not resolvable (yet) or too slow: trust nobody for this name
             trusted.update(a for a in map(_normalize, addresses) if a is not None)
         self._trusted = frozenset(trusted)
         self._resolved_at = self._clock()
 
-    async def _is_trusted(self, peer: str) -> bool:
-        now = self._clock()
-        age = None if self._resolved_at is None else now - self._resolved_at
+    def _needs_refresh(self, peer: str) -> bool:
+        age = None if self._resolved_at is None else self._clock() - self._resolved_at
         if age is None or age > RESOLVE_TTL_SECONDS:
-            await self._refresh()
-        elif peer not in self._trusted and age > RESOLVE_MIN_INTERVAL_SECONDS:
-            await self._refresh()  # maybe the proxy was recreated with a new address
+            return True
+        # maybe the proxy was recreated with a new address
+        return peer not in self._trusted and age > RESOLVE_MIN_INTERVAL_SECONDS
+
+    async def _is_trusted(self, peer: str) -> bool:
+        if self._needs_refresh(peer):
+            # One lookup at a time: requests that queued behind it find it fresh and move on.
+            async with self._lock:
+                if self._needs_refresh(peer):
+                    await self._refresh()
         return peer in self._trusted
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:

@@ -1,5 +1,7 @@
 """The client address behind Caddy: X-Forwarded-For is believed from the proxy only (WR-02)."""
 
+import asyncio
+
 import httpx
 import pytest
 from fastapi import FastAPI
@@ -120,6 +122,42 @@ async def test_unknown_peers_do_not_cause_a_lookup_per_request() -> None:
     middleware, _ = make(resolver, Clock())
     for _ in range(50):
         await call(middleware, OTHER, REAL_CLIENT.encode())
+
+    assert len(lookups) == 1
+
+
+async def test_a_name_that_never_resolves_cannot_hold_a_request_for_long(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Real stack, 2026-10: with the proxy container not started, Docker's DNS forwarded `web`
+    upstream and answered only after about 5 s, so every request waited that long, the backend
+    healthcheck (3 s) failed and the proxy never started. A lookup is bounded."""
+    monkeypatch.setattr("app.proxy.RESOLVE_TIMEOUT_SECONDS", 0.05)
+
+    async def resolver(host: str) -> list[str]:
+        await asyncio.sleep(3600)
+        return [PROXY]
+
+    middleware, seen = make(resolver)
+    await asyncio.wait_for(call(middleware, OTHER, REAL_CLIENT.encode()), timeout=2)
+
+    assert seen == [(OTHER, 5000)]  # nobody is trusted: the peer keeps its own address
+
+
+async def test_concurrent_requests_share_one_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.proxy.RESOLVE_TIMEOUT_SECONDS", 0.2)
+    lookups: list[str] = []
+
+    async def resolver(host: str) -> list[str]:
+        lookups.append(host)
+        await asyncio.sleep(3600)
+        return [PROXY]
+
+    middleware, _ = make(resolver)
+    await asyncio.wait_for(
+        asyncio.gather(*(call(middleware, OTHER, REAL_CLIENT.encode()) for _ in range(20))),
+        timeout=3,
+    )
 
     assert len(lookups) == 1
 
