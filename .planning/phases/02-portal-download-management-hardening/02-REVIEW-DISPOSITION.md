@@ -6,41 +6,51 @@ findings:
   - id: WR-01
     severity: warning
     disposition: fixed
-    title: "\"Completed\" is judged by `progress` alone, so a finished film in a checking state can be offered \"Cancel\" and have its files deleted"
+    title: "\"Completed\" is judged by progress alone"
   - id: WR-02
     severity: warning
     disposition: fixed
-    title: "Time-of-check/time-of-use gap between reading the row and `torrents/delete?deleteFiles=true`"
+    title: "Time-of-check/time-of-use gap before torrents/delete"
   - id: WR-03
     severity: warning
     disposition: fixed
-    title: "A failed sweep in `_cancel_job_without_torrent` leaves a cancelled job's torrent stranded, hidden, and possibly resumed"
+    title: "Failed sweep strands a cancelled torrent"
   - id: WR-04
     severity: warning
     disposition: fixed
-    title: "`RedactingFilter` skips non-string `record.msg` and short secrets, though its docstring and docs promise \"never written\""
+    title: "RedactingFilter skips non-string msg and short secrets"
+  - id: WR-05
+    severity: warning
+    disposition: fixed
+    title: "completion_on <= 0 never checked against the real qBittorrent"
   - id: IN-01
     severity: info
     disposition: open
-    title: "`SlidingWindowThrottle._attempts` never evicts addresses that do not come back"
+    title: "SlidingWindowThrottle never evicts addresses"
   - id: IN-02
     severity: info
     disposition: open
     title: "Client-address helper duplicated in five places"
-open: 2
-total: 6
-recorded: 2026-10-22T21:30:39.761Z
+  - id: IN-03
+    severity: info
+    disposition: open
+    title: "Cancel sweep decides on files without a re-read"
+open: 3
+total: 8
+recorded: 2026-10-23T09:58:39.882Z
 ---
 
 # Phase 02: Code Review Disposition
 
 | Finding | Severity | Disposition | Source |
 |---------|----------|-------------|--------|
-| WR-01 | warning | fixed | 02-REVIEW-FIX.md (9745bc9) |
-| WR-02 | warning | fixed | 02-REVIEW-FIX.md (76c2328) |
-| WR-03 | warning | fixed | 02-REVIEW-FIX.md (c64fdc9) |
-| WR-04 | warning | fixed | 02-REVIEW-FIX.md (8e3a5a2) |
+| WR-01 | warning | fixed | 02-REVIEW-FIX.md (9745bc9) (not in the current review) |
+| WR-02 | warning | fixed | 02-REVIEW-FIX.md (76c2328) (not in the current review) |
+| WR-03 | warning | fixed | 02-REVIEW-FIX.md (c64fdc9) (not in the current review) |
+| WR-04 | warning | fixed | 02-REVIEW-FIX.md (8e3a5a2) (not in the current review) |
+| WR-05 | warning | fixed | d52e054: real-engine test asserts completion_on <= 0 and action cancel (7 passed vs qBittorrent 5.2.4) |
 | IN-01 | info | open | - |
 | IN-02 | info | open | - |
+| IN-03 | info | open | - |
 
 Dispositions: `open` (recorded, not yet triaged), `fixed`, `skipped`, `deferred`.
