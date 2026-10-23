@@ -9,10 +9,28 @@ address, a password or the local `.env`.
 
 ## Prerequisites
 
+Every download is checked in a throwaway microVM (Firecracker) before it reaches the media
+folders, so both machines need an **x86_64 CPU with virtualization switched on** and a working
+`/dev/kvm`. A Raspberry Pi or any ARM board cannot run the safety check.
+
 - Dev laptop (Windows): Docker Desktop with WSL integration enabled for the
   distro you work in (Docker Desktop -> Settings -> Resources -> WSL
   integration, D-20). `docker compose version` must work inside the distro.
-- Production box: Ubuntu Server with Docker Engine and the compose plugin.
+  Virtualization must be on in the BIOS, and WSL2 needs nested virtualization so
+  `/dev/kvm` exists in the distro: `ls -l /dev/kvm` must list a device. Docker Desktop
+  passes it on to the sandbox container.
+- Production box (Ubuntu Server, x86_64 only): Docker Engine and the compose plugin from
+  Docker's apt repository (not the distro's `docker.io` package), then check virtualization:
+
+  ```
+  sudo apt install cpu-checker
+  kvm-ok
+  uname -r
+  ```
+
+  `kvm-ok` must say "KVM acceleration can be used". Note the kernel from `uname -r`:
+  Firecracker validates host kernels 5.10, 6.1 and 6.18; other versions are expected to
+  work but are not validated.
 - `uv` for the helper scripts and the backend tests.
 
 ## First run
@@ -54,6 +72,9 @@ address, a password or the local `.env`.
    bash scripts/init-host-dirs.sh
    ```
 
+   It creates the whole `DATA_ROOT` tree (`media`, `quarantine`, `rejected`,
+   `incomplete`) and checks that `KVM_GID` in `.env` equals the group of `/dev/kvm`
+   (`dev_env.py` filled it in step 1; `stat -c %g /dev/kvm` prints the real one).
    `SAVE_PATH_FILM`, `SAVE_PATH_TV` and `INCOMPLETE_PATH` in `.env` must match
    the container mounts in `docker-compose.yml`; otherwise qBittorrent writes
    to a folder nothing scans. The defaults already match.
@@ -64,14 +85,18 @@ address, a password or the local `.env`.
    docker compose up -d --build --wait
    ```
 
-5. Check that qBittorrent is configured the way the portal needs:
+   The first build also compiles the sandbox kernel: about 8 minutes on the dev laptop
+   and longer on a small box (an N100 takes noticeably more). Later builds reuse the cache.
+
+5. Check that qBittorrent and the sandbox are set up the way the portal needs:
 
    ```
    docker compose exec -T backend python -m app.tools.doctor --wait 120
    ```
 
    Every line must start with `OK`. The first start installs the search plugins
-   and sets the categories, so allow up to two minutes.
+   and sets the categories, so allow up to two minutes. The doctor also checks the
+   sandbox (see "The doctor's sandbox lines" below).
 
 6. Optional end-to-end probe (log in, search, start one open-licensed film,
    scan every response for leaks):
@@ -82,7 +107,9 @@ address, a password or the local `.env`.
 
    It only ever starts the Blender open movies (Big Buck Bunny, Sintel, Tears
    of Steel, Elephants Dream, Cosmos Laundromat; CC BY). `doctor --torrents`
-   lists what the portal has added.
+   lists what the portal has added. `all` follows one film through Checking to
+   Ready and Remove, which needs a lowered film minimum: see "Tests and the smoke
+   probe" below.
 
 ## Phone access (D-04)
 
@@ -250,9 +277,159 @@ phone's cache.
 
 ## Where files go
 
-Finished films land in `data/media/Film` and series in `data/media/SerieTV`
-(or under `MEDIA_ROOT`); partial downloads stay in the incomplete folder until
-they finish. See the media contract in [ports-and-media.md](ports-and-media.md).
+Everything lives under one host folder, `DATA_ROOT` (default `./data`):
+
+- `quarantine/Film` and `quarantine/SerieTV`: finished downloads wait and seed here until the
+  safety check passes.
+- `media/Film` and `media/SerieTV`: checked films and series, hardlinked from quarantine.
+  Nothing else writes here.
+- `rejected`: files that failed the check, owner-only, purged after `REJECTED_RETENTION_DAYS`.
+- `incomplete`: partial downloads.
+
+See the media contract in [ports-and-media.md](ports-and-media.md). All of it must be on one
+filesystem on the Linux side (never `/mnt/c` on WSL), because the hand-off is a hardlink and
+the backend never copies.
+
+## Upgrading from Phase 2
+
+Phase 2 saved films straight into `media`. From now on they wait in quarantine first.
+
+1. Pull the new version and add the new keys: `uv run --project backend --frozen python scripts/dev_env.py`
+   (it adds what is missing and fills `KVM_GID`; it never overwrites a value).
+2. In `.env` set `SAVE_PATH_FILM=/data/quarantine/Film`, `SAVE_PATH_TV=/data/quarantine/SerieTV`
+   and `INCOMPLETE_PATH=/data/incomplete`, and delete the two old host-path keys
+   (`MEDIA_ROOT` and the old incomplete host path). `DATA_ROOT` is the one host folder now.
+3. `bash scripts/init-host-dirs.sh`, then `docker compose up -d --build --wait`.
+4. Move your existing films if they sit in an old folder: they must end up under
+   `DATA_ROOT/media/Film` and `DATA_ROOT/media/SerieTV`. Films already in media are not
+   re-checked (D-49).
+5. Open the qBittorrent WebUI (admin override, see "qBittorrent WebUI") and remove every
+   Phase 1-2 torrent from the Film and SerieTV categories with **"Also delete the files"
+   unchecked** (D-79). The films stay in media. A torrent that still saves outside
+   quarantine is never checked, and the doctor's `note:` line counts them; it should
+   read 0 when you are done.
+6. Run the doctor again: every line `OK`.
+
+## Safety check of finished downloads
+
+What the household sees on the Downloads tab:
+
+- **Checking...** a finished download is being looked at. It takes a few minutes.
+- **Ready** the film passed and is in the library.
+- **Ready with a note** the film passed but some extra files (a sample, an unwanted file) were left out.
+- **Didn't pass the safety check** the file was held back and the download removed. The tab shows
+  it for 24 hours.
+- **Problem** the check has been waiting longer than `CHECKING_PROBLEM_HOURS` (default 6), usually
+  because the sandbox is down. Nothing is lost.
+
+The rules, in plain words. A video file passes only when its container matches its extension, it
+holds a real video stream, it runs at least `MIN_FILM_DURATION_MINUTES` (film, default 40) or
+`MIN_EPISODE_DURATION_MINUTES` (episode, default 10), and its size is plausible for its length
+(`MIN_BITRATE_KBPS` to `MAX_BITRATE_KBPS`). Subtitles are screened by size and content without
+starting a VM (`SUBTITLE_TEXT_MAX_MB`, `SUBTITLE_BITMAP_MAX_MB`).
+
+How it runs. Each video gets its own microVM: no network, the file mounted read-only, 1 vCPU,
+256 MiB and 60 seconds (`VM_VCPUS`, `VM_MEMORY_MIB`, `VM_TIMEOUT_SECONDS`). A crash or a timeout
+is retried once. A failing file is hardlinked into `DATA_ROOT/rejected` (owner-only) and purged
+after `REJECTED_RETENTION_DAYS` (default 7); the torrent is removed at once. A passing file is
+hardlinked into `media`. A torrent that finished seeding is removed from qBittorrent and the film
+stays in media, because the media name is a second link to the same data.
+
+When the sandbox is down nothing is lost and nothing is let through: rows wait in Checking and
+the check resumes by itself when the sandbox is back. There is no copy fallback and no bypass.
+
+### Audit events
+
+```
+docker compose logs backend | grep quarantine.
+```
+
+| Event | Meaning |
+|-------|---------|
+| `quarantine.passed` | A torrent passed; `files=` counts the files linked into media. |
+| `quarantine.rejected` | A file failed: `reason`, `format`, `codec`, `duration`, `size`, `ffmpeg`. The reason is a short code such as `too_short` or `no_video_stream`. |
+| `quarantine.runner_unavailable` | The sandbox could not be used (`why=`). Written once per outage. |
+| `quarantine.link_failed` | A hardlink failed (`why=` an error name such as `EXDEV`). Nothing was copied or deleted. |
+| `quarantine.purged` | Held files older than the retention were removed (`count=`). |
+| `quarantine.seeding_done` | A verified torrent finished seeding and left qBittorrent. |
+
+Lines carry names, counts and short codes, never a path or a hash.
+
+### Releasing a false rejection by hand (D-59)
+
+If a good file was rejected (a short film under the minimum, say), within `REJECTED_RETENTION_DAYS`:
+
+1. Find it: `ls DATA_ROOT/rejected`. Each held torrent is a folder `DATA_ROOT/rejected/<id>/`
+   with a `<id>.json` next to it that holds the display name. The audit line
+   `quarantine.rejected name=... file=...` tells you which one.
+2. As the `PUID` user (the same owner as the data folders), move the file into the matching
+   media folder and keep the file readable:
+
+   ```
+   mv "DATA_ROOT/rejected/<id>/<file>" "DATA_ROOT/media/Film/<file>"
+   chmod 0644 "DATA_ROOT/media/Film/<file>"
+   ```
+
+   Use `media/SerieTV` for a series. Held files are mode 0600, so without the `chmod` Jellyfin
+   could not read it later.
+3. To stop it happening again for films of that kind, lower the minimum in `.env` and run
+   `docker compose up -d backend`.
+
+### The doctor's sandbox lines
+
+`docker compose exec -T backend python -m app.tools.doctor --wait 120` prints, after the
+qBittorrent lines:
+
+- `sandbox runner reachable, kvm True, firecracker ..., kernel ..., ffmpeg ...`
+- `sandbox selftest ok` (a real VM booted on a clip baked into the image)
+- `quarantine and media are on one filesystem` and `hardlink quarantine -> media works`
+- `N file(s) held in rejected (purged after 7 days)`
+- `note: N Film/SerieTV torrent(s) save outside quarantine and are never checked`
+
+A sandbox that is down, has no usable `/dev/kvm` or fails its selftest prints `FAIL` and the doctor
+exits 1; the qBittorrent lines are still printed.
+
+### Tuning
+
+The verifier keys live in `.env.example` with a comment each: `MIN_FILM_DURATION_MINUTES`,
+`MIN_EPISODE_DURATION_MINUTES`, `MIN_BITRATE_KBPS`, `MAX_BITRATE_KBPS`, `SUBTITLE_TEXT_MAX_MB`,
+`SUBTITLE_BITMAP_MAX_MB`, `PROBE_TIMEOUT_SECONDS`, `VERIFY_POLL_SECONDS`,
+`REJECTED_RETENTION_DAYS`, `CHECKING_PROBLEM_HOURS`. The VM limits are `VM_VCPUS`, `VM_MEMORY_MIB`
+and `VM_TIMEOUT_SECONDS`. A `VM_MEMORY_MIB` above about 500 needs a higher `mem_limit` on the
+`sandbox` service in `docker-compose.yml`. Run `docker compose up -d` after any change.
+
+### Updating the sandbox pins
+
+Everything the sandbox runs is pinned in `sandbox/Dockerfile`:
+
+- `FIRECRACKER_VERSION` and `FIRECRACKER_SHA256`: take the sha256 from the release's
+  `.sha256.txt` file on the Firecracker release page.
+- `KERNEL_VERSION` and `KERNEL_SHA256`: take the sha256 from kernel.org's `sha256sums.asc`.
+- `FFMPEG_APK_VERSION`: the exact Alpine package revision. When Alpine publishes a new one the
+  build stops with an apk "unable to select" error (D-73 keeps the exact pin on purpose); raise it
+  to the new revision.
+
+Then `docker compose build sandbox`, `docker compose up -d --wait`, the doctor, and the opt-in
+sandbox suite below.
+
+### Tests and the smoke probe
+
+- Sandbox unit tests (no VM): `uv run --project backend --frozen pytest sandbox/tests -q`
+- Opt-in real-sandbox suite (needs the running stack and `ffmpeg` on the host to make clips):
+
+  ```
+  SANDBOX_TEST=1 uv run --project backend --frozen pytest backend/tests/sandbox_real -m sandbox -q -rs
+  ```
+
+  Every test must run; a skipped one means the setup is incomplete.
+- `python3 scripts/smoke.py --base http://127.0.0.1 all` starts one Blender open movie and follows it
+  Downloading, Checking, Ready, then removes it from the list and confirms the film is still in
+  `media/Film`. The Blender films run about 10-15 minutes, so the default 40-minute film minimum would
+  reject them: set `MIN_FILM_DURATION_MINUTES=5` in `.env`, run `docker compose up -d backend`, run the
+  probe, then set it back to 40 and run `docker compose up -d backend` again. The probe refuses to
+  start while the value is above 5. It leaves one copy of the film in `media/Film` per run, exits 2
+  with `SKIP handoff` when every open film is already in qBittorrent (remove it from the Downloads
+  tab and run again), and a download can take many minutes (`--ready-timeout`, default 3600 s).
 
 ## Troubleshooting
 
@@ -265,3 +442,8 @@ they finish. See the media contract in [ports-and-media.md](ports-and-media.md).
 | Phone cannot open the page | Windows firewall rule for TCP 80 on the Private profile, the right `<laptop-ip>`, and `WEB_PORT` if you changed it. |
 | Everybody is locked out of the login | See "Login lockout" above. |
 | Downloads tab says it can’t reach the download service | qBittorrent is down or restarting. The list retries every 5 seconds on its own and recovers when it is back. Check `docker compose ps` and `docker compose logs qbittorrent`. |
+| Doctor: `sandbox cannot use /dev/kvm` | `KVM_GID` in `.env` is not the group of `/dev/kvm` (`stat -c %g /dev/kvm`), or virtualization is off. Fix it, run `bash scripts/init-host-dirs.sh`, then `docker compose up -d --force-recreate sandbox`. On WSL2 check that `ls -l /dev/kvm` shows a device. |
+| Doctor: `sandbox runner not reachable` | The sandbox container is down: `docker compose ps`, `docker compose logs sandbox`, then `docker compose up -d --wait`. |
+| Doctor: `sandbox selftest failed (...)` | The VM could not boot. `docker compose logs sandbox` names the cause; a kernel or Firecracker change needs `docker compose build sandbox`. |
+| Downloads stay in "Checking..." | The sandbox is down or the folders are on two filesystems. Run the doctor: it names which. Rows wait and resume by themselves; after `CHECKING_PROBLEM_HOURS` they read "Problem". |
+| Doctor: `quarantine and media are on different filesystems` | `DATA_ROOT` spans two filesystems (a second mount inside it, or `/mnt/c` on WSL). Put the whole tree on one Linux filesystem; the backend never copies. |

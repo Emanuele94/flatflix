@@ -21,8 +21,26 @@ starts a download.
 Steps of `download`: login, search, pick the first row whose name is one of the Blender open
 movies (CC BY: Big Buck Bunny, Sintel, Tears of Steel, Elephants Dream, Cosmos Laundromat),
 start it with POST /api/download and poll the job until started or duplicate. No such row
-prints `SKIP` and exits 2: nothing else is ever started. `all` runs login, a search and then
-`download` for "Big Buck Bunny", "Sintel" and "Tears of Steel" until one does not skip.
+prints `SKIP` and exits 2: nothing else is ever started.
+
+Steps of `all` (the hand-off probe, Phase 2.1):
+    1. handoff-threshold: MIN_FILM_DURATION_MINUTES in the env file (missing means 40) must be 5
+       or less, because the Blender films run about 10-15 minutes. Above 5 it prints
+       `FAIL handoff-threshold: set MIN_FILM_DURATION_MINUTES=5 in .env and run docker compose up
+       -d backend; restore it afterwards ...` and exits 1, before anything is downloaded.
+    2. login, a search, then the count of video files under DATA_ROOT/media/Film (a count only).
+    3. download for "Big Buck Bunny", "Sintel" and "Tears of Steel" until one is `started`. A
+       `duplicate` tries the next query. When none starts it prints `SKIP handoff: ...` and
+       exits 2: never a silent pass.
+    4. handoff-state: GET /api/downloads every 5 s (up to --ready-timeout, default 3600 s), the
+       open-licensed film item it started (never printed), one `OK handoff-state <state>` line per
+       new state (downloading, checking, ready); check_failed, problem or a timeout is a FAIL.
+       At ready `skipped` must be 0. `OK handoff-checking-seen`, or `OK
+       handoff-checking-not-observed` when the check finished between two polls.
+    5. handoff-media: the media video count grew by at least one (`OK handoff-media (+N)`).
+    6. remove-204: DELETE /api/downloads/<id> answers 204; ten seconds later the media count is
+       unchanged, so Remove from list kept the film. Every run leaves one copy in media/Film.
+    Then the list check, logout and the leak scan.
 
 Steps of `cache` (no login): cache-index-no-cache (GET / revalidates), cache-spa-fallback-no-cache
 (GET /downloads revalidates), cache-asset-immutable (the hashed JS asset index.html references is
@@ -144,6 +162,20 @@ def read_env_value(key: str) -> str:
     raise Fail(
         "setup", f"{key} missing from the local env file: run scripts/dev_env.py"
     )
+
+
+def read_env_optional(key: str) -> str | None:
+    """Like read_env_value, but a missing file or key is None (the setting keeps its default)."""
+    if not ENV_FILE.exists():
+        return None
+    for raw in ENV_FILE.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if line.startswith("#") or "=" not in line:
+            continue
+        name, _, value = line.partition("=")
+        if name.strip() == key:
+            return value.strip().strip("'\"")
+    return None
 
 
 def read_password() -> str:
@@ -328,8 +360,12 @@ SKIP_EXIT = 2
 ALL_QUERIES = ("Big Buck Bunny", "Sintel", "Tears of Steel")
 
 
-def download_flow(probe: Probe, query: str, content_type: str) -> bool:
-    """Search, start the first open-licensed row, poll its job. False means nothing matched."""
+def download_flow(
+    probe: Probe, query: str, content_type: str, only_started: bool = False
+) -> bool:
+    """Search, start the first open-licensed row, poll its job. False means nothing matched.
+
+    With `only_started`, a duplicate (the torrent is already in qBittorrent) is False too."""
     rows = search_flow(probe, query, content_type, expect_results=False)
     chosen = next((row for row in rows if OPEN_LICENSED.search(str(row["name"]))), None)
     if chosen is None:
@@ -368,6 +404,9 @@ def download_flow(probe: Probe, query: str, content_type: str) -> bool:
         final = job["status"]
     if final not in {"started", "duplicate"}:
         raise Fail("download", f"the job ended as {final}")
+    if only_started and final != "started":
+        print(f"OK download {final} (not started here, trying the next film)")
+        return False
     print(f"OK download {final}")
     return True
 
@@ -491,20 +530,158 @@ def run_cache(base: str) -> None:
     step_ok("cache-missing-asset-404")
 
 
-def run_all(base: str) -> int:
+REMOVE_KEEPS_STEP = "remove-keeps-film"
+HANDOFF_MAX_MINUTES = 5
+DEFAULT_MIN_FILM_MINUTES = 40
+HANDOFF_POLL_SECONDS = 5
+READY_TIMEOUT_SECONDS = 3600
+REMOVE_SETTLE_SECONDS = 10
+MEDIA_VIDEO_EXTENSIONS = {".mkv", ".mp4", ".avi", ".m4v"}
+TERMINAL_STATES = {"ready", "check_failed", "failed", "rejected", "unsupported", "unavailable"}
+FAILED_STATES = {"check_failed", "problem", "failed", "rejected", "unsupported", "unavailable"}
+
+
+def check_handoff_threshold() -> None:
+    """The Blender films run about 10-15 minutes: a film minimum above 5 would reject them."""
+    raw = read_env_optional("MIN_FILM_DURATION_MINUTES")
+    minutes = int(raw) if raw is not None and raw.isdigit() else DEFAULT_MIN_FILM_MINUTES
+    if minutes > HANDOFF_MAX_MINUTES:
+        raise Fail(
+            "handoff-threshold",
+            "set MIN_FILM_DURATION_MINUTES=5 in .env and run docker compose up -d backend; "
+            "restore it afterwards (the Blender open movies run about 10-15 minutes)",
+        )
+
+
+def media_film_folder() -> Path:
+    raw = read_env_optional("DATA_ROOT") or "./data"
+    root = Path(raw)
+    return (root if root.is_absolute() else ROOT / root) / "media" / "Film"
+
+
+def count_media_videos() -> int:
+    """Video files below DATA_ROOT/media/Film on the host. A count, never a name."""
+    folder = media_film_folder()
+    if not folder.is_dir():
+        raise Fail("setup", "DATA_ROOT/media/Film is missing: run scripts/init-host-dirs.sh")
+    return sum(
+        1
+        for path in folder.rglob("*")
+        if path.suffix.lower() in MEDIA_VIDEO_EXTENSIONS and path.is_file()
+    )
+
+
+def fetch_items(probe: Probe) -> list[dict]:
+    """GET /api/downloads, shape-checked; the items as they came."""
+    status, _, payload = probe.request("GET", "/api/downloads")
+    expect("downloads-list", status, 200)
+    try:
+        body = json.loads(payload)
+    except ValueError:
+        raise Fail("downloads-list", "the answer is not JSON") from None
+    if not isinstance(body, dict) or not isinstance(body.get("items"), list):
+        raise Fail("downloads-list", "the answer is not an object whose only key is items")
+    for item in body["items"]:
+        check_item(item)
+    return body["items"]
+
+
+def open_film_states(items: list[dict]) -> dict[str, str]:
+    """id -> state of every open-licensed film item (names are matched, never printed)."""
+    return {
+        item["id"]: item["state"]
+        for item in items
+        if item["type"] == "film" and OPEN_LICENSED.search(str(item["name"]))
+    }
+
+
+def pick_started_film(items: list[dict], before: dict[str, str]) -> dict | None:
+    """The open-licensed film item this run started: an id the list did not hold before, or one
+    that held only a finished entry and is active again."""
+    for item in items:
+        if item["type"] != "film" or not OPEN_LICENSED.search(str(item["name"])):
+            continue
+        earlier = before.get(item["id"])
+        if earlier is None or (earlier in TERMINAL_STATES and item["state"] not in TERMINAL_STATES):
+            return item
+    return None
+
+
+def follow_to_ready(probe: Probe, before: dict[str, str], ready_timeout: float) -> str:
+    """Poll the list until the started film is ready; returns its id."""
+    began = time.monotonic()
+    seen: list[str] = []
+    item_id: str | None = None
+    state = "not listed yet"
+    while True:
+        items = fetch_items(probe)
+        if item_id is not None:
+            item = next((i for i in items if i["id"] == item_id), None)
+        else:
+            item = pick_started_film(items, before)
+        if item is not None:
+            item_id = item["id"]
+            state = item["state"]
+            if state not in seen:
+                seen.append(state)
+                print(f"OK handoff-state {state}")
+            if state in FAILED_STATES:
+                raise Fail("handoff", f"the film ended as {state}")
+            if state == "ready":
+                if item["skipped"] != 0:
+                    raise Fail("handoff", f"ready with {item['skipped']} skipped file(s), wanted 0")
+                break
+        if time.monotonic() - began > ready_timeout:
+            raise Fail("handoff", f"not ready after {int(ready_timeout)} s (last state {state})")
+        time.sleep(HANDOFF_POLL_SECONDS)
+    if "checking" in seen:
+        step_ok("handoff-checking-seen")
+    else:
+        step_ok("handoff-checking-not-observed (the check finished between two polls)")
+    assert item_id is not None
+    return item_id
+
+
+def run_all(base: str, ready_timeout: float = READY_TIMEOUT_SECONDS) -> int:
+    check_handoff_threshold()
     run_login(base)
     probe = login_probe(base)
     search_flow(probe, "1080p", "film", expect_results=True)
+    media_before = count_media_videos()
+    print(f"OK handoff-media-before ({media_before} video files)")
+    before = open_film_states(fetch_items(probe))
     started = False
     for query in ALL_QUERIES:
-        if download_flow(probe, query, "film"):
+        if download_flow(probe, query, "film", only_started=True):
             started = True
             break
-    if started:
-        check_downloads_list(probe, require_items=True)
+    if not started:
+        print(
+            "SKIP handoff: every open film is already in qBittorrent; "
+            "remove it from the Downloads tab and run again"
+        )
+        status, _, _ = probe.request("POST", "/api/logout")
+        expect("logout-204", status, 204)
+        return SKIP_EXIT
+
+    item_id = follow_to_ready(probe, before, ready_timeout)
+    media_after = count_media_videos()
+    if media_after - media_before < 1:
+        raise Fail("handoff-media", "no new video file appeared in media/Film")
+    print(f"OK handoff-media (+{media_after - media_before})")
+
+    status, _, _ = probe.request("DELETE", f"/api/downloads/{item_id}")
+    expect("remove-204", status, 204)
+    step_ok("remove-204")
+    time.sleep(REMOVE_SETTLE_SECONDS)
+    if count_media_videos() != media_after:
+        raise Fail(REMOVE_KEEPS_STEP, "the media video count changed after Remove from list")
+    step_ok(REMOVE_KEEPS_STEP)
+
+    check_downloads_list(probe, require_items=False)
     status, _, _ = probe.request("POST", "/api/logout")
     expect("logout-204", status, 204)
-    return 0 if started else SKIP_EXIT
+    return 0
 
 
 def leak_markers() -> dict[str, str]:
@@ -582,8 +759,15 @@ def main(argv: list[str]) -> int:
     download.add_argument("--type", required=True, choices=["film", "serie"])
     sub.add_parser("cache", help="Cache-Control of index.html, SPA paths and hashed assets")
     sub.add_parser("downloads", help="the live downloads list through Caddy")
-    sub.add_parser(
-        "all", help="login, search, download an open-licensed film, list check, leak scan"
+    everything = sub.add_parser(
+        "all", help="login, search, one open-licensed film through Checking to Ready and Remove"
+    )
+    everything.add_argument(
+        "--ready-timeout",
+        type=float,
+        default=READY_TIMEOUT_SECONDS,
+        metavar="SECONDS",
+        help="how long to wait for the film to become ready (default 3600)",
     )
     args = parser.parse_args(argv)
 
@@ -600,7 +784,7 @@ def main(argv: list[str]) -> int:
         elif args.command == "downloads":
             run_downloads(args.base)
         elif args.command == "all":
-            code = run_all(args.base)
+            code = run_all(args.base, args.ready_timeout)
         leak_code = report_leaks()
     except Fail as exc:
         print(f"FAIL {exc.step}: {exc.reason}")

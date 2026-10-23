@@ -77,3 +77,38 @@ def test_the_leak_markers_include_the_quarantine_layout(
     markers = set(smoke.leak_markers().values())
 
     assert {"/quarantine", "/rejected", "/data/"} <= markers
+
+
+@pytest.mark.parametrize(
+    ("value", "refused"),
+    [(None, True), ("40", True), ("6", True), ("5", False), ("1", False), ("abc", True)],
+)
+def test_the_handoff_probe_refuses_a_film_minimum_above_five_minutes(
+    smoke: ModuleType, monkeypatch: pytest.MonkeyPatch, value: str | None, refused: bool
+) -> None:
+    monkeypatch.setattr(smoke, "read_env_optional", lambda key: value)
+
+    if refused:
+        with pytest.raises(smoke.Fail) as caught:
+            smoke.check_handoff_threshold()
+        assert caught.value.step == "handoff-threshold"
+        assert "MIN_FILM_DURATION_MINUTES=5" in caught.value.reason
+    else:
+        smoke.check_handoff_threshold()
+
+
+def test_the_started_film_is_the_open_licensed_item_the_list_did_not_hold_before(
+    smoke: ModuleType,
+) -> None:
+    old = item(id="a" * 16, name="Sintel.2010.1080p", type="film", state="ready")
+    other = item(id="b" * 16, name="Some Other Film", type="film", state="downloading")
+    series = item(id="c" * 16, name="Sintel S01", type="serie", state="downloading")
+    new = item(id="d" * 16, name="Big.Buck.Bunny.1080p", type="film", state="downloading")
+    before = smoke.open_film_states([old, other, series])
+
+    assert before == {"a" * 16: "ready"}
+    assert smoke.pick_started_film([old, other, series], before) is None
+    assert smoke.pick_started_film([old, other, series, new], before) == new
+    # the same torrent again after its earlier entry finished: picked once it is active
+    again = item(id="a" * 16, name="Sintel.2010.1080p", type="film", state="downloading")
+    assert smoke.pick_started_film([again], before) == again
