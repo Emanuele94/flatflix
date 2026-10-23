@@ -16,6 +16,7 @@ from collections.abc import Iterable
 from app.config import Settings
 from app.content_type import type_for_category
 from app.download.jobs import FAILED_STATES, Job, JobState
+from app.quarantine.outcomes import Outcome
 from app.quarantine.rules import in_quarantine, verified_at
 
 # Tags set by the download pipeline on the torrents it adds.
@@ -84,18 +85,35 @@ def _unverified_in_quarantine(row: dict, settings: Settings | None) -> bool:
     )
 
 
+def _stuck_checking(row: dict, settings: Settings, now: float) -> bool:
+    """True when the torrent completed at least CHECKING_PROBLEM_HOURS ago (D-78)."""
+    try:
+        completed_at = float(row.get("completion_on") or 0)
+    except (TypeError, ValueError):
+        return False
+    if not math.isfinite(completed_at) or completed_at <= 0:
+        return False  # -1 until it first completes; an unknown age is never "stuck"
+    return now - completed_at >= settings.checking_problem_seconds
+
+
 def plain_state(row: dict, settings: Settings | None = None, now: float | None = None) -> str:
     """One of preparing, downloading, stalled, checking, ready, problem for a qBittorrent row.
 
     State table (RESEARCH Pattern 6): a finished torrent (`...UP`) saved under quarantine reads
     "checking" until the verifier has handed it off and tagged it `fx-ok-<t>`; only then is it
     "ready", so Ready never shows before the film is in the media folder (D-53, QUAR-04). A
+    checking torrent that completed CHECKING_PROBLEM_HOURS ago or more reads "problem" (D-78); one
+    with no usable completion time stays "checking", since its age is unknown. A
     torrent saved anywhere else (Phase 1-2 downloads, which live in the media folders) keeps the
     Phase 2 table: finished means ready (D-79). With one argument the answer is the Phase 2 one.
     """
     state = str(row.get("state") or "")
     if state in READY_STATES:
-        return "checking" if _unverified_in_quarantine(row, settings) else "ready"
+        if not _unverified_in_quarantine(row, settings):
+            return "ready"
+        if settings is not None and now is not None and _stuck_checking(row, settings, now):
+            return "problem"  # D-78: a check that has not finished for hours needs the admin
+        return "checking"
     if state in PROBLEM_STATES:
         return "problem"
     if state in DOWNLOADING_STATES:
@@ -247,12 +265,16 @@ def build_items(
     now: float,
     secret: str,
     jobs: Iterable[Job] = (),
+    outcomes: Iterable[Outcome] = (),
 ) -> list[dict]:
-    """The list the household sees: Film and SerieTV torrents and attempts no torrent shows.
+    """The list the household sees: torrents, and attempts and outcomes no torrent shows.
 
     The torrent is the primary identity and appears exactly once. A job adds a row only when no
     torrent represents it: a failed attempt (while young, D-29) or a Preparing tap whose torrent
-    is not in qBittorrent yet. Active rows come first, newest first inside each group (D-30).
+    is not in qBittorrent yet. A stored outcome adds a row only when its id names no torrent
+    qBittorrent still lists: a rejected one as `check_failed` for FAILED_VISIBLE_HOURS (D-56,
+    D-61) and a ready one with its skipped count for COMPLETED_VISIBLE_DAYS (D-77). Active rows
+    (checking included) come first, newest first inside each group, ties by id (D-30).
     """
     jobs = list(jobs)
     by_hash = {j.torrent_hash.lower(): j for j in jobs if j.torrent_hash}
@@ -260,16 +282,23 @@ def build_items(
     kept: list[tuple[tuple[int, float, str], dict]] = []
     kept_hashes: set[str] = set()
     tagged_job_ids: set[str] = set()
+    torrent_ids: set[str] = set()
     for row in rows:
         content_type = type_for_category(settings, str(row.get("category") or ""))
         if content_type is None:
             continue
+        torrent_hash = str(row.get("hash") or "")
+        torrent_ids.add(download_id(secret, torrent_hash))
         state = plain_state(row, settings, now)
         stamp = sort_time(row)
         # D-28: a finished download leaves the list from exactly this age on; the torrent stays.
-        if state == "ready" and now - stamp >= settings.completed_visible_seconds:
-            continue
-        torrent_hash = str(row.get("hash") or "")
+        # The age counts from the moment it became Ready (its verified tag), not from completion;
+        # a checking row is never dropped by age.
+        verified = verified_at(tags_of(row))
+        if state == "ready":
+            stamp = verified if verified is not None else stamp
+            if now - stamp >= settings.completed_visible_seconds:
+                continue
         job_tag = job_tag_of(tags_of(row))
         tagged_id = job_tag.removeprefix(TAG_JOB_PREFIX) if job_tag else None
         # The job was cancelled: its torrent is on its way out (a sweep or the next reconcile).
@@ -313,6 +342,17 @@ def build_items(
         ):
             item = _job_item(job, job.state.value, None)
             kept.append(((1, -job.finished_at, job.job_id), item))
+    for stored in outcomes:
+        if stored.id in torrent_ids:
+            continue  # the torrent row represents it
+        age = now - stored.at
+        if stored.kind == "rejected" and age < settings.failed_visible_seconds:
+            state, progress, action = "check_failed", 0, None
+        elif stored.kind == "ready" and age < settings.completed_visible_seconds:
+            state, progress, action = "ready", 100, "remove"
+        else:
+            continue
+        kept.append(((1, -stored.at, stored.id), _outcome_item(stored, state, progress, action)))
     kept.sort(key=lambda pair: pair[0])
     return [item for _, item in kept]
 
@@ -328,4 +368,19 @@ def _job_item(job: Job, state: str, action: str | None) -> dict:
         "eta_seconds": None,
         "action": action,
         "skipped": 0,
+    }
+
+
+def _outcome_item(outcome: Outcome, state: str, progress: int, action: str | None) -> dict:
+    """The same eight keys for a stored outcome; its id is the id its torrent had (D-77)."""
+    name = (outcome.name or "").strip()
+    return {
+        "id": outcome.id,
+        "name": None if not name or HASH_NAME.match(name) else name,
+        "type": outcome.type,
+        "state": state,
+        "progress": progress,
+        "eta_seconds": None,
+        "action": action,
+        "skipped": outcome.skipped,
     }

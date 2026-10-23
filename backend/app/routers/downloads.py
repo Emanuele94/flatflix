@@ -12,6 +12,7 @@ its category is Film or SerieTV and decides on its own whether the files go (D-3
 request carries no body, flag, hash, path or category.
 """
 
+import asyncio
 import logging
 import time
 
@@ -50,6 +51,8 @@ async def list_downloads(request: Request) -> dict[str, list[dict]]:
         rows = await app.state.qbit.torrents_info()
     except QbitError as exc:
         raise qbit_failure(exc, "downloads", client_ip(request)) from None
+    # Small files on disk, so off the event loop; never raises (a bad sidecar is just skipped).
+    outcomes = await asyncio.to_thread(app.state.outcomes.load_all)
     return {
         "items": build_items(
             rows,
@@ -57,6 +60,7 @@ async def list_downloads(request: Request) -> dict[str, list[dict]]:
             now=time.time(),
             secret=settings.secret_key.get_secret_value(),
             jobs=app.state.jobs.all(),
+            outcomes=outcomes,
         )
     }
 

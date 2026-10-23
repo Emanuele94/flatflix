@@ -30,14 +30,17 @@ cached for a year, immutable), cache-missing-asset-404 (a missing hashed asset i
 immutable and never the index page).
 
 Steps of `downloads`: login, GET /api/downloads must answer 200 with a JSON object whose only key
-is items (a list); every item has exactly the keys id, name, type, state, progress, eta_seconds,
-action, a 16 hex id, a known state, an integer progress from 0 to 100 and an action of cancel,
-remove or null. It prints `OK downloads-list (<n> items)` (a count, never a name), then logs out.
+is items (a list); every item has exactly the eight keys id, name, type, state, progress,
+eta_seconds, action, skipped, a 16 hex id, a known state (preparing, downloading, stalled,
+checking, ready, problem, check_failed, rejected, unsupported, unavailable, failed), an integer
+progress from 0 to 100, an action of cancel, remove or null and a non-negative integer skipped.
+It prints `OK downloads-list (<n> items)` (a count, never a name), then logs out.
 `all` runs the same list check after its download step and requires at least one item.
 
 Every response any step receives is scanned for leaks at the end (qBittorrent password, session
-secret, password hash, qBittorrent host, save paths, category names, magnet and plugin URLs): a
-hit prints `FAIL leak: <marker name>` and never the value.
+secret, password hash, qBittorrent host, save paths (media, incomplete, quarantine, rejected,
+data), category names, magnet and plugin URLs): a hit prints `FAIL leak: <marker name>` and
+never the value.
 
 APP_USER is read from the local env file by key lookup (the file is never sourced)
 and the password from .dev-portal-password. Neither is ever printed.
@@ -377,13 +380,24 @@ def run_download(base: str, query: str, content_type: str) -> int:
     return 0 if matched else SKIP_EXIT
 
 
-DOWNLOAD_LIST_KEYS = {"id", "name", "type", "state", "progress", "eta_seconds", "action"}
+DOWNLOAD_LIST_KEYS = {
+    "id",
+    "name",
+    "type",
+    "state",
+    "progress",
+    "eta_seconds",
+    "action",
+    "skipped",
+}
 DOWNLOAD_ITEM_STATES = {
     "preparing",
     "downloading",
     "stalled",
+    "checking",
     "ready",
     "problem",
+    "check_failed",
     "rejected",
     "unsupported",
     "unavailable",
@@ -391,6 +405,24 @@ DOWNLOAD_ITEM_STATES = {
 }
 DOWNLOAD_ITEM_ACTIONS = {"cancel", "remove", None}
 HEX16 = re.compile(r"^[0-9a-f]{16}$")
+
+
+def check_item(item: object) -> None:
+    """One list item: exactly the eight keys, with a known state and action (raises Fail)."""
+    if not isinstance(item, dict) or set(item) != DOWNLOAD_LIST_KEYS:
+        raise Fail("downloads-list", "an item has keys outside the expected eight")
+    if not isinstance(item["id"], str) or not HEX16.match(item["id"]):
+        raise Fail("downloads-list", "an id is not 16 lower-case hex characters")
+    if item["state"] not in DOWNLOAD_ITEM_STATES:
+        raise Fail("downloads-list", "an item has an unknown state")
+    progress = item["progress"]
+    if isinstance(progress, bool) or not isinstance(progress, int) or not 0 <= progress <= 100:
+        raise Fail("downloads-list", "progress is not an integer from 0 to 100")
+    if item["action"] not in DOWNLOAD_ITEM_ACTIONS:
+        raise Fail("downloads-list", "an item has an unknown action")
+    skipped = item["skipped"]
+    if isinstance(skipped, bool) or not isinstance(skipped, int) or skipped < 0:
+        raise Fail("downloads-list", "skipped is not a non-negative integer")
 
 
 def check_downloads_list(probe: Probe, require_items: bool) -> int:
@@ -404,17 +436,7 @@ def check_downloads_list(probe: Probe, require_items: bool) -> int:
     if not isinstance(body, dict) or set(body) != {"items"} or not isinstance(body["items"], list):
         raise Fail("downloads-list", "the answer is not an object whose only key is items")
     for item in body["items"]:
-        if not isinstance(item, dict) or set(item) != DOWNLOAD_LIST_KEYS:
-            raise Fail("downloads-list", "an item has keys outside the expected seven")
-        if not isinstance(item["id"], str) or not HEX16.match(item["id"]):
-            raise Fail("downloads-list", "an id is not 16 lower-case hex characters")
-        if item["state"] not in DOWNLOAD_ITEM_STATES:
-            raise Fail("downloads-list", "an item has an unknown state")
-        progress = item["progress"]
-        if isinstance(progress, bool) or not isinstance(progress, int) or not 0 <= progress <= 100:
-            raise Fail("downloads-list", "progress is not an integer from 0 to 100")
-        if item["action"] not in DOWNLOAD_ITEM_ACTIONS:
-            raise Fail("downloads-list", "an item has an unknown action")
+        check_item(item)
     count = len(body["items"])
     if require_items and count == 0:
         raise Fail("downloads-list", "expected at least one item after the download step, got none")
@@ -497,6 +519,9 @@ def leak_markers() -> dict[str, str]:
         "content_path key": "content_path",
         "media path": "/media/",
         "incomplete path": "/incomplete",
+        "quarantine path": "/quarantine",
+        "rejected path": "/rejected",
+        "data path": "/data/",
         "magnet link": "magnet:",
         "fileUrl key": "fileUrl",
         "descrLink key": "descrLink",
