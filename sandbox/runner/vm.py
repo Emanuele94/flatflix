@@ -97,6 +97,7 @@ class RunResult:
     timed_out: bool
     vm_ms: int
     console: Console = field(default_factory=Console)
+    console_len: int = 0
 
 
 def build_config(
@@ -160,6 +161,14 @@ def write_tail(file_path: Path, size: int, dest: Path) -> None:
     dest.write_bytes(data.ljust(SECTOR, b"\x00"))
 
 
+STDERR_LIMIT = 1024
+
+
+def _printable(text: str) -> str:
+    """At most STDERR_LIMIT characters, anything outside space..tilde replaced by '?'."""
+    return "".join(c if " " <= c <= "~" else "?" for c in text[:STDERR_LIMIT])
+
+
 def parse_console(text: str, nonce: str) -> Console:
     """Read the framed answer of the guest init out of the serial console.
 
@@ -205,19 +214,26 @@ def parse_console(text: str, nonce: str) -> Console:
         begin=begin,
         exit_code=exit_code,
         json_text="\n".join(json_lines),
-        stderr_text=" ".join(err_lines),
+        stderr_text=_printable(" ".join(err_lines)),
         ended=ended,
     )
 
 
 def _read_console(stream_fd: int, cap: int, out: list[bytes]) -> None:
-    total = 0
-    while total < cap:
+    """Keep the first ``cap`` bytes of the console and drain (discard) the rest.
+
+    Draining matters: a guest that floods the console must not block on a full
+    pipe and sit there until the timeout. Nothing past the cap is ever parsed.
+    """
+    kept = 0
+    while True:
         chunk = os.read(stream_fd, 65536)
         if not chunk:
             return
-        out.append(chunk[: cap - total])
-        total += len(chunk)
+        if kept < cap:
+            piece = chunk[: cap - kept]
+            out.append(piece)
+            kept += len(piece)
 
 
 def run_vm(cfg: RunnerConfig, config: dict[str, Any], workdir: Path, nonce: str) -> RunResult:
@@ -254,7 +270,8 @@ def run_vm(cfg: RunnerConfig, config: dict[str, Any], workdir: Path, nonce: str)
     proc.stdout.close()
     vm_ms = int((time.monotonic() - started) * 1000)
 
-    console = parse_console(b"".join(chunks).decode("utf-8", errors="replace"), nonce)
+    raw = b"".join(chunks)
+    console = parse_console(raw.decode("utf-8", errors="replace"), nonce)
     return RunResult(
         begin_seen=console.begin,
         exit_code=console.exit_code,
@@ -263,6 +280,7 @@ def run_vm(cfg: RunnerConfig, config: dict[str, Any], workdir: Path, nonce: str)
         timed_out=timed_out,
         vm_ms=vm_ms,
         console=console,
+        console_len=len(raw),
     )
 
 
