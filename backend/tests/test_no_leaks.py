@@ -36,9 +36,10 @@ CANARY_SECRET_KEY = "LEAK-CANARY-secret-key-0000000000000001"
 CANARY_QBIT_HOST = "qbit-canary.internal"
 CANARY_FILM_CATEGORY = "CanaryFilmCat"
 CANARY_TV_CATEGORY = "CanarySerieCat"
-CANARY_FILM_PATH = "/media/CanaryFilm"
-CANARY_TV_PATH = "/media/CanarySerie"
-CANARY_INCOMPLETE_PATH = "/incomplete"
+CANARY_DATA_PATH = "/canarydata"
+CANARY_FILM_PATH = "/canarydata/quarantine/CanaryFilm"
+CANARY_TV_PATH = "/canarydata/quarantine/CanarySerie"
+CANARY_INCOMPLETE_PATH = "/canarydata/incomplete"
 
 BTIH = hashlib.sha1(b"leak-canary-film").hexdigest()
 
@@ -52,6 +53,8 @@ FORBIDDEN: dict[str, str] = {
     "password hash": "$argon2",
     "media path": "/media/",
     "incomplete path": "/incomplete",
+    "data path": CANARY_DATA_PATH,
+    "quarantine path": "/quarantine",
     "magnet link": "magnet:",
     "qbit session cookie": "QBT_SID",
     "save_path key": "save_path",
@@ -104,6 +107,7 @@ def canary_settings() -> Settings:
         secret_key=SecretStr(CANARY_SECRET_KEY),
         category_film=CANARY_FILM_CATEGORY,
         category_tv=CANARY_TV_CATEGORY,
+        data_path=CANARY_DATA_PATH,
         save_path_film=CANARY_FILM_PATH,
         save_path_tv=CANARY_TV_PATH,
         incomplete_path=CANARY_INCOMPLETE_PATH,

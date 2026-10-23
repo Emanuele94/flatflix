@@ -1,5 +1,6 @@
 """Strict secret validation (SEC-04, D-17, Pitfall 6) and the hash helper CLI."""
 
+import importlib.util
 import io
 import re
 from pathlib import Path
@@ -204,7 +205,17 @@ def test_password_shorter_than_8_characters_exits_2(
 
 # SEC-04 adjacency: .env.example and Settings describe the same set of keys.
 ENV_EXAMPLE = Path(__file__).resolve().parents[2] / ".env.example"
-COMPOSE_LEVEL_KEYS = {"WEB_PORT", "MEDIA_ROOT", "INCOMPLETE_DIR", "PUID", "PGID", "TZ"}
+COMPOSE_LEVEL_KEYS = {
+    "WEB_PORT",
+    "DATA_ROOT",
+    "PUID",
+    "PGID",
+    "TZ",
+    "KVM_GID",
+    "VM_VCPUS",
+    "VM_MEMORY_MIB",
+    "VM_TIMEOUT_SECONDS",
+}
 
 
 def test_env_example_keys_match_the_settings_fields_exactly() -> None:
@@ -221,3 +232,144 @@ def test_env_example_keys_match_the_settings_fields_exactly() -> None:
         f"Settings fields without a key in .env.example: {missing_in_example}"
     )
     assert orphan_in_example == [], f"keys in .env.example that nothing reads: {orphan_in_example}"
+
+
+# --- quarantine layout (QUAR-01, D-44, D-45) ---------------------------------------
+
+
+def test_layout_defaults_put_downloads_in_quarantine_and_checked_files_in_media() -> None:
+    settings = build()
+
+    assert settings.quarantine_root == "/data/quarantine"
+    assert settings.media_root == "/data/media"
+    assert settings.rejected_root == "/data/rejected"
+    assert settings.media_paths == {"Film": "/data/media/Film", "SerieTV": "/data/media/SerieTV"}
+    assert settings.category_paths == {
+        "Film": "/data/quarantine/Film",
+        "SerieTV": "/data/quarantine/SerieTV",
+    }
+
+
+@pytest.mark.parametrize(
+    ("overrides", "name"),
+    [
+        ({"save_path_film": "/data/media/Film"}, "SAVE_PATH_FILM"),
+        ({"save_path_tv": "/data/quarantine"}, "SAVE_PATH_TV"),
+        ({"save_path_tv": "/srv/other/SerieTV"}, "SAVE_PATH_TV"),
+        ({"incomplete_path": "/data/quarantine/inc"}, "INCOMPLETE_PATH"),
+        ({"incomplete_path": "/data/media/inc"}, "INCOMPLETE_PATH"),
+        ({"incomplete_path": "/data/rejected/inc"}, "INCOMPLETE_PATH"),
+        ({"incomplete_path": "/elsewhere/incomplete"}, "INCOMPLETE_PATH"),
+        ({"data_path": "data"}, "DATA_PATH"),
+        ({"data_path": "/data/../etc"}, "DATA_PATH"),
+    ],
+)
+def test_a_layout_that_could_bypass_the_check_stops_startup_and_names_the_variable(
+    overrides: dict[str, object], name: str
+) -> None:
+    text = error_text(**overrides)
+
+    assert name in text
+    for value in overrides.values():
+        if "/" in str(value):  # a bare word such as "data" is part of the field name itself
+            assert str(value) not in text
+
+
+def test_a_custom_data_path_works_when_everything_sits_inside_it() -> None:
+    settings = build(
+        data_path="/srv/flat",
+        save_path_film="/srv/flat/quarantine/Film",
+        save_path_tv="/srv/flat/quarantine/SerieTV",
+        incomplete_path="/srv/flat/incomplete",
+    )
+
+    assert settings.media_paths["Film"] == "/srv/flat/media/Film"
+
+
+# --- verifier settings (D-50, D-55, D-62, D-64, D-65, D-78) --------------------------
+
+
+def test_verifier_settings_have_the_decided_defaults() -> None:
+    settings = build()
+
+    assert settings.sandbox_url == "http://sandbox:8090"
+    assert settings.probe_timeout_seconds == 90
+    assert settings.verify_poll_seconds == 10
+    assert settings.min_film_duration_minutes == 40
+    assert settings.min_episode_duration_minutes == 10
+    assert settings.min_bitrate_kbps == 100
+    assert settings.max_bitrate_kbps == 100000
+    assert settings.subtitle_text_max_mb == 5
+    assert settings.subtitle_bitmap_max_mb == 200
+    assert settings.rejected_retention_days == 7
+    assert settings.checking_problem_hours == 6
+    assert settings.rejected_retention_seconds == 604800
+    assert settings.checking_problem_seconds == 21600
+    assert settings.subtitle_text_max_bytes == 5 * 1024 * 1024
+    assert settings.subtitle_bitmap_max_bytes == 200 * 1024 * 1024
+
+
+def test_max_bitrate_must_exceed_min_bitrate() -> None:
+    text = error_text(min_bitrate_kbps=100, max_bitrate_kbps=100)
+
+    assert "MAX_BITRATE_KBPS" in text
+
+
+def test_sandbox_url_needs_a_scheme_and_loses_a_trailing_slash() -> None:
+    assert "SANDBOX_URL" in error_text(sandbox_url="sandbox:8090")
+    assert build(sandbox_url="http://sandbox:8090/").sandbox_url == "http://sandbox:8090"
+
+
+# --- dev_env.py fills KVM_GID from /dev/kvm (QUAR-05) -------------------------------
+
+DEV_ENV = Path(__file__).resolve().parents[2] / "scripts" / "dev_env.py"
+
+
+def load_dev_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, template: str):
+    spec = importlib.util.spec_from_file_location("dev_env_under_test", DEV_ENV)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    (tmp_path / ".env.example").write_text(template, encoding="utf-8")
+    monkeypatch.setattr(module, "TEMPLATE", tmp_path / ".env.example")
+    monkeypatch.setattr(module, "TARGET", tmp_path / ".env")
+    monkeypatch.setattr(module, "PASSWORD_FILE", tmp_path / ".dev-portal-password")
+    monkeypatch.setattr(module, "KVM_DEVICE", tmp_path / "kvm", raising=False)
+    return module
+
+
+def test_dev_env_fills_kvm_gid_from_the_device_group(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    module = load_dev_env(tmp_path, monkeypatch, "WEB_PORT=80\nKVM_GID=\n")
+    (tmp_path / "kvm").write_text("", encoding="utf-8")
+
+    assert module.main([]) == 0
+
+    gid = (tmp_path / "kvm").stat().st_gid
+    assert f"KVM_GID={gid}" in (tmp_path / ".env").read_text(encoding="utf-8").splitlines()
+    assert str(gid) not in capsys.readouterr().out.replace("KVM_GID", "")
+
+
+def test_dev_env_leaves_kvm_gid_empty_when_there_is_no_device(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    module = load_dev_env(tmp_path, monkeypatch, "WEB_PORT=80\nKVM_GID=\n")
+
+    assert module.main([]) == 0
+
+    assert "KVM_GID=" in (tmp_path / ".env").read_text(encoding="utf-8").splitlines()
+    assert "KVM_GID left empty: /dev/kvm not found" in capsys.readouterr().out
+
+
+def test_dev_env_never_rewrites_an_existing_kvm_gid(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = load_dev_env(tmp_path, monkeypatch, "WEB_PORT=80\nKVM_GID=\n")
+    (tmp_path / "kvm").write_text("", encoding="utf-8")
+    (tmp_path / ".env").write_text("KVM_GID=4242\n", encoding="utf-8")
+
+    assert module.main([]) == 0
+
+    assert (tmp_path / ".env").read_text(encoding="utf-8").count("KVM_GID=") == 1
+    assert "KVM_GID=4242" in (tmp_path / ".env").read_text(encoding="utf-8")
