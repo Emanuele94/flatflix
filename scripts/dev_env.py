@@ -12,6 +12,8 @@ Rules:
 - A missing APP_PASS_HASH gets a random dev password, written to
   .dev-portal-password (mode 0600, gitignored), and its argon2id hash, single-quoted
   so Compose takes the `$` signs literally.
+- A missing KVM_GID gets the group id of /dev/kvm (the sandbox microVM needs it); without the
+  device it stays empty and one line says so.
 - Only key names are printed, never values.
 - --check writes nothing; exit 1 if a key is missing or still a placeholder.
 """
@@ -29,6 +31,8 @@ TARGET = ROOT / ".env"
 PASSWORD_FILE = ROOT / ".dev-portal-password"
 HASH_KEY = "APP_PASS_HASH"
 PLACEHOLDER_PREFIX = "change-me"
+KVM_KEY = "KVM_GID"
+KVM_DEVICE = Path("/dev/kvm")
 
 
 def parse(path: Path) -> dict[str, str]:
@@ -83,6 +87,11 @@ def main(argv: list[str]) -> int:
             value = make_dev_login_hash()
         elif value.startswith(PLACEHOLDER_PREFIX):
             value = secrets.token_urlsafe(32)
+        elif key == KVM_KEY:
+            if KVM_DEVICE.exists():
+                value = str(KVM_DEVICE.stat().st_gid)
+            else:
+                print("KVM_GID left empty: /dev/kvm not found")
         lines.append(f"{key}={value}")
         added.append(key)
 

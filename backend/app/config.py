@@ -8,6 +8,7 @@ the variable and never echo its value.
 import logging
 import re
 from functools import lru_cache
+from pathlib import PurePosixPath
 
 from argon2 import extract_parameters
 from argon2.exceptions import InvalidHashError
@@ -114,6 +115,26 @@ class Settings(BaseSettings):
     search_rate_per_minute: int = Field(default=10, ge=1)
     download_rate_per_minute: int = Field(default=20, ge=1)
 
+    # Safety check of finished downloads (Phase 2.1). The probe runs in the sandbox service.
+    # D-50: where the backend reaches the sandbox, how long one probe may take, how often the
+    # backend looks for finished torrents.
+    sandbox_url: str = "http://sandbox:8090"
+    probe_timeout_seconds: int = Field(default=90, ge=1)
+    verify_poll_seconds: int = Field(default=10, ge=1)
+    # D-64: a film or episode shorter than this is rejected (minutes).
+    min_film_duration_minutes: int = Field(default=40, ge=0)
+    min_episode_duration_minutes: int = Field(default=10, ge=0)
+    # D-65: average bitrate window of a plausible video (kbit/s).
+    min_bitrate_kbps: int = Field(default=100, ge=1)
+    max_bitrate_kbps: int = Field(default=100000, ge=1)
+    # D-62: largest accepted subtitle file, text and bitmap formats (MB).
+    subtitle_text_max_mb: int = Field(default=5, ge=1)
+    subtitle_bitmap_max_mb: int = Field(default=200, ge=1)
+    # D-55: a rejected download is purged from the rejected folder after this many days.
+    rejected_retention_days: int = Field(default=7, ge=1)
+    # D-78: a torrent stuck in "checking" this long is reported as a problem (hours).
+    checking_problem_hours: int = Field(default=6, ge=1)
+
     # The tested qBittorrent WebAPI floor (D-22); an older server stops bootstrap.
     min_webapi_version: str = "2.15.1"
 
@@ -156,6 +177,22 @@ class Settings(BaseSettings):
     @property
     def search_plugin_names(self) -> list[str]:
         return self.search_plugins.split()
+
+    @property
+    def rejected_retention_seconds(self) -> int:
+        return self.rejected_retention_days * 24 * 3600
+
+    @property
+    def checking_problem_seconds(self) -> int:
+        return self.checking_problem_hours * 3600
+
+    @property
+    def subtitle_text_max_bytes(self) -> int:
+        return self.subtitle_text_max_mb * 1024 * 1024
+
+    @property
+    def subtitle_bitmap_max_bytes(self) -> int:
+        return self.subtitle_bitmap_max_mb * 1024 * 1024
 
     @property
     def session_max_age_seconds(self) -> int:
@@ -205,6 +242,13 @@ class Settings(BaseSettings):
     def _check_url(cls, value: str) -> str:
         if not value.startswith(("http://", "https://")):
             raise ValueError("QBITTORRENT_URL must start with http:// or https://")
+        return value.rstrip("/")
+
+    @field_validator("sandbox_url")
+    @classmethod
+    def _check_sandbox_url(cls, value: str) -> str:
+        if not value.startswith(("http://", "https://")):
+            raise ValueError("SANDBOX_URL must start with http:// or https://")
         return value.rstrip("/")
 
     @field_validator("qbittorrent_user")
@@ -263,6 +307,38 @@ class Settings(BaseSettings):
     def _check_layout_is_distinct(self) -> "Settings":
         if self.category_film == self.category_tv:
             raise ValueError("CATEGORY_FILM and CATEGORY_TV must differ")
+        return self
+
+    @model_validator(mode="after")
+    def _check_quarantine_layout(self) -> "Settings":
+        """Downloads may only land in quarantine (D-45).
+
+        A save path inside the media folder would let a download skip the safety check, so a
+        layout that allows it stops the backend at start. Messages name variables, never values.
+        """
+        data = PurePosixPath(self.data_path)
+        quarantine = PurePosixPath(self.quarantine_root)
+        for name, value in (
+            ("SAVE_PATH_FILM", self.save_path_film),
+            ("SAVE_PATH_TV", self.save_path_tv),
+        ):
+            path = PurePosixPath(value)
+            if not path.is_relative_to(quarantine) or path == quarantine:
+                raise ValueError(f"{name} must be inside DATA_PATH/quarantine")
+        incomplete = PurePosixPath(self.incomplete_path)
+        if not incomplete.is_relative_to(data) or incomplete == data:
+            raise ValueError("INCOMPLETE_PATH must be inside DATA_PATH")
+        for folder in (self.quarantine_root, self.media_root, self.rejected_root):
+            if incomplete.is_relative_to(PurePosixPath(folder)):
+                raise ValueError(
+                    "INCOMPLETE_PATH must not be inside the quarantine, media or rejected folder"
+                )
+        return self
+
+    @model_validator(mode="after")
+    def _check_bitrate_window(self) -> "Settings":
+        if self.max_bitrate_kbps <= self.min_bitrate_kbps:
+            raise ValueError("MAX_BITRATE_KBPS must be greater than MIN_BITRATE_KBPS")
         return self
 
     @field_validator("log_level")

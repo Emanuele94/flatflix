@@ -175,7 +175,11 @@ async def test_the_canary_detector_catches_a_planted_leak() -> None:
     )
     seen.record("planted header", httpx.Response(200, headers={"x-test": CANARY_QBIT_PASS}))
 
-    assert seen.leaks() == [("planted", "media path"), ("planted header", "qbit password")]
+    assert seen.leaks() == [
+        ("planted", "data path"),
+        ("planted", "quarantine path"),
+        ("planted header", "qbit password"),
+    ]
 
 
 async def test_no_response_carries_a_secret_path_magnet_or_category(
