@@ -845,9 +845,7 @@ async def test_a_main_video_shorter_than_the_film_minimum_is_rejected_but_an_ext
     assert await rig.verifier.check_torrent(await rig.only_row()) == "rejected"
     assert "reason=too_short" in audit_lines(caplog)[0]
 
-    rig.add_finished(
-        "b" * 40, "Other", [("Other/o.mkv", 3 * GB), ("Other/extra.mkv", 100_000_000)]
-    )
+    rig.add_finished("b" * 40, "Other", [("Other/o.mkv", 3 * GB), ("Other/extra.mkv", 100_000_000)])
     rig.runner.script("Film/Other/o.mkv", film_facts(duration=6000.0))
     rig.runner.script("Film/Other/extra.mkv", film_facts(duration=300.0))  # no minimum on extras
 
@@ -1092,3 +1090,155 @@ def test_a_stale_held_file_of_a_returning_torrent_is_replaced_not_a_collision(
     assert used == stale
     assert os.stat(stale).st_ino == os.stat(src).st_ino
     assert stat.S_IMODE(os.stat(stale).st_mode) == 0o600
+
+
+# --- plan 02.1-07 Task 3: the purge, the seeding-end removal and the lifespan -------------------------
+
+DAY = 86400
+
+
+def delete_removes_quarantine_names(rig: Rig) -> None:
+    """Like qBittorrent: deleteFiles=true unlinks the torrent's names, not other hardlinks."""
+    from urllib.parse import parse_qsl
+
+    original = rig.fake._torrents_delete
+
+    def deleting(request: httpx.Request) -> httpx.Response:
+        form = dict(parse_qsl(request.content.decode()))
+        if form.get("deleteFiles") == "true":
+            for torrent_hash in form.get("hashes", "").split("|"):
+                torrent = rig.fake.torrents.get(torrent_hash)
+                for row in (torrent.files or []) if torrent is not None else []:
+                    (Path(torrent.save_path) / row["name"]).unlink(missing_ok=True)
+        return original(request)
+
+    rig.fake.register("POST", "/api/v2/torrents/delete", deleting)
+
+
+def finished_and_linked(rig: Rig, *, state: str, tags: tuple[str, ...], **kwargs) -> Path:
+    """A verified film whose media hardlink already exists; returns the media link."""
+    rig.add_finished(FILM_HASH, "Movie", [(FILM_FILE, 4 * GB)], state=state, tags=tags, **kwargs)
+    link = rig.media / "Film" / "Movie" / "movie.mkv"
+    link.parent.mkdir(parents=True)
+    os.link(Path(rig.settings.save_path_film) / FILM_FILE, link)
+    return link
+
+
+def sidecar_of(rig: Rig, torrent_hash: str = FILM_HASH) -> Path:
+    outcome_id = download_id(rig.settings.secret_key.get_secret_value(), torrent_hash)
+    return Path(rig.settings.rejected_root) / f"{outcome_id}.json"
+
+
+async def test_every_tick_purges_old_held_files_and_logs_the_count_only_when_something_went(
+    rig: Rig, caplog: pytest.LogCaptureFixture
+) -> None:
+    from app.quarantine.outcomes import Outcome, OutcomeStore
+
+    caplog.set_level(logging.INFO, logger="app.audit")
+    store = OutcomeStore(rig.settings.rejected_root)
+    old_id = "0123456789abcdef"
+    store.write(Outcome(old_id, "Old", "film", "rejected", 1, NOW - 8 * DAY))
+    folder = store.rejected_dir(old_id)
+    folder.mkdir()
+    os.utime(folder, (NOW - 8 * DAY, NOW - 8 * DAY))
+
+    await rig.verifier.run_once()
+    await rig.verifier.run_once()
+
+    assert audit_lines(caplog) == ["event=quarantine.purged count=2"]
+    assert not folder.exists()
+    assert store.get(old_id) is None
+
+
+@pytest.mark.parametrize("state", ["stoppedUP", "pausedUP"])
+async def test_seeding_end_stores_the_outcome_and_deletes_only_the_quarantine_link(
+    rig: Rig, caplog: pytest.LogCaptureFixture, state: str
+) -> None:
+    caplog.set_level(logging.INFO, logger="app.audit")
+    delete_removes_quarantine_names(rig)
+    verified = int(NOW) - 1000
+    link = finished_and_linked(rig, state=state, tags=(f"fx-ok-{verified}",))
+    assert os.stat(link).st_nlink == 2
+
+    await rig.verifier.run_once()
+
+    stored = json.loads(sidecar_of(rig).read_text())
+    assert (stored["kind"], stored["skipped"], stored["at"]) == ("ready", 0, float(verified))
+    assert (stored["name"], stored["type"]) == ("Movie", "film")
+    assert rig.fake.deleted == [(FILM_HASH, True)]
+    assert link.exists()  # the film is still in media
+    assert os.stat(link).st_nlink == 1
+    assert not (Path(rig.settings.save_path_film) / FILM_FILE).exists()
+    assert audit_lines(caplog) == ['event=quarantine.seeding_done name="Movie"']
+    assert rig.runner.calls == []
+
+
+async def test_a_verified_torrent_that_is_still_seeding_is_left_alone(rig: Rig) -> None:
+    finished_and_linked(rig, state="stalledUP", tags=(f"fx-ok-{int(NOW) - 1000}",))
+
+    await rig.verifier.run_once()
+
+    assert rig.fake.deleted == []
+    assert not sidecar_of(rig).exists()
+
+
+@pytest.mark.parametrize("tagged", [True, False])
+async def test_a_legacy_torrent_outside_quarantine_is_never_deleted(rig: Rig, tagged: bool) -> None:
+    legacy = str(rig.media / "Film")
+    tags = (f"fx-ok-{int(NOW) - 1000}",) if tagged else ()
+    rig.add_finished(
+        FILM_HASH, "Old film", [("old.mkv", GB)], state="stoppedUP", tags=tags, save_path=legacy
+    )
+
+    await rig.verifier.run_once()
+
+    assert rig.fake.deleted == []
+    assert rig.runner.calls == []
+    assert not sidecar_of(rig).exists()
+
+
+async def test_a_stopped_torrent_without_the_verified_tag_is_never_deleted_by_the_seeding_rule(
+    rig: Rig,
+) -> None:
+    rig.add_finished(FILM_HASH, "Movie", [(FILM_FILE, 4 * GB)], state="stoppedUP")
+    # not a candidate to delete: it is checked (and passes), never removed as "seeding done"
+    rig.runner.script(FILM_REL, film_facts(duration=6000.0))
+
+    await rig.verifier.run_once()
+
+    assert rig.fake.deleted == []
+    assert len(rig.tag_calls()) == 1
+
+
+async def test_a_verified_torrent_older_than_the_visible_window_is_deleted_without_an_outcome(
+    rig: Rig,
+) -> None:
+    link = finished_and_linked(rig, state="stoppedUP", tags=(f"fx-ok-{int(NOW) - 8 * DAY}",))
+
+    await rig.verifier.run_once()
+
+    assert rig.fake.deleted == [(FILM_HASH, True)]
+    assert not sidecar_of(rig).exists()
+    assert link.exists()
+
+
+async def test_the_lifespan_hands_the_outcome_store_to_the_verifier(tmp_path: Path) -> None:
+    from app.quarantine.outcomes import OutcomeStore
+
+    settings = make_settings(tmp_path)
+    fake = FakeQbit(QBIT_USER, QBIT_PASS)
+    runner = TrackingRunner()
+    qbit = QbitClient(
+        settings.qbittorrent_url,
+        settings.qbittorrent_user,
+        settings.qbittorrent_pass,
+        transport=fake.transport,
+    )
+    runner_client = RunnerClient(settings.sandbox_url, transport=runner.transport)
+    app = create_app(settings, qbit, runner=runner_client)
+
+    async with app.router.lifespan_context(app):
+        await wait_for_bootstrap(app)
+        assert isinstance(app.state.outcomes, OutcomeStore)
+        assert str(app.state.outcomes.root) == settings.rejected_root
+        assert app.state.verifier._outcomes is app.state.outcomes

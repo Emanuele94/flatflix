@@ -346,6 +346,39 @@ def test_free_text_is_escaped_and_cut_so_it_never_starts_a_second_line(
     assert "\\n" in line  # the newline is written as an escape, not as a newline
 
 
+def test_quarantine_events_escape_a_hostile_torrent_name_and_carry_no_path_or_hash(
+    audit_log: AuditLog,
+) -> None:
+    forged = 'Movie "x"\nevent=login ip=6.6.6.6 outcome=ok\r ' + "y" * 300
+
+    audit.quarantine_passed(forged, 2)
+    audit.quarantine_rejected(
+        forged, forged, "probe_failed", "matroska", "h264", "6000", 123, "8.1"
+    )
+    audit.quarantine_link_failed(forged, "EXDEV")
+    audit.quarantine_seeding_done(forged)
+    audit.quarantine_purged(3)
+
+    lines = audit_log.lines
+    assert len(lines) == 5  # one line each: the newline of the name never starts another
+    for line in lines:
+        assert "\r" not in line
+        assert "/data" not in line
+        assert not re.search(r"[0-9a-f]{40}", line)
+    for event in (parse(line) for line in lines[:4]):
+        assert event["name"].startswith('Movie "x"\nevent=login ip=6.6.6.6 outcome=ok\r ')
+        assert len(event["name"]) == audit.MAX_TEXT
+    rejected = parse(lines[1])
+    assert rejected["reason"] == "probe_failed"
+    assert (rejected["format"], rejected["codec"], rejected["duration"]) == (
+        "matroska",
+        "h264",
+        "6000",
+    )
+    assert rejected["size"] == "123"
+    assert parse(lines[4]) == {"event": "quarantine.purged", "count": "3"}
+
+
 def test_an_address_is_bare_only_when_it_is_address_shaped(audit_log: AuditLog) -> None:
     audit.logout("2001:db8::1")
     audit.logout('1.2.3.4" event=login')
