@@ -29,8 +29,11 @@ testpaths = ["tests"]
 pythonpath = ["."]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-markers = ["integration: needs a real qBittorrent reachable at QBIT_TEST_URL"]
-addopts = "-m 'not integration'"
+markers = [
+    "integration: needs a real qBittorrent reachable at QBIT_TEST_URL",
+    "sandbox: needs the running stack with a working /dev/kvm (SANDBOX_TEST=1)",
+]
+addopts = "-m 'not integration and not sandbox'"
 
 [tool.ruff]
 line-length = 100
