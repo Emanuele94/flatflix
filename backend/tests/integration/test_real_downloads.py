@@ -87,6 +87,8 @@ async def test_a_film_torrent_is_listed_with_the_fields_the_mapper_reads(
         assert isinstance(row["progress"], int | float) and not isinstance(row["progress"], bool)
         assert isinstance(row["eta"], int)
         assert isinstance(row["completion_on"], int)
+        # cancel_deletes_files reads completion_on <= 0 as "never finished" (WR-05).
+        assert row["completion_on"] <= 0
         assert isinstance(row["added_on"], int)
         assert isinstance(row["category"], str) and row["category"] == real_settings.category_film
         assert isinstance(row["tags"], str)
@@ -105,6 +107,7 @@ async def test_a_film_torrent_is_listed_with_the_fields_the_mapper_reads(
         assert item["type"] == "film"
         assert isinstance(item["progress"], int) and not isinstance(item["progress"], bool)
         assert 0 <= item["progress"] <= 100
+        assert item["action"] == "cancel"
     finally:
         if torrent_hash:
             await delete_with_files(real_settings, torrent_hash)
