@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: "02.1"
 current_phase_name: Download Quarantine & Firecracker Validation (INSERTED)
 status: executing
-stopped_at: Phase 02.1 UI-SPEC approved
-last_updated: "2026-10-23T18:09:33.551Z"
+stopped_at: Completed 02.1-01-PLAN.md
+last_updated: "2026-10-23T19:09:47.060Z"
 last_activity: 2026-10-23
-last_activity_desc: Phase 02 complete, transitioned to Phase 02.1
-state_head: 34fbece9352453f38ba358c7dd4bb3d97f7999ee
+last_activity_desc: Phase 02.1 execution started
+state_head: 0f90b66bdb97900800c1776a2e06a9066a43a843
 progress:
   total_phases: 7
   completed_phases: 2
   total_plans: 36
-  completed_plans: 27
+  completed_plans: 28
   percent: 29
 ---
 
@@ -23,14 +23,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-23)
 
 **Core value:** A non-technical household member can get a film or series onto the TV using only a phone and the TV remote, and watch it in at least 1080p with no video transcoding.
-**Current focus:** Phase 02.1 — Download Quarantine & Firecracker Validation
+**Current focus:** Phase 02.1 — Download Quarantine & Firecracker Validation (INSERTED)
 
 ## Current Position
 
-Phase: 02.1 (Download Quarantine & Firecracker Validation (INSERTED)) — READY TO EXECUTE
-Plan: Not started
+Phase: 02.1 (Download Quarantine & Firecracker Validation (INSERTED)) — EXECUTING
+Plan: 2 of 9
 Status: Ready to execute
-Last activity: 2026-10-23 — Phase 02 complete, transitioned to Phase 02.1
+Last activity: 2026-10-23 — Phase 02.1 execution started
 
 Progress: [███░░░░░░░] 29%
 
@@ -84,6 +84,7 @@ Progress: [███░░░░░░░] 29%
 | Phase 02 P09 | 25min | 3 tasks | 8 files |
 | Phase 02 P10 | 30min | 2 tasks | 4 files |
 | Phase 02 P11 | 7 min | 2 tasks | 3 files |
+| Phase 02.1 P01 | 9 min | 3 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -141,6 +142,8 @@ Recent decisions affecting current work:
 - [Phase 02]: 02-10: Cancel and Remove share one id-only DELETE handler; a removed row is remembered with the poll number so an older poll cannot resurrect it
 - [Phase 02]: 02-11: the list integration test asserts one item with the synthetic torrent's id, not one item overall, so it passes beside the household's real downloads
 - [Phase 02]: Review fixes WR-01..WR-05: cancel keeps files of any torrent that ever finished (completion_on <= 0 pinned on the real engine); cancel re-reads before delete; sweep starts before the first lookup
+- [Phase 02.1]: D-44 applied: one DATA_ROOT host folder bound once at /data in qbittorrent and backend; Settings field data_path (DATA_PATH) is the container side — Hardlinks need one mount; the host and container names differ because the backend receives the whole env file
+- [Phase 02.1]: Settings refuse any save path outside DATA_PATH/quarantine; backend runs as PUID:PGID — A save path inside media would let a download skip the safety check; link() needs the owner uid under fs.protected_hardlinks
 
 ### Pending Todos
 
@@ -171,6 +174,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-23T17:27:27.607Z
-Stopped at: Phase 02.1 UI-SPEC approved
-Resume file: .planning/phases/02.1-download-quarantine-firecracker-validation/02.1-UI-SPEC.md
+Last session: 2026-10-23T19:09:46.828Z
+Stopped at: Completed 02.1-01-PLAN.md
+Resume file: None
