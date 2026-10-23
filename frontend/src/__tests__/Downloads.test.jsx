@@ -631,3 +631,108 @@ describe('safety check tracer (D-53)', () => {
     expect(screen.queryByText('Sintel.2010')).toBeNull();
   });
 });
+
+describe('safety check rows in the list (D-53, D-56, D-61)', () => {
+  const FAILED = (id, name) =>
+    item(id, name, { state: 'check_failed', action: null, progress: 99, eta_seconds: null, skipped: 0 });
+
+  it('an outage greys the list and disables the checking row\'s Cancel button', async () => {
+    stubApi({ list: [jsonResponse({ items: [CHECKING('a', 'Sintel.2010')] }), UNREACHABLE] });
+    const { container } = render(<Downloads onGoToSearch={() => {}} />);
+    await tick(0);
+    click(MSG.cancelDownload);
+    expect(screen.getByText(MSG.cancelConfirmTitle)).toBeTruthy();
+    await tick(5000);
+    expect(container.querySelector('ul.downloads.is-stale')).not.toBeNull();
+    expect(screen.queryByText(MSG.cancelConfirmTitle)).toBeNull();
+    expect(screen.getByRole('button', { name: MSG.cancelDownload }).disabled).toBe(true);
+  });
+
+  it('a list that only held a check_failed row returns to the empty state', async () => {
+    stubApi({ list: [jsonResponse({ items: [FAILED('f', 'Fake.Movie')] }), EMPTY] });
+    const { container } = render(<Downloads onGoToSearch={() => {}} />);
+    await tick(0);
+    expect(screen.getByText(MSG.checkFailed)).toBeTruthy();
+    expect(container.querySelector('button')).toBeNull();
+    await tick(5000);
+    expect(screen.getByText(MSG.downloadsEmptyTitle)).toBeTruthy();
+    expect(screen.getByText(MSG.downloadsEmptyBody)).toBeTruthy();
+  });
+
+  it('rows render in the order the backend sends them', async () => {
+    stubApi({
+      list: [
+        jsonResponse({
+          items: [
+            CHECKING('a', 'First.Row'),
+            FAILED('f', 'Second.Row'),
+            item('r', 'Third.Row', { state: 'ready', action: 'remove', progress: 100, skipped: 2 }),
+          ],
+        }),
+      ],
+    });
+    const { container } = render(<Downloads onGoToSearch={() => {}} />);
+    await tick(0);
+    const names = [...container.querySelectorAll('.download-name')].map((n) => n.textContent);
+    expect(names).toEqual(['First.Row', 'Second.Row', 'Third.Row']);
+    expect(screen.getByText(MSG.skippedMany.replace('{n}', '2'))).toBeTruthy();
+  });
+
+  it('a failing DELETE on a checking row says so plainly and keeps the row', async () => {
+    stubApi({
+      list: [jsonResponse({ items: [CHECKING('a', 'Sintel.2010')] })],
+      del: [jsonResponse({ detail: 'boom' }, 500)],
+    });
+    render(<Downloads onGoToSearch={() => {}} />);
+    await tick(0);
+    click(MSG.cancelDownload);
+    click(MSG.cancelConfirmYes);
+    await tick(0);
+    expect(screen.getByText(MSG.actionFailed)).toBeTruthy();
+    expect(screen.getByText('Sintel.2010')).toBeTruthy();
+    expect(screen.queryByText(MSG.cancelConfirmTitle)).toBeNull();
+  });
+
+  it('a 404 on a checking row removes it like a 204, and Cancelling… shows while in flight', async () => {
+    const pending = deferred();
+    stubApi({
+      list: [jsonResponse({ items: [CHECKING('a', 'Sintel.2010')] })],
+      del: [pending.promise],
+    });
+    render(<Downloads onGoToSearch={() => {}} />);
+    await tick(0);
+    click(MSG.cancelDownload);
+    click(MSG.cancelConfirmYes);
+    await tick(0);
+    expect(screen.getByRole('button', { name: MSG.cancelling }).disabled).toBe(true);
+    pending.resolve(jsonResponse({ detail: 'download_not_found' }, 404));
+    await tick(0);
+    expect(screen.queryByText('Sintel.2010')).toBeNull();
+    expect(screen.queryByText(MSG.actionFailed)).toBeNull();
+  });
+
+  it('a downloading row that moves to checking with its panel open switches the body and stays open', async () => {
+    stubApi({
+      list: [LIST_A, jsonResponse({ items: [CHECKING('a', 'Sintel.2010')] })],
+    });
+    render(<Downloads onGoToSearch={() => {}} />);
+    await tick(0);
+    click(MSG.cancelDownload);
+    expect(screen.getByText(MSG.cancelConfirmBody)).toBeTruthy();
+    await tick(5000);
+    expect(screen.getByText(MSG.cancelConfirmTitle)).toBeTruthy();
+    expect(screen.getByText(MSG.cancelConfirmBodyDone)).toBeTruthy();
+  });
+
+  it('a checking row that becomes check_failed closes its panel', async () => {
+    stubApi({
+      list: [jsonResponse({ items: [CHECKING('a', 'Sintel.2010')] }), jsonResponse({ items: [FAILED('a', 'Sintel.2010')] })],
+    });
+    render(<Downloads onGoToSearch={() => {}} />);
+    await tick(0);
+    click(MSG.cancelDownload);
+    await tick(5000);
+    expect(screen.queryByText(MSG.cancelConfirmTitle)).toBeNull();
+    expect(screen.getByText(MSG.checkFailed)).toBeTruthy();
+  });
+});
