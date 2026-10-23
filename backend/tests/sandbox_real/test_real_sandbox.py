@@ -9,6 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+
 from app.quarantine.rules import judge
 from app.quarantine.runner_client import ProbeFacts
 from tests.sandbox_real.conftest import probe_rel
