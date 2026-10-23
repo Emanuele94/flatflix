@@ -9,12 +9,15 @@ import json
 import logging
 import re
 import time
+from pathlib import Path
 
 import httpx
 import pytest
+from fastapi import FastAPI
 
 from app.config import Settings
 from app.download.listing import download_id
+from app.quarantine.outcomes import Outcome, OutcomeStore
 from tests.conftest import PORTAL_SECRET_KEY, QBIT_PASS
 from tests.fakeqbit import FakeQbit
 
@@ -224,6 +227,65 @@ async def test_a_finished_torrent_in_quarantine_reads_checking_until_it_is_tagge
     assert (ready["state"], ready["progress"], ready["action"]) == ("ready", 100, "remove")
     assert ready["id"] == checking["id"]
     assert "quarantine" not in json.dumps([checking, ready])
+
+
+# -- rejected and ready-with-note rows come from the stored outcomes (D-56, D-61, D-77) ----------
+
+
+def store_outcome(app: FastAPI, tmp_path: Path, kind: str, age: float, skipped: int = 0) -> str:
+    """Write one outcome sidecar into a temporary rejected folder the app reads from."""
+    app.state.outcomes = OutcomeStore(tmp_path / "rejected")
+    outcome_id = download_id(PORTAL_SECRET_KEY, "9" * 40)
+    app.state.outcomes.write(
+        Outcome(outcome_id, "Dune", "film", kind, skipped, time.time() - age)  # type: ignore[arg-type]
+    )
+    return outcome_id
+
+
+async def test_a_rejected_outcome_is_listed_as_check_failed_with_no_action(
+    user_api: httpx.AsyncClient, app: FastAPI, tmp_path: Path
+) -> None:
+    outcome_id = store_outcome(app, tmp_path, "rejected", 3600, skipped=2)
+
+    (item,) = (await user_api.get("/api/downloads")).json()["items"]
+
+    assert item == {
+        "id": outcome_id,
+        "name": "Dune",
+        "type": "film",
+        "state": "check_failed",
+        "progress": 0,
+        "eta_seconds": None,
+        "action": None,
+        "skipped": 2,
+    }
+
+
+async def test_a_ready_outcome_is_listed_as_ready_with_remove(
+    user_api: httpx.AsyncClient, app: FastAPI, tmp_path: Path
+) -> None:
+    store_outcome(app, tmp_path, "ready", 2 * DAY, skipped=1)
+
+    (item,) = (await user_api.get("/api/downloads")).json()["items"]
+
+    assert (item["state"], item["progress"], item["action"], item["skipped"]) == (
+        "ready",
+        100,
+        "remove",
+        1,
+    )
+
+
+async def test_an_unreadable_sidecar_is_skipped_and_the_list_still_answers(
+    user_api: httpx.AsyncClient, app: FastAPI, tmp_path: Path
+) -> None:
+    outcome_id = store_outcome(app, tmp_path, "rejected", 60)
+    (tmp_path / "rejected" / f"{'b' * 16}.json").write_text("{not json", encoding="utf-8")
+
+    response = await user_api.get("/api/downloads")
+
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()["items"]] == [outcome_id]
 
 
 # -- cancel and remove (DOWN-05, D-32..D-35) ------------------------------------------------

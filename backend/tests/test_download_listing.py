@@ -19,12 +19,15 @@ from app.download.listing import (
     READY_STATES,
     build_items,
     cancel_deletes_files,
+    delete_files_for,
     display_name,
     download_id,
     eta_of,
     percent,
     plain_state,
+    row_action,
 )
+from app.quarantine.outcomes import Outcome
 from tests.conftest import (
     PORTAL_PASS_HASH,
     PORTAL_SECRET_KEY,
@@ -696,3 +699,201 @@ async def test_pruning_never_drops_a_running_job(monkeypatch: pytest.MonkeyPatch
     assert registry.get("3" * 16) is other
     await asyncio.sleep(0)  # let the new task start before it is cancelled
     await registry.shutdown()
+
+
+# -- Phase 2.1 rows: checking, problem, check_failed, ready with a note (D-53..D-56, D-77, D-78) --
+
+QUARANTINE_FILM = "/data/quarantine/Film"
+HOUR = 3600
+
+
+def quarantined(torrent_hash: str = "a" * 40, **fields: object) -> dict:
+    """A finished Film torrent saved under quarantine; tag it fx-ok-<t> to mark it verified."""
+    base: dict = {
+        "state": "stalledUP",
+        "progress": 1.0,
+        "completion_on": int(NOW) - HOUR,
+        "save_path": QUARANTINE_FILM,
+    }
+    base.update(fields)
+    return row(torrent_hash, **base)
+
+
+def outcome(kind: str, age: float, *, skipped: int = 0, outcome_id: str = "1" * 16) -> Outcome:
+    return Outcome(outcome_id, "Dune", "film", kind, skipped, NOW - age)  # type: ignore[arg-type]
+
+
+def test_plain_state_with_one_argument_still_says_ready_for_a_finished_torrent() -> None:
+    assert plain_state(row(state="stalledUP", progress=1.0)) == "ready"
+    assert plain_state(quarantined()) == "ready"  # no settings: the Phase 2 table
+
+
+def test_a_checking_torrent_turns_problem_exactly_six_hours_after_it_completed() -> None:
+    inside = quarantined("1" * 40, completion_on=int(NOW) - 6 * HOUR + 60)
+    edge = quarantined("2" * 40, completion_on=int(NOW) - 6 * HOUR)
+    settings = make_settings()
+
+    assert plain_state(inside, settings, NOW) == "checking"
+    assert plain_state(edge, settings, NOW) == "problem"
+    by_state = {i["id"]: i for i in items_of([inside, edge])}
+    stuck = by_state[download_id(SECRET, "2" * 40)]
+    assert (stuck["state"], stuck["action"]) == ("problem", "cancel")
+
+
+@pytest.mark.parametrize("completed", [-1, 0, None, "", "weird"])
+def test_a_checking_torrent_without_a_usable_completion_time_stays_checking(
+    completed: object,
+) -> None:
+    (item,) = items_of([quarantined(completion_on=completed)])
+
+    assert item["state"] == "checking"
+
+
+def test_a_checking_row_is_never_dropped_by_age() -> None:
+    (item,) = items_of([quarantined(completion_on=int(NOW) - 90 * DAY)])
+
+    assert item["state"] == "problem"  # long stuck, but still listed so it can be cancelled
+
+
+def test_a_verified_row_stays_for_seven_days_from_its_tag_not_from_completion() -> None:
+    inside = quarantined(
+        "1" * 40, completion_on=int(NOW) - 30 * DAY, tags=f"fx, fx-ok-{int(NOW) - 6 * DAY}"
+    )
+    outside = quarantined(
+        "2" * 40, completion_on=int(NOW) - 30 * DAY, tags=f"fx, fx-ok-{int(NOW) - 8 * DAY}"
+    )
+
+    shown = items_of([inside, outside])
+
+    assert [(i["id"], i["state"], i["action"]) for i in shown] == [
+        (download_id(SECRET, "1" * 40), "ready", "remove")
+    ]
+
+
+def test_a_legacy_torrent_outside_quarantine_keeps_the_phase_two_behaviour() -> None:
+    old = row("1" * 40, state="stalledUP", progress=1.0, save_path="/data/media/Film",
+              completion_on=int(NOW) - HOUR)  # fmt: skip
+    older = row("2" * 40, state="stalledUP", progress=1.0, save_path="/media/Film",
+                completion_on=int(NOW) - 8 * DAY)  # fmt: skip
+
+    shown = items_of([old, older])
+
+    assert [(i["state"], i["action"]) for i in shown] == [("ready", "remove")]
+
+
+def test_a_rejected_outcome_is_listed_for_a_day_with_its_name_and_skipped_count() -> None:
+    settings = make_settings()
+    young = outcome("rejected", HOUR, skipped=3)
+    old = outcome("rejected", 25 * HOUR, outcome_id="2" * 16)
+
+    shown = build_items([], settings, now=NOW, secret=SECRET, outcomes=[young, old])
+
+    assert shown == [
+        {
+            "id": "1" * 16,
+            "name": "Dune",
+            "type": "film",
+            "state": "check_failed",
+            "progress": 0,
+            "eta_seconds": None,
+            "action": None,
+            "skipped": 3,
+        }
+    ]
+
+
+def test_a_rejected_outcome_leaves_exactly_at_the_failed_window() -> None:
+    settings = make_settings()
+    edge = outcome("rejected", settings.failed_visible_seconds)
+    inside = outcome("rejected", settings.failed_visible_seconds - 1, outcome_id="2" * 16)
+
+    shown = build_items([], settings, now=NOW, secret=SECRET, outcomes=[edge, inside])
+
+    assert [i["id"] for i in shown] == ["2" * 16]
+
+
+def test_a_ready_outcome_is_listed_for_seven_days_with_remove_and_its_skipped_count() -> None:
+    settings = make_settings()
+    young = outcome("ready", 2 * DAY, skipped=2)
+    old = outcome("ready", 8 * DAY, outcome_id="2" * 16)
+
+    shown = build_items([], settings, now=NOW, secret=SECRET, outcomes=[young, old])
+
+    assert shown == [
+        {
+            "id": "1" * 16,
+            "name": "Dune",
+            "type": "film",
+            "state": "ready",
+            "progress": 100,
+            "eta_seconds": None,
+            "action": "remove",
+            "skipped": 2,
+        }
+    ]
+
+
+def test_an_outcome_whose_id_names_a_listed_torrent_is_not_listed_twice() -> None:
+    torrent = quarantined("a" * 40)
+    same = outcome("ready", HOUR, outcome_id=download_id(SECRET, "a" * 40))
+
+    shown = build_items([torrent], make_settings(), now=NOW, secret=SECRET, outcomes=[same])
+
+    assert [(i["id"], i["state"]) for i in shown] == [(download_id(SECRET, "a" * 40), "checking")]
+
+
+def test_checking_rows_sort_in_the_active_group_newest_first_and_by_id_on_a_tie() -> None:
+    ready = quarantined("0" * 40, tags=f"fx, fx-ok-{int(NOW) - 60}", completion_on=int(NOW) - 10)
+    older = quarantined("1" * 40, completion_on=int(NOW) - 2 * HOUR)
+    newer_a = quarantined("2" * 40, completion_on=int(NOW) - HOUR)
+    newer_b = quarantined("3" * 40, completion_on=int(NOW) - HOUR)
+    downloading = row("4" * 40, added_on=int(NOW) - 5 * DAY)
+    rows = [ready, older, newer_a, newer_b, downloading]
+
+    first = [i["id"] for i in items_of(rows)]
+    second = [i["id"] for i in items_of(list(reversed(rows)))]
+
+    tied = sorted(download_id(SECRET, h * 40) for h in "23")
+    assert first == [
+        *tied,
+        download_id(SECRET, "1" * 40),
+        download_id(SECRET, "4" * 40),
+        download_id(SECRET, "0" * 40),  # ready sorts after every active row
+    ]
+    assert first == second
+
+
+def test_check_failed_rows_sort_with_the_failed_job_rows_newest_first() -> None:
+    failed_job = job(state=JobState.REJECTED, finished_at=NOW - 2 * HOUR)
+    newer = outcome("rejected", HOUR)
+    older = outcome("rejected", 3 * HOUR, outcome_id="2" * 16)
+
+    shown = build_items(
+        [], make_settings(), now=NOW, secret=SECRET, jobs=[failed_job], outcomes=[older, newer]
+    )
+
+    assert [i["id"] for i in shown] == ["1" * 16, JOB_ID, "2" * 16]
+
+
+@pytest.mark.parametrize(
+    "ready_row",
+    [quarantined(tags=f"fx, fx-ok-{int(NOW)}"), quarantined()],
+)
+def test_the_button_and_the_delete_decision_agree_for_quarantine_rows(ready_row: dict) -> None:
+    settings = make_settings()
+    (item,) = items_of([ready_row], settings)
+
+    assert delete_files_for(ready_row, settings) is True
+    assert item["action"] == row_action(ready_row, settings)
+    assert item["action"] == ("remove" if "fx-ok-" in ready_row["tags"] else "cancel")
+
+
+def test_delete_files_for_a_legacy_row_follows_the_phase_two_rule() -> None:
+    settings = make_settings()
+    finished = row(state="stalledUP", progress=1.0, save_path="/data/media/Film")
+    partial = row(state="downloading", progress=0.4, save_path="/data/media/Film")
+
+    assert delete_files_for(finished, settings) is False
+    assert delete_files_for(partial, settings) is True
+    assert row_action(finished, settings) == "remove"
+    assert row_action(partial, settings) == "cancel"
