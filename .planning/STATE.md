@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: "02.1"
 current_phase_name: Download Quarantine & Firecracker Validation (INSERTED)
 status: executing
-stopped_at: Completed 02.1-06-PLAN.md
-last_updated: "2026-10-23T20:00:45.779Z"
+stopped_at: Completed 02.1-07-PLAN.md
+last_updated: "2026-10-23T20:16:02.346Z"
 last_activity: 2026-10-23
 last_activity_desc: Phase 02.1 execution started
-state_head: e315bce80af4c4a3b2c9193feccbd739de53756b
+state_head: c4a50c03d5b3ebdc63d6d23886728d23388b1af3
 progress:
   total_phases: 7
   completed_phases: 2
   total_plans: 36
-  completed_plans: 33
+  completed_plans: 34
   percent: 29
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-23)
 ## Current Position
 
 Phase: 02.1 (Download Quarantine & Firecracker Validation (INSERTED)) — EXECUTING
-Plan: 7 of 9
+Plan: 8 of 9
 Status: Ready to execute
 Last activity: 2026-10-23 — Phase 02.1 execution started
 
@@ -90,6 +90,7 @@ Progress: [███░░░░░░░] 29%
 | Phase 02.1 P04 | 8 min | 2 tasks | 5 files |
 | Phase 02.1 P05 | 38 min | 3 tasks | 13 files |
 | Phase 02.1 P06 | 8 min | 2 tasks | 9 files |
+| Phase 02.1 P07 | 14 min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -158,6 +159,9 @@ Recent decisions affecting current work:
 - [Phase 02.1]: 02.1-05: ffmpeg stays pinned by FFMPEG_APK_VERSION (D-73); a new Alpine revision fails the build and the admin bumps the ARG
 - [Phase 02.1]: 02.1-06: held files (failing, unprobeable, failed link) are re-probed every tick until plan 07 adds the rejection path
 - [Phase 02.1]: 02.1-06: hand-off runs under HandoffGuard.lock and re-checks torrent and (inode,size,mtime_ns) of every file before linking; tag is written last
+- [Phase 02.1]: 02.1-07: a stored outcome is a pending delete only when it is not older than the torrent's completion_on; a re-downloaded film is checked again
+- [Phase 02.1]: 02.1-07: an empty qBittorrent file list is a host fault (torrent stays Checking), only a non-empty list with nothing checkable is rejected with no_video
+- [Phase 02.1]: 02.1-07: seeding-end removal runs in the verifier poll (stoppedUP/pausedUP + fx-ok tag + in quarantine); qBittorrent max_ratio_act stays Stop
 
 ### Pending Todos
 
@@ -188,6 +192,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-23T20:00:45.546Z
-Stopped at: Completed 02.1-06-PLAN.md
+Last session: 2026-10-23T20:16:01.144Z
+Stopped at: Completed 02.1-07-PLAN.md
 Resume file: None
