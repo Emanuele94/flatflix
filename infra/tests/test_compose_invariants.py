@@ -249,16 +249,24 @@ def _volume(service: dict, target: str) -> dict:
     return matches[0]
 
 
-@pytest.mark.parametrize("target", ["/media/Film", "/media/SerieTV", "/incomplete"])
-def test_media_binds_refuse_missing_host_folders(base, target):
-    volume = _volume(base["services"]["qbittorrent"], target)
+@pytest.mark.parametrize("name", ["qbittorrent", "backend"])
+def test_data_bind_is_single_and_refuses_missing_host_folder(base, name):
+    volume = _volume(base["services"][name], "/data")
     assert volume["type"] == "bind"
+    assert volume["source"] == "${DATA_ROOT:-./data}"
     assert volume["bind"]["create_host_path"] is False
 
 
-def test_incomplete_folder_lives_outside_media_root(base):
-    source = _volume(base["services"]["qbittorrent"], "/incomplete")["source"]
-    assert not source.startswith("${MEDIA_ROOT")
+def test_no_service_mounts_the_old_media_targets(base):
+    for name, service in base["services"].items():
+        for volume in service.get("volumes") or []:
+            target = volume["target"] if isinstance(volume, dict) else str(volume).split(":")[1]
+            for old in ("/media", "/incomplete"):
+                assert not (target == old or target.startswith(old + "/")), f"{name}: {target}"
+
+
+def test_backend_runs_as_the_media_owner(base):
+    assert base["services"]["backend"]["user"] == "${PUID:-1000}:${PGID:-1000}"
 
 
 def test_media_owner_is_set(base):

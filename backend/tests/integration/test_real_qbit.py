@@ -119,7 +119,7 @@ async def test_sintel_magnet_flow(
         row = await torrent_row(real_qbit, SINTEL_BTIH)
         assert row is not None
         assert row["category"] == "Film"
-        assert row["save_path"].rstrip("/") == "/media/Film"
+        assert row["save_path"].rstrip("/") == "/data/quarantine/Film"
         tags = {t.strip() for t in row["tags"].split(",")}
         assert "fx" in tags and "fx-pending" not in tags
         files = {f["name"]: f["priority"] for f in await real_qbit.torrent_files(SINTEL_BTIH)}

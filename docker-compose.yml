@@ -24,19 +24,10 @@ services:
     volumes:
       - ./qbittorrent/config:/config
       - ./qbittorrent/custom-cont-init.d:/custom-cont-init.d:ro
+      # One bind for the whole data tree (media, quarantine, rejected, incomplete): QUAR-01, D-44.
       - type: bind
-        source: ${MEDIA_ROOT:-./data/media}/Film
-        target: /media/Film
-        bind:
-          create_host_path: false
-      - type: bind
-        source: ${MEDIA_ROOT:-./data/media}/SerieTV
-        target: /media/SerieTV
-        bind:
-          create_host_path: false
-      - type: bind
-        source: ${INCOMPLETE_DIR:-./data/incomplete}
-        target: /incomplete
+        source: ${DATA_ROOT:-./data}
+        target: /data
         bind:
           create_host_path: false
     networks: [qbit]
@@ -53,6 +44,17 @@ services:
   backend:
     build: ./backend
     env_file: .env
+    # link() of qBittorrent's files into the media folders needs the owner's uid under
+    # fs.protected_hardlinks (RESEARCH Pitfall 6).
+    user: "${PUID:-1000}:${PGID:-1000}"
+    volumes:
+      # The same single bind as qbittorrent: two separate binds would make link() fail with a
+      # cross-device error (RESEARCH Pitfall 6).
+      - type: bind
+        source: ${DATA_ROOT:-./data}
+        target: /data
+        bind:
+          create_host_path: false
     networks: [edge, qbit]
     depends_on:
       qbittorrent:

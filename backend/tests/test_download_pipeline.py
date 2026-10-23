@@ -237,7 +237,7 @@ async def test_a_category_path_changed_behind_the_portal_is_repaired_before_the_
     response = await rig.post()
 
     assert response.json()["status"] == "started"
-    assert rig.fake.category_table["Film"]["savePath"] == "/media/Film"
+    assert rig.fake.category_table["Film"]["savePath"] == "/data/quarantine/Film"
     assert index_of(rig.fake, "/api/v2/torrents/editCategory", last=True) < index_of(rig.fake, ADD)
 
 
@@ -248,7 +248,7 @@ async def test_a_missing_category_is_created_with_its_save_path_before_the_add(r
 
     await rig.post()
 
-    assert rig.fake.category_table["Film"]["savePath"] == "/media/Film"
+    assert rig.fake.category_table["Film"]["savePath"] == "/data/quarantine/Film"
     assert index_of(rig.fake, "/api/v2/torrents/createCategory", last=True) < index_of(
         rig.fake, ADD
     )

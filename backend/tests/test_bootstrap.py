@@ -10,7 +10,14 @@ from pydantic import SecretStr
 from app.config import Settings
 from app.download.allowlist import EXCLUDED_FILE_PATTERNS
 from app.qbit import bootstrap as bootstrap_module
-from app.qbit.bootstrap import Bootstrapper, Readiness, build_preferences, require_ready
+from app.qbit.bootstrap import (
+    Bootstrapper,
+    Readiness,
+    build_preferences,
+    config_drifted,
+    repair_drift,
+    require_ready,
+)
 from app.qbit.client import QbitClient
 from app.tools import doctor
 from tests.conftest import (
@@ -23,8 +30,8 @@ from tests.conftest import (
 )
 from tests.fakeqbit import FakeQbit
 
-FILM = "/media/Film"
-SERIES = "/media/SerieTV"
+FILM = "/data/quarantine/Film"
+SERIES = "/data/quarantine/SerieTV"
 
 
 def make_bootstrapper(
@@ -70,7 +77,7 @@ async def test_preferences_carry_filt01_patterns_temp_path_and_auto_tmm(
     assert prefs["auto_tmm_enabled"] is True
     assert prefs["category_changed_tmm_enabled"] is True
     assert prefs["temp_path_enabled"] is True
-    assert prefs["temp_path"] == "/incomplete"
+    assert prefs["temp_path"] == "/data/incomplete"
 
 
 def test_exclusion_list_is_never_empty_even_when_qbittorrent_had_none(
@@ -159,8 +166,8 @@ def test_doctor_torrent_line_has_paths_and_progress_but_no_hash() -> None:
         "hash": "0123456789abcdef0123456789abcdef01234567",
         "name": "N" * 80,
         "category": "Film",
-        "save_path": "/media/Film",
-        "download_path": "/incomplete/Film",
+        "save_path": "/data/quarantine/Film",
+        "download_path": "/data/incomplete/Film",
         "state": "downloading",
         "progress": 0.256,
     }
@@ -168,7 +175,8 @@ def test_doctor_torrent_line_has_paths_and_progress_but_no_hash() -> None:
     text = doctor.torrent_line(row)
 
     assert text == (
-        f"{'N' * 60} | category Film | save /media/Film | incomplete /incomplete/Film"
+        f"{'N' * 60} | category Film | save /data/quarantine/Film"
+        " | incomplete /data/incomplete/Film"
         " | state downloading | 25.6%"
     )
     assert row["hash"] not in text
@@ -243,7 +251,7 @@ async def test_existing_category_with_same_path_gets_no_edit_with_or_without_tra
     fake_qbit: FakeQbit, settings: Settings
 ) -> None:
     fake_qbit.category_table = {
-        "Film": {"name": "Film", "savePath": "/media/Film/"},
+        "Film": {"name": "Film", "savePath": f"{FILM}/"},
         "SerieTV": {"name": "SerieTV", "savePath": SERIES},
     }
     bootstrapper, readiness = make_bootstrapper(fake_qbit, settings)
@@ -740,4 +748,38 @@ async def test_doctor_accepts_a_plugin_an_admin_disabled(
     assert any(
         f"plugin {fake_qbit.plugins[0]['name']} installed enabled False" in t for _, t in checks
     )
+    await client.aclose()
+
+
+async def test_phase_1_2_layout_is_moved_to_the_quarantine_folders_in_one_repair(
+    fake_qbit: FakeQbit, settings: Settings
+) -> None:
+    # The state Phase 1-2 left behind: categories saving straight into the media folders.
+    fake_qbit.category_table = {
+        "Film": {"name": "Film", "savePath": "/media/Film"},
+        "SerieTV": {"name": "SerieTV", "savePath": "/media/SerieTV"},
+    }
+    fake_qbit.preferences["temp_path_enabled"] = True
+    fake_qbit.preferences["temp_path"] = "/incomplete"
+    client = QbitClient(
+        settings.qbittorrent_url,
+        settings.qbittorrent_user,
+        settings.qbittorrent_pass,
+        transport=fake_qbit.transport,
+    )
+    # Bring the rest of the preferences in line so only the paths differ.
+    fixed = build_preferences(settings, "")
+    fixed["temp_path"] = "/incomplete"
+    await client.set_preferences(fixed)
+
+    assert config_drifted(await client.get_preferences(), await client.categories(), settings)
+
+    assert await repair_drift(client, settings) is True
+
+    assert {n: c["savePath"] for n, c in fake_qbit.category_table.items()} == {
+        "Film": FILM,
+        "SerieTV": SERIES,
+    }
+    assert fake_qbit.preferences["temp_path"] == "/data/incomplete"
+    assert not config_drifted(await client.get_preferences(), await client.categories(), settings)
     await client.aclose()

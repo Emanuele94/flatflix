@@ -65,13 +65,18 @@ class Settings(BaseSettings):
     trusted_proxy_hosts: str = "web"
     session_max_age_days: int = Field(default=30, ge=1)
 
-    # qBittorrent layout (DOWN-02, DOWN-03). Names and paths come only from here, never from a
-    # request. SAVE_PATH_* must match the container mounts in docker-compose.yml.
+    # qBittorrent layout (DOWN-02, DOWN-03, QUAR-01). Names and paths come only from here, never
+    # from a request. These are container paths: DATA_PATH is where docker-compose.yml binds the
+    # host folder DATA_ROOT (a different key on purpose: the backend receives the whole env file,
+    # and the host value "./data" is not a container path). SAVE_PATH_* sit inside
+    # DATA_PATH/quarantine, where Jellyfin never looks; checked files are hardlinked into
+    # `media_paths` later (D-46).
     category_film: str = "Film"
     category_tv: str = "SerieTV"
-    save_path_film: str = "/media/Film"
-    save_path_tv: str = "/media/SerieTV"
-    incomplete_path: str = "/incomplete"
+    data_path: str = "/data"
+    save_path_film: str = "/data/quarantine/Film"
+    save_path_tv: str = "/data/quarantine/SerieTV"
+    incomplete_path: str = "/data/incomplete"
 
     # Official search plugins, fetched from one pinned commit of qbittorrent/search-plugins (D-19).
     search_plugins: str = (
@@ -115,6 +120,26 @@ class Settings(BaseSettings):
     @property
     def category_paths(self) -> dict[str, str]:
         return {self.category_film: self.save_path_film, self.category_tv: self.save_path_tv}
+
+    @property
+    def quarantine_root(self) -> str:
+        return f"{self.data_path.rstrip('/')}/quarantine"
+
+    @property
+    def media_root(self) -> str:
+        return f"{self.data_path.rstrip('/')}/media"
+
+    @property
+    def rejected_root(self) -> str:
+        return f"{self.data_path.rstrip('/')}/rejected"
+
+    @property
+    def media_paths(self) -> dict[str, str]:
+        """Where a checked file of each category finally goes (D-46)."""
+        return {
+            self.category_film: f"{self.media_root}/{self.category_film}",
+            self.category_tv: f"{self.media_root}/{self.category_tv}",
+        }
 
     @property
     def suspicious_term_list(self) -> tuple[str, ...]:
@@ -202,7 +227,7 @@ class Settings(BaseSettings):
             raise ValueError(f"{info.field_name.upper()} must match ^[A-Za-z0-9]+$")
         return value
 
-    @field_validator("save_path_film", "save_path_tv", "incomplete_path")
+    @field_validator("data_path", "save_path_film", "save_path_tv", "incomplete_path")
     @classmethod
     def _check_path(cls, value: str, info: ValidationInfo) -> str:
         name = info.field_name.upper()

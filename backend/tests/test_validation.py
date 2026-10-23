@@ -232,8 +232,8 @@ async def test_search_routes_answer_503_not_ready_before_bootstrap(
 
 def test_every_content_type_round_trips_through_the_fixed_maps(settings: Settings) -> None:
     expected = {
-        "film": ("movies", "Film", "/media/Film"),
-        "serie": ("tv", "SerieTV", "/media/SerieTV"),
+        "film": ("movies", "Film", "/data/quarantine/Film"),
+        "serie": ("tv", "SerieTV", "/data/quarantine/SerieTV"),
     }
 
     # A third type cannot be added without updating every map.
