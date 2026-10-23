@@ -16,6 +16,7 @@ from collections.abc import Iterable
 from app.config import Settings
 from app.content_type import type_for_category
 from app.download.jobs import FAILED_STATES, Job, JobState
+from app.quarantine.rules import in_quarantine, verified_at
 
 # Tags set by the download pipeline on the torrents it adds.
 TAG_PORTAL = "fx"
@@ -51,7 +52,7 @@ IN_PROGRESS_RAW_STATES = (
 FAILED_JOB_STATES = frozenset(state.value for state in FAILED_STATES)
 
 # Rows in these plain states are shown first (D-30).
-ACTIVE_PLAIN_STATES = frozenset({"preparing", "downloading", "stalled"})
+ACTIVE_PLAIN_STATES = frozenset({"preparing", "downloading", "stalled", "checking"})
 
 # qBittorrent's "infinite" ETA (`MAX_ETA` in src/base/types.h of release-5.2.4).
 MAX_ETA = 8640000
@@ -70,11 +71,31 @@ def job_tag_of(tags: list[str]) -> str | None:
     return next((t for t in tags if t.startswith(TAG_JOB_PREFIX)), None)
 
 
-def plain_state(row: dict) -> str:
-    """One of preparing, downloading, stalled, ready, problem for a qBittorrent row."""
+def _under_quarantine(row: dict, settings: Settings) -> bool:
+    return in_quarantine(str(row.get("save_path") or ""), settings.quarantine_root)
+
+
+def _unverified_in_quarantine(row: dict, settings: Settings | None) -> bool:
+    """A torrent saved under quarantine that no verified tag marks yet (D-53, D-54)."""
+    return (
+        settings is not None
+        and _under_quarantine(row, settings)
+        and verified_at(tags_of(row)) is None
+    )
+
+
+def plain_state(row: dict, settings: Settings | None = None, now: float | None = None) -> str:
+    """One of preparing, downloading, stalled, checking, ready, problem for a qBittorrent row.
+
+    State table (RESEARCH Pattern 6): a finished torrent (`...UP`) saved under quarantine reads
+    "checking" until the verifier has handed it off and tagged it `fx-ok-<t>`; only then is it
+    "ready", so Ready never shows before the film is in the media folder (D-53, QUAR-04). A
+    torrent saved anywhere else (Phase 1-2 downloads, which live in the media folders) keeps the
+    Phase 2 table: finished means ready (D-79). With one argument the answer is the Phase 2 one.
+    """
     state = str(row.get("state") or "")
     if state in READY_STATES:
-        return "ready"
+        return "checking" if _unverified_in_quarantine(row, settings) else "ready"
     if state in PROBLEM_STATES:
         return "problem"
     if state in DOWNLOADING_STATES:
@@ -108,6 +129,34 @@ def cancel_deletes_files(row: dict) -> bool:
     except (TypeError, ValueError):
         return False
     return math.isfinite(progress) and progress < 1
+
+
+def delete_files_for(row: dict, settings: Settings) -> bool:
+    """True when DELETE sends `deleteFiles=true` for this torrent: the one rule for every caller.
+
+    Keyed on where the torrent is saved, read from the row inside the request (D-47, D-79):
+    - Under quarantine: always true. The files there are the household's own download being
+      stopped (Cancel), or a verified film whose media hardlink keeps it after the quarantine name
+      goes (Remove, D-47 amends D-33). Nothing a film needs lives only under quarantine once it is
+      tagged verified, because the tag is written after the links (Pitfall 7).
+    - Anywhere else (a Phase 1-2 torrent that lives in the media folders): the Phase 2 rule,
+      `cancel_deletes_files`, so Remove never deletes a film that reached a media folder.
+    """
+    if _under_quarantine(row, settings):
+        return True
+    return cancel_deletes_files(row)
+
+
+def row_action(row: dict, settings: Settings) -> str:
+    """The button of a torrent row, which must name what DELETE then does.
+
+    "remove" for a verified torrent under quarantine (only the quarantine name goes, the media
+    link keeps the film), "cancel" for any other torrent under quarantine (its files are
+    deleted), and the Phase 2 rule for every torrent outside quarantine.
+    """
+    if _under_quarantine(row, settings):
+        return "remove" if verified_at(tags_of(row)) is not None else "cancel"
+    return "cancel" if cancel_deletes_files(row) else "remove"
 
 
 def download_id(secret: str, torrent_hash: str) -> str:
@@ -215,7 +264,7 @@ def build_items(
         content_type = type_for_category(settings, str(row.get("category") or ""))
         if content_type is None:
             continue
-        state = plain_state(row)
+        state = plain_state(row, settings, now)
         stamp = sort_time(row)
         # D-28: a finished download leaves the list from exactly this age on; the torrent stays.
         if state == "ready" and now - stamp >= settings.completed_visible_seconds:
@@ -242,9 +291,10 @@ def build_items(
             "state": state,
             "progress": percent(row, state),
             "eta_seconds": eta_of(row, state),
-            # The button must name what DELETE then does: "cancel" deletes the partial files,
-            # "remove" keeps them, and the server decides with the same function (D-32, D-33).
-            "action": "cancel" if cancel_deletes_files(row) else "remove",
+            # The button must name what DELETE then does: "cancel" deletes the files, "remove"
+            # keeps what a film needs, and the server decides with the same rule (D-32, D-47).
+            "action": row_action(row, settings),
+            "skipped": 0,
         }
         kept.append(((0 if state in ACTIVE_PLAIN_STATES else 1, -stamp, item_id), item))
     for job in jobs:
@@ -268,7 +318,7 @@ def build_items(
 
 
 def _job_item(job: Job, state: str, action: str | None) -> dict:
-    """The same seven keys as a torrent row; the id is the opaque job id the browser holds."""
+    """The same eight keys as a torrent row; the id is the opaque job id the browser holds."""
     return {
         "id": job.job_id,
         "name": job_name(job),
@@ -277,4 +327,5 @@ def _job_item(job: Job, state: str, action: str | None) -> dict:
         "progress": 0,
         "eta_seconds": None,
         "action": action,
+        "skipped": 0,
     }

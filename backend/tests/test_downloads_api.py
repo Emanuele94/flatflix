@@ -5,6 +5,7 @@ test_download_listing.py.
 """
 
 import asyncio
+import json
 import logging
 import re
 import time
@@ -12,6 +13,7 @@ import time
 import httpx
 import pytest
 
+from app.config import Settings
 from app.download.listing import download_id
 from tests.conftest import PORTAL_SECRET_KEY, QBIT_PASS
 from tests.fakeqbit import FakeQbit
@@ -20,7 +22,7 @@ from tests.fakeqbit import FakeQbit
 from tests.test_download_pipeline import BTIH, Rig, clock, rig  # noqa: F401
 
 HASH = "a" * 40
-ITEM_KEYS = {"id", "name", "type", "state", "progress", "eta_seconds", "action"}
+ITEM_KEYS = {"id", "name", "type", "state", "progress", "eta_seconds", "action", "skipped"}
 DAY = 86400
 
 
@@ -169,6 +171,7 @@ async def test_a_rejected_download_tap_is_listed_with_its_reason_and_name(rig: R
         "progress": 0,
         "eta_seconds": None,
         "action": None,
+        "skipped": 0,
     }
     assert BTIH not in response.text
 
@@ -188,6 +191,39 @@ async def test_a_failed_row_disappears_after_failed_visible_hours(rig: Rig) -> N
 
     assert gone.json() == {"items": []}
     assert [item["id"] for item in shown.json()["items"]] == [job_id]
+
+
+# -- a finished torrent in quarantine reads checking until it is verified (D-53, QUAR-04) -------
+
+
+async def test_a_finished_torrent_in_quarantine_reads_checking_until_it_is_tagged_verified(
+    user_api: httpx.AsyncClient, fake_qbit: FakeQbit, settings: Settings
+) -> None:
+    now = int(time.time())
+    torrent = fake_qbit.add_torrent_row(
+        HASH,
+        name="Movie",
+        category="Film",
+        state="stalledUP",
+        progress=1.0,
+        completion_on=now - 60,
+        save_path=f"{settings.quarantine_root}/Film",
+    )
+
+    (checking,) = (await user_api.get("/api/downloads")).json()["items"]
+    torrent.tags.append(f"fx-ok-{now}")
+    (ready,) = (await user_api.get("/api/downloads")).json()["items"]
+
+    assert set(checking) == ITEM_KEYS
+    assert (checking["state"], checking["action"], checking["eta_seconds"]) == (
+        "checking",
+        "cancel",
+        None,
+    )
+    assert checking["skipped"] == 0
+    assert (ready["state"], ready["progress"], ready["action"]) == ("ready", 100, "remove")
+    assert ready["id"] == checking["id"]
+    assert "quarantine" not in json.dumps([checking, ready])
 
 
 # -- cancel and remove (DOWN-05, D-32..D-35) ------------------------------------------------

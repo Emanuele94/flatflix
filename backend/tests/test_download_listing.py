@@ -38,6 +38,7 @@ NOW = 1_800_000_000.0
 SECRET = "listing-test-secret-0123456789abcdef"
 DAY = 86400
 PENDING_TAGS = "fx, fx-pending, fx-job-0123456789abcdef"
+ITEM_KEYS = {"id", "name", "type", "state", "progress", "eta_seconds", "action", "skipped"}
 
 
 def make_settings(**overrides: object) -> Settings:
@@ -267,10 +268,10 @@ def test_every_other_category_is_dropped(category: str) -> None:
     assert items_of([row(category=category)]) == []
 
 
-def test_an_item_has_exactly_the_seven_documented_keys() -> None:
+def test_an_item_has_exactly_the_eight_documented_keys() -> None:
     (item,) = items_of([row()])
 
-    assert set(item) == {"id", "name", "type", "state", "progress", "eta_seconds", "action"}
+    assert set(item) == ITEM_KEYS
     assert item["action"] == "cancel"
     assert item["eta_seconds"] == 600
     assert item["progress"] == 50
@@ -420,7 +421,6 @@ def test_downloads_list_windows_have_the_documented_defaults() -> None:
 
 JOB_ID = "0123456789abcdef"
 FAILURES = [JobState.REJECTED, JobState.UNSUPPORTED, JobState.UNAVAILABLE, JobState.FAILED]
-ITEM_KEYS = {"id", "name", "type", "state", "progress", "eta_seconds", "action"}
 
 
 def job(
@@ -464,6 +464,7 @@ def test_a_preparing_job_without_a_torrent_is_listed_with_cancel() -> None:
         "progress": 0,
         "eta_seconds": None,
         "action": "cancel",
+        "skipped": 0,
     }
 
 
