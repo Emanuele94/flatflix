@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: "02.1"
 current_phase_name: Download Quarantine & Firecracker Validation (INSERTED)
 status: executing
-stopped_at: Completed 02.1-01-PLAN.md
-last_updated: "2026-10-23T19:09:47.060Z"
+stopped_at: Completed 02.1-02-PLAN.md
+last_updated: "2026-10-23T19:20:20.186Z"
 last_activity: 2026-10-23
 last_activity_desc: Phase 02.1 execution started
-state_head: 0f90b66bdb97900800c1776a2e06a9066a43a843
+state_head: 5e866d9cdbc390e6e8cbf30bad00b38a4ee59a4c
 progress:
   total_phases: 7
   completed_phases: 2
   total_plans: 36
-  completed_plans: 28
+  completed_plans: 29
   percent: 29
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-23)
 ## Current Position
 
 Phase: 02.1 (Download Quarantine & Firecracker Validation (INSERTED)) — EXECUTING
-Plan: 2 of 9
+Plan: 3 of 9
 Status: Ready to execute
 Last activity: 2026-10-23 — Phase 02.1 execution started
 
@@ -85,6 +85,7 @@ Progress: [███░░░░░░░] 29%
 | Phase 02 P10 | 30min | 2 tasks | 4 files |
 | Phase 02 P11 | 7 min | 2 tasks | 3 files |
 | Phase 02.1 P01 | 9 min | 3 tasks | 13 files |
+| Phase 02.1 P02 | 8 min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -144,6 +145,8 @@ Recent decisions affecting current work:
 - [Phase 02]: Review fixes WR-01..WR-05: cancel keeps files of any torrent that ever finished (completion_on <= 0 pinned on the real engine); cancel re-reads before delete; sweep starts before the first lookup
 - [Phase 02.1]: D-44 applied: one DATA_ROOT host folder bound once at /data in qbittorrent and backend; Settings field data_path (DATA_PATH) is the container side — Hardlinks need one mount; the host and container names differ because the backend receives the whole env file
 - [Phase 02.1]: Settings refuse any save path outside DATA_PATH/quarantine; backend runs as PUID:PGID — A save path inside media would let a download skip the safety check; link() needs the owner uid under fs.protected_hardlinks
+- [Phase 02.1]: 02.1-02: sandbox runner is a stdlib HTTP service; /selftest bypasses the 4096-byte floor, and the unauthenticated listener must stay on an internal compose network
+- [Phase 02.1]: 02.1-02: host faults (kvm, artifacts, boot, permission) answer 503 runner_unavailable, never a verdict; console reader keeps the first MAX_CONSOLE_BYTES and drains the rest
 
 ### Pending Todos
 
@@ -174,6 +177,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-23T19:09:46.828Z
-Stopped at: Completed 02.1-01-PLAN.md
+Last session: 2026-10-23T19:20:19.771Z
+Stopped at: Completed 02.1-02-PLAN.md
 Resume file: None
