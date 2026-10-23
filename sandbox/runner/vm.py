@@ -12,6 +12,7 @@ import json
 import os
 import secrets
 import shutil
+import signal
 import subprocess
 import tempfile
 import threading
@@ -236,6 +237,33 @@ def _read_console(stream_fd: int, cap: int, out: list[bytes]) -> None:
             kept += len(piece)
 
 
+def _kill_group(proc: subprocess.Popen[bytes]) -> None:
+    """SIGKILL the VM's whole process group, then reap the leader.
+
+    The VM runs in its own session (``start_new_session``), so its group id is
+    the pid of the Firecracker process and nothing else shares it.
+    """
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    proc.wait()
+
+
+def check_artifacts(cfg: RunnerConfig) -> None:
+    """Firecracker, kernel and rootfs must be there, else this is a host fault."""
+    runnable = cfg.firecracker.is_file() and os.access(cfg.firecracker, os.X_OK)
+    readable = all(p.is_file() and os.access(p, os.R_OK) for p in (cfg.kernel, cfg.rootfs))
+    if not (runnable and readable):
+        raise RunnerFault("artifacts")
+
+
+def check_kvm(cfg: RunnerConfig) -> None:
+    """The KVM device must be readable and writable by the runner."""
+    if not os.access(cfg.kvm_device, os.R_OK | os.W_OK):
+        raise RunnerFault("kvm")
+
+
 def run_vm(cfg: RunnerConfig, config: dict[str, Any], workdir: Path, nonce: str) -> RunResult:
     """Boot one VM with ``firecracker --no-api --config-file`` and read its console."""
     vm_json = workdir / "vm.json"
@@ -244,13 +272,16 @@ def run_vm(cfg: RunnerConfig, config: dict[str, Any], workdir: Path, nonce: str)
         handle.write(json.dumps(config))
 
     started = time.monotonic()
-    proc = subprocess.Popen(
-        [str(cfg.firecracker), "--no-api", "--config-file", str(vm_json)],
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        start_new_session=True,
-    )
+    try:
+        proc = subprocess.Popen(
+            [str(cfg.firecracker), "--no-api", "--config-file", str(vm_json)],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+    except OSError as exc:
+        raise RunnerFault("boot") from exc
     assert proc.stdout is not None
     chunks: list[bytes] = []
     reader = threading.Thread(
@@ -264,8 +295,7 @@ def run_vm(cfg: RunnerConfig, config: dict[str, Any], workdir: Path, nonce: str)
         proc.wait(timeout=cfg.timeout_seconds)
     except subprocess.TimeoutExpired:
         timed_out = True
-        proc.kill()
-        proc.wait()
+        _kill_group(proc)
     reader.join(timeout=2)
     proc.stdout.close()
     vm_ms = int((time.monotonic() - started) * 1000)
@@ -332,23 +362,46 @@ def _answer(
     }
 
 
-def probe_file(cfg: RunnerConfig, path: Path) -> dict[str, Any]:
-    """Probe one already-resolved file in a fresh VM and report plain facts."""
-    size = os.stat(path).st_size
-    if size < cfg.min_probe_bytes:
+def probe_file(cfg: RunnerConfig, path: Path, min_bytes: int | None = None) -> dict[str, Any]:
+    """Probe one already-resolved file in a fresh VM and report plain facts.
+
+    A host fault must never become a verdict (D-58): missing artifacts, no KVM,
+    an unreadable file, or a VM that never printed BEGIN raise ``RunnerFault``
+    and the server answers 503. A file fault is reported as a status and the
+    backend retries once in a fresh VM (D-57): a timeout after BEGIN, a
+    non-zero ffprobe exit, or missing or invalid JSON.
+    """
+    try:
+        size = os.stat(path).st_size
+    except PermissionError as exc:
+        raise RunnerFault("permission") from exc
+    floor = cfg.min_probe_bytes if min_bytes is None else min_bytes
+    if size < floor:
         return _answer("probe_failed", "too_small", size)
 
-    cfg.work_dir.mkdir(parents=True, exist_ok=True)
-    workdir = Path(tempfile.mkdtemp(dir=cfg.work_dir))
+    check_artifacts(cfg)
+    check_kvm(cfg)
+    try:
+        cfg.work_dir.mkdir(parents=True, exist_ok=True)
+        workdir = Path(tempfile.mkdtemp(dir=cfg.work_dir))
+    except OSError as exc:
+        raise RunnerFault("artifacts") from exc
     try:
         nonce = secrets.token_hex(8)
         tail = workdir / "tail.bin"
-        write_tail(path, size, tail)
+        try:
+            write_tail(path, size, tail)
+        except PermissionError as exc:
+            raise RunnerFault("permission") from exc
         result = run_vm(cfg, build_config(cfg, path, tail, nonce, size), workdir, nonce)
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
-    if result.exit_code not in (0, None):
+    if not result.begin_seen:
+        raise RunnerFault("boot")
+    if result.timed_out:
+        return _answer("timeout", None, size, result)
+    if result.exit_code != 0:
         return _answer("probe_failed", "exit", size, result)
     try:
         obj = json.loads(result.json_text)
@@ -366,6 +419,8 @@ __all__ = [
     "RunnerConfig",
     "RunnerFault",
     "build_config",
+    "check_artifacts",
+    "check_kvm",
     "facts_from_ffprobe",
     "parse_console",
     "probe_file",

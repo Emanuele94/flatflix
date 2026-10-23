@@ -235,7 +235,9 @@ def make_runner(
         )
         cfg = dataclasses.replace(cfg, **overrides)
         server = make_server(cfg, "127.0.0.1", 0)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread = threading.Thread(
+            target=server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True
+        )
         thread.start()
         servers.append(server)
         port = server.server_address[1]

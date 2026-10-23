@@ -9,6 +9,7 @@ itself: only runner.vm does.
 from __future__ import annotations
 
 import json
+import os
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -16,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from runner.paths import InvalidPath, NotFound, NotRegular, resolve_probe_path
-from runner.vm import RunnerConfig, probe_file
+from runner.vm import RunnerConfig, RunnerFault, check_kvm, probe_file
 
 VM_LOCK = threading.Lock()
 MAX_BODY_BYTES = 4096
@@ -83,16 +84,23 @@ class Handler(BaseHTTPRequestHandler):
             return None
         return body if isinstance(body, dict) else None
 
-    def _probe_answer(self, path: Path) -> dict[str, Any]:
-        with VM_LOCK:
-            answer = probe_file(self.server.cfg, path)
+    def _probe_answer(self, path: Path, min_bytes: int | None = None) -> tuple[int, dict[str, Any]]:
+        """Run one probe under the VM lock; a host fault is a 503, never a verdict."""
+        try:
+            with VM_LOCK:
+                answer = probe_file(self.server.cfg, path, min_bytes)
+        except RunnerFault as fault:
+            return 503, {"error": "runner_unavailable", "why": fault.why}
         answer["ffmpeg"] = read_versions(self.server.cfg.versions_file).get("ffmpeg", "unknown")
         self._vm_ms = answer["vm_ms"]
-        return answer
+        return 200, answer
 
     # -- routes --
     def do_POST(self) -> None:
         route = self.path.split("?", 1)[0]
+        if route == "/selftest":
+            self._selftest()
+            return
         if route != "/probe":
             self._send(404, {"error": "not_found"})
             return
@@ -112,13 +120,42 @@ class Handler(BaseHTTPRequestHandler):
         except NotRegular:
             self._send(409, {"error": "not_regular_file"})
             return
-        self._send(200, self._probe_answer(real))
+        except PermissionError:
+            self._send(503, {"error": "runner_unavailable", "why": "permission"})
+            return
+        self._send(*self._probe_answer(real))
+
+    def _selftest(self) -> None:
+        """Probe the clip baked into the image: not under the quarantine root, so no resolving."""
+        self._read_json_body()  # the body, if any, is ignored but must not stay on the wire
+        clip = self.server.cfg.selftest_file
+        if not (clip.is_file() and os.access(clip, os.R_OK)):
+            self._send(503, {"error": "runner_unavailable", "why": "artifacts"})
+            return
+        self._send(*self._probe_answer(clip, min_bytes=1))
 
     def do_GET(self) -> None:
-        if self.path.split("?", 1)[0] == "/health":
-            self._send(200, {"ok": True})
+        if self.path.split("?", 1)[0] != "/health":
+            self._send(404, {"error": "not_found"})
             return
-        self._send(404, {"error": "not_found"})
+        cfg = self.server.cfg
+        versions = read_versions(cfg.versions_file)
+        try:
+            check_kvm(cfg)
+            kvm = True
+        except RunnerFault:
+            kvm = False
+        self._send(
+            200,
+            {
+                "ok": True,
+                "kvm": kvm,
+                **{
+                    k: versions.get(k, "unknown")
+                    for k in ("firecracker", "kernel", "alpine", "ffmpeg")
+                },
+            },
+        )
 
 
 def make_server(cfg: RunnerConfig, host: str, port: int) -> RunnerServer:

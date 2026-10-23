@@ -25,9 +25,13 @@ NONCE = "0123456789abcdef"
 
 
 def _cfg(tmp_path: Path, **overrides) -> RunnerConfig:
+    """A config whose host artifacts and KVM device exist (empty stand-in files)."""
+    for name in ("vmlinux", "rootfs.ext4", "kvm"):
+        (tmp_path / name).touch()
     return RunnerConfig(
         kernel=tmp_path / "vmlinux",
         rootfs=tmp_path / "rootfs.ext4",
+        kvm_device=tmp_path / "kvm",
         work_dir=tmp_path / "work",
         timeout_seconds=3,
         **overrides,
