@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: "02.1"
 current_phase_name: Download Quarantine & Firecracker Validation (INSERTED)
 status: executing
-stopped_at: Completed 02.1-05-PLAN.md
-last_updated: "2026-10-23T19:50:52.257Z"
+stopped_at: Completed 02.1-06-PLAN.md
+last_updated: "2026-10-23T20:00:45.779Z"
 last_activity: 2026-10-23
 last_activity_desc: Phase 02.1 execution started
-state_head: 599246feaed8a36d84f7a346a1a49e84c56bb01e
+state_head: e315bce80af4c4a3b2c9193feccbd739de53756b
 progress:
   total_phases: 7
   completed_phases: 2
   total_plans: 36
-  completed_plans: 32
+  completed_plans: 33
   percent: 29
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-23)
 ## Current Position
 
 Phase: 02.1 (Download Quarantine & Firecracker Validation (INSERTED)) — EXECUTING
-Plan: 6 of 9
+Plan: 7 of 9
 Status: Ready to execute
 Last activity: 2026-10-23 — Phase 02.1 execution started
 
@@ -89,6 +89,7 @@ Progress: [███░░░░░░░] 29%
 | Phase 02.1 P03 | 7 min | 3 tasks | 8 files |
 | Phase 02.1 P04 | 8 min | 2 tasks | 5 files |
 | Phase 02.1 P05 | 38 min | 3 tasks | 13 files |
+| Phase 02.1 P06 | 8 min | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -155,6 +156,8 @@ Recent decisions affecting current work:
 - [Phase 02.1]: 02.1-04: Ready-row note renders only for ready with skipped > 0; a missing skipped counts as 0
 - [Phase 02.1]: 02.1-05: opt-in real-sandbox tests reach the runner via docker compose exec backend (internal network, no published port)
 - [Phase 02.1]: 02.1-05: ffmpeg stays pinned by FFMPEG_APK_VERSION (D-73); a new Alpine revision fails the build and the admin bumps the ARG
+- [Phase 02.1]: 02.1-06: held files (failing, unprobeable, failed link) are re-probed every tick until plan 07 adds the rejection path
+- [Phase 02.1]: 02.1-06: hand-off runs under HandoffGuard.lock and re-checks torrent and (inode,size,mtime_ns) of every file before linking; tag is written last
 
 ### Pending Todos
 
@@ -185,6 +188,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-23T19:50:51.991Z
-Stopped at: Completed 02.1-05-PLAN.md
+Last session: 2026-10-23T20:00:45.546Z
+Stopped at: Completed 02.1-06-PLAN.md
 Resume file: None

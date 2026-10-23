@@ -133,7 +133,7 @@ Plans:
   4. A failed file never reaches the media folders (deleted, or held out of reach for the admin per the Phase 2.1 decision), its torrent is removed from qBittorrent, the user sees a plain "rejected" state in the download list, and the admin log records the reason.
   5. The microVM runner (pinned Firecracker version, guest kernel and ffprobe rootfs built by scripts in the repo, no binaries committed) is set up from documented steps on Ubuntu Server as well as on the dev machine, behind one stable interface so the sandbox can be swapped without touching the portal.
 
-**Plans**: 5/9 plans executed in 5 waves
+**Plans**: 6/9 plans executed in 5 waves
 
 Plans:
 **Wave 1**
@@ -144,7 +144,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 - [x] 02.1-05-PLAN.md — Tracer: pinned multi-stage sandbox image (Firecracker, lean kernel, ffprobe rootfs), hardened compose service on an internal network, infra invariants, opt-in real-VM fixture suite (wave 2)
-- [ ] 02.1-06-PLAN.md — Tracer: lifespan verifier finds finished quarantine torrents, probes serially, hardlinks passing files into media and tags fx-ok; runner-down waits, restart-safe, cancel-safe (wave 2)
+- [x] 02.1-06-PLAN.md — Tracer: lifespan verifier finds finished quarantine torrents, probes serially, hardlinks passing files into media and tags fx-ok; runner-down waits, restart-safe, cancel-safe (wave 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 - [ ] 02.1-07-PLAN.md — Tracer: one retry, failing files held owner-only in rejected/, torrent removed, outcome sidecars, mixed packs, no copy on link failure, 7-day purge, seeding-end removal, audit lines (wave 3)
@@ -222,7 +222,7 @@ Phases execute in numeric order: 1 → 2 → 2.1 → 3 → 4 → 5 → 6 (Phases
 |-------|----------------|--------|-----------|
 | 1. Portal Search & Start Download | 16/16 | Complete    | 2026-10-22 |
 | 2. Portal Download Management & Hardening | 11/11 | Complete    | 2026-10-23 |
-| 2.1 Download Quarantine & Firecracker Validation | 5/9 | In Progress | - |
+| 2.1 Download Quarantine & Firecracker Validation | 6/9 | In Progress | - |
 | 3. Jellyfin Server & TV Playback Gate | 0/TBD | Not started | - |
 | 4. Library Hand-off | 0/TBD | Not started | - |
 | 5. TV App Browse & Play | 0/TBD | Not started | - |
