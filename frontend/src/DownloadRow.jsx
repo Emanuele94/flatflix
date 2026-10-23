@@ -51,6 +51,9 @@ export function DownloadRow({
   const badge = BADGE[item.type];
   const eta = item.state === 'downloading' ? formatEta(item.eta_seconds) : null;
   const value = item.state === 'ready' ? 100 : Math.round(item.progress);
+  // A mixed pack ends as Ready plus a note; a missing `skipped` counts as 0 (mid-deploy mismatch).
+  const skipped = item.state === 'ready' && item.skipped > 0 ? item.skipped : 0;
+  const note = skipped === 1 ? MSG.skippedOne : skipped > 1 ? MSG.skippedMany.replace('{n}', String(skipped)) : null;
 
   const cancelRef = useRef(null);
   const keepRef = useRef(null);
@@ -83,6 +86,7 @@ export function DownloadRow({
           {state.hint}
         </p>
       )}
+      {note && <p class="download-note">{note}</p>}
       {state && state.bar && (
         <div class="download-progress">
           {state.bar === 'indeterminate' ? (

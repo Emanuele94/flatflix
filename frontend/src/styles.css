@@ -486,3 +486,10 @@ h2 {
     animation-duration: 3s;
   }
 }
+
+/* Phase 2.1: note under a Ready row when some files were held back (02.1-UI-SPEC) */
+.download-note {
+  margin: 4px 0 0;
+  font-size: 0.85rem;
+  color: #7a5200;
+}
