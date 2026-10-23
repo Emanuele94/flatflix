@@ -1,0 +1,68 @@
+#!/bin/sh
+# PID 1 of the probe microVM (busybox sh). One job: run ffprobe on the file attached as
+# /dev/vdb (plus the exact-bytes tail on /dev/vdc) and print the answer on the serial
+# console in frames that carry the per-VM nonce, then power off.
+#
+# Frame protocol (read by sandbox/runner/vm.py parse_console):
+#   FXP:<nonce>:BEGIN  before ffprobe        FXP:<nonce>:EXIT:<rc>  ffprobe's exit code
+#   FXP:<nonce>:JSON   then ffprobe's JSON   FXP:<nonce>:ERR        then <= 1 KiB of stderr
+#   FXP:<nonce>:END
+# The nonce and the file size come from the kernel command line (fxnonce=, fxsize=).
+# The runner treats a missing BEGIN as a boot fault, so a refusal below prints nothing.
+
+mount -t proc proc /proc 2>/dev/null
+mount -t sysfs sysfs /sys 2>/dev/null
+# devtmpfs is already mounted by the kernel (CONFIG_DEVTMPFS_MOUNT); "busy" is harmless.
+mount -t devtmpfs devtmpfs /dev 2>/dev/null
+# The root is read-only: ffprobe's output goes to a size-limited tmpfs.
+mount -t tmpfs -o size=8m,mode=0700 tmpfs /tmp 2>/dev/null
+
+# ffmpeg colours errors with ANSI escapes unless told otherwise.
+export AV_LOG_FORCE_NOCOLOR=1
+
+NONCE=""
+SIZE=""
+for tok in $(cat /proc/cmdline); do
+  case "$tok" in
+    fxnonce=*) NONCE="${tok#fxnonce=}" ;;
+    fxsize=*) SIZE="${tok#fxsize=}" ;;
+  esac
+done
+
+# Refuse anything but 16 lower-case hex and plain digits (the runner reads silence as a
+# boot fault and never as a verdict).
+if ! echo "$NONCE" | grep -Eq '^[0-9a-f]{16}$' || ! echo "$SIZE" | grep -Eq '^[0-9]{1,15}$'; then
+  reboot -f
+fi
+
+echo "FXP:$NONCE:BEGIN"
+
+# A virtio disk holds whole 512-byte sectors, and a block device reports st_size 0 to
+# ffmpeg's file protocol. The runner puts the last SIZE%512 bytes on /dev/vdc, and each
+# piece is wrapped in subfile to give ffprobe an exact size (RESEARCH Pattern 2).
+TAIL=$((SIZE % 512))
+FLOOR=$((SIZE - TAIL))
+if [ "$TAIL" -eq 0 ]; then
+  SRC="subfile,,start,0,end,${SIZE},,:/dev/vdb"
+else
+  SRC="concat:subfile,,start,0,end,${FLOOR},,:/dev/vdb|subfile,,start,0,end,${TAIL},,:/dev/vdc"
+fi
+
+timeout -s KILL 40 ffprobe -v error -hide_banner \
+  -protocol_whitelist file,concat,subfile \
+  -format_whitelist matroska,webm,mov,mp4,avi \
+  -of json \
+  -show_entries 'format=format_name,duration,nb_streams,size:stream=index,codec_type,codec_name,width,height:stream_disposition=attached_pic' \
+  "$SRC" >/tmp/out.json 2>/tmp/err.txt
+RC=$?
+
+echo "FXP:$NONCE:EXIT:$RC"
+echo "FXP:$NONCE:JSON"
+cat /tmp/out.json
+echo
+echo "FXP:$NONCE:ERR"
+head -c 1024 /tmp/err.txt | sed 's/[^ -~]/?/g'
+echo
+echo "FXP:$NONCE:END"
+
+reboot -f

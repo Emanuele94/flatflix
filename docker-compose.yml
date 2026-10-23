@@ -55,7 +55,10 @@ services:
         target: /data
         bind:
           create_host_path: false
-    networks: [edge, qbit]
+    # `sandbox` is the internal network shared with the runner (D-68). The backend does NOT
+    # depend_on the sandbox: a stopped sandbox leaves rows in Checking and never stops the
+    # portal (D-58).
+    networks: [edge, qbit, sandbox]
     depends_on:
       qbittorrent:
         condition: service_healthy
@@ -67,6 +70,52 @@ services:
         - -c
         - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"
       interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    restart: unless-stopped
+    logging: *default-logging
+
+  # The microVM runner (QUAR-02, D-68, D-71 amended: no jailer, the hardened container is the
+  # jail). It has no authentication, so it sits on the internal `sandbox` network only, with
+  # no published port. It sees only the quarantine folder, read-only, and none of the portal's
+  # secrets (no env_file). Firecracker keeps its own seccomp filter and Docker's default
+  # seccomp profile stays on.
+  sandbox:
+    build: ./sandbox
+    user: "10002:10002"
+    # /dev/kvm is root:<kvm group>; scripts/init-host-dirs.sh writes the group id as KVM_GID.
+    group_add: ["${KVM_GID:?set KVM_GID in .env: run scripts/init-host-dirs.sh}"]
+    devices: ["/dev/kvm:/dev/kvm"]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 64
+    mem_limit: 768m
+    tmpfs:
+      - /run/fx:size=16m,mode=0700,uid=10002,gid=10002
+      - /tmp:size=8m
+    environment:
+      QUARANTINE_ROOT: /data/quarantine
+      VM_VCPUS: ${VM_VCPUS:-1}
+      VM_MEMORY_MIB: ${VM_MEMORY_MIB:-256}
+      VM_TIMEOUT_SECONDS: ${VM_TIMEOUT_SECONDS:-60}
+    volumes:
+      # The quarantine folder only, read-only: not media, rejected or incomplete.
+      - type: bind
+        source: ${DATA_ROOT:-./data}/quarantine
+        target: /data/quarantine
+        read_only: true
+        bind:
+          create_host_path: false
+    networks: [sandbox]
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=3)"
+      interval: 15s
       timeout: 5s
       retries: 6
       start_period: 10s
@@ -97,3 +146,8 @@ networks:
   edge: {}
   # Not internal: search plugins and peers need Internet egress.
   qbit: {}
+  # No Internet and no other service: the backend and the sandbox only (D-68). Docker's
+  # `internal` flag also means a port published on it would not be reachable, so tests reach
+  # the runner through `docker compose exec backend`.
+  sandbox:
+    internal: true

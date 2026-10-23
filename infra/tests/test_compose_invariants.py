@@ -201,7 +201,7 @@ def test_qbittorrent_and_web_share_no_network(base):
     services = base["services"]
     assert _networks(services["qbittorrent"]) == {"qbit"}
     assert _networks(services["web"]) == {"edge"}
-    assert _networks(services["backend"]) == {"edge", "qbit"}
+    assert _networks(services["backend"]) == {"edge", "qbit", "sandbox"}
     assert not (base["networks"].get("qbit") or {}).get("internal", False)
 
 

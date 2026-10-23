@@ -1,0 +1,6 @@
+# Only runner/ and guest/ go into the build context.
+tests/
+**/__pycache__/
+**/*.pyc
+.pytest_cache/
+.ruff_cache/
