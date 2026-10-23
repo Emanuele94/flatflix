@@ -56,28 +56,39 @@ published, and why the admin override binds `127.0.0.1` only.
 
 ## Media folder contract
 
-| Host path | Container path | Purpose |
-|-----------|----------------|---------|
-| `${MEDIA_ROOT:-./data/media}/Film` | `/media/Film` | Finished films (category `Film`) |
-| `${MEDIA_ROOT:-./data/media}/SerieTV` | `/media/SerieTV` | Finished series (category `SerieTV`) |
-| `${INCOMPLETE_DIR:-./data/incomplete}` | `/incomplete` | Partial downloads; qBittorrent keeps them in `/incomplete/<Category>` |
+One host folder, `${DATA_ROOT:-./data}`, holds everything. The `qbittorrent` and
+`backend` services each mount it once, at `/data` (a single bind each, so the
+backend can hardlink a checked file without crossing a mount).
 
-- Owner is `PUID:PGID` (default 1000:1000). Jellyfin reuses the same owner later.
-- `scripts/init-host-dirs.sh` creates the folders (and `qbittorrent/config`)
-  with that owner before the first start. Run it before the first
-  `docker compose up`, because Docker would create missing bind sources as root.
-- Compose refuses to start when a folder is missing (`create_host_path: false`),
-  so a missing folder is a loud error, never a silent root-owned directory.
-- `INCOMPLETE_DIR` lives outside `MEDIA_ROOT` so Jellyfin (read-only mount of
-  `MEDIA_ROOT` in Phase 4) never sees partial files. Moving a finished download
-  crosses two bind mounts, so qBittorrent copies and deletes instead of renaming.
+| Folder under `${DATA_ROOT:-./data}` | Container path | Purpose |
+|-------------------------------------|----------------|---------|
+| `media/Film`, `media/SerieTV` | `/data/media/Film`, `/data/media/SerieTV` | Checked files only, hardlinked here after the safety check. Jellyfin mounts only `media`, read-only, in Phase 4. |
+| `quarantine/Film`, `quarantine/SerieTV` | `/data/quarantine/Film`, `/data/quarantine/SerieTV` | Finished downloads wait and seed here. These are the qBittorrent category save paths (`SAVE_PATH_FILM`, `SAVE_PATH_TV`). |
+| `rejected` | `/data/rejected` | Files that failed the check. Owner-only (`0700`); purged after `REJECTED_RETENTION_DAYS`. |
+| `incomplete` | `/data/incomplete` | Partial downloads (`INCOMPLETE_PATH`). |
+
+- Owner is `PUID:PGID` (default 1000:1000); the backend runs as that user so it
+  may hardlink qBittorrent's files. Jellyfin reuses the same owner later.
+- `scripts/init-host-dirs.sh` creates the tree (and `qbittorrent/config`) with
+  that owner before the first start, and checks that `KVM_GID` in `.env` equals
+  the group of `/dev/kvm`. Run it before the first `docker compose up`, because
+  Docker would create missing bind sources as root.
+- Compose refuses to start when `DATA_ROOT` is missing (`create_host_path:
+  false`), so a missing folder is a loud error, never a silent root-owned
+  directory.
+- The whole tree must sit on one filesystem on the Linux side, because the
+  backend hardlinks checked files. On WSL that means never under `/mnt/c`.
+  The backend never copies a file instead of linking it (D-48): a failed link
+  is reported, not worked around.
+- The settings in `.env` (`DATA_PATH`, `SAVE_PATH_*`, `INCOMPLETE_PATH`) are
+  container paths and must stay inside `DATA_PATH`: a save path outside
+  `DATA_PATH/quarantine` stops the backend at start, so no download can reach
+  `media` without the check.
 
 ### Notes for later phases
 
-- Phase 2.1 changes the qBittorrent save paths to quarantine folders through
-  env (introduced in 01-06).
 - When some files of a torrent are skipped, qBittorrent can leave a hidden
-  `.<hash>.parts` file next to the content. Phase 2.1 and Phase 4 must ignore
-  dotfiles when moving or scanning.
+  `.<hash>.parts` file next to the content. The checker ignores `.<hash>.parts`
+  and every other dotfile; Phase 4 must do the same when it scans.
 - Where an address is needed in docs or config, write `<laptop-ip>`; never
   commit a real LAN address.
