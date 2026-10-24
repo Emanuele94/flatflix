@@ -233,7 +233,8 @@ class Verifier:
                     if verified is not None and (
                         self._clock() - verified < self._settings.completed_visible_seconds
                     ):
-                        self._outcomes.write(
+                        await asyncio.to_thread(
+                            self._outcomes.write,
                             Outcome(
                                 self._outcome_id(current),
                                 display_name(current),
@@ -241,7 +242,7 @@ class Verifier:
                                 "ready",
                                 0,
                                 verified,
-                            )
+                            ),
                         )
                     await self._qbit.delete([torrent_hash], delete_files=True)
             except QbitError as exc:  # one torrent's error must not stop the others
@@ -304,7 +305,7 @@ class Verifier:
             return "held"
         if self._guard.cancel_requested(torrent_hash):
             return "aborted"
-        pending = self._pending_outcome(row)
+        pending = await asyncio.to_thread(self._pending_outcome, row)
         if pending is not None:
             return await self._finish_delete(torrent_hash, pending)
         try:
@@ -365,7 +366,7 @@ class Verifier:
         torrent_hash = str(row["hash"])
         if self._guard.cancel_requested(torrent_hash):
             raise _Stop("aborted")
-        src, identity = self._resolve(row, file)
+        src, identity = await asyncio.to_thread(self._resolve, row, file)
         relative = os.path.relpath(src, settings.quarantine_root)
         facts: ProbeFacts | None = None
         for _attempt in range(2):
@@ -410,7 +411,7 @@ class Verifier:
         settings = self._settings
         if self._guard.cancel_requested(str(row["hash"])):
             raise _Stop("aborted")
-        src, identity = self._resolve(row, file)
+        src, identity = await asyncio.to_thread(self._resolve, row, file)
         head = await asyncio.to_thread(_read_head, src, settings.subtitle_text_max_bytes)
         verdict = check_subtitle(
             final_extension(file.name),
@@ -456,29 +457,10 @@ class Verifier:
                 return "aborted"
             if self._guard.cancel_requested(torrent_hash):
                 return "aborted"
-            sources: dict[int, Path] = {}
-            for item in checked:
-                try:
-                    src = source_path(
-                        str(row["save_path"]), item.file.name, settings.quarantine_root
-                    )
-                    if _identity(src) != item.identity:
-                        return "aborted"
-                except (HandoffError, OSError):
-                    return "aborted"
-                sources[item.file.index] = src
-            rejected_dir = self._outcomes.rejected_dir(self._outcome_id(row))
             try:
-                # The failing files are secured first: when a link fails half way, nothing of a
-                # suspect torrent is in media while the held copies are still missing (WR-04).
-                for item in failing:
-                    link_into_rejected(sources[item.file.index], rejected_dir, item.file.name)
-                for item in passing:
-                    link_into_media(
-                        sources[item.file.index],
-                        media_target(media_dir, item.file.name),
-                        media_dir=media_dir,
-                    )
+                await asyncio.to_thread(self._link_all, row, checked, media_dir)
+            except _Stop:  # a file vanished or changed since its probe: nothing was linked
+                return "aborted"
             except HandoffError as exc:
                 self._link_failed(row, exc.why)
                 return "held"
@@ -488,7 +470,8 @@ class Verifier:
                 return "passed"
             video_passed = any(item.file.kind == "video" for item in passing)
             skipped = sum(1 for item in failing if item.file.kind == "video")
-            self._outcomes.write(
+            await asyncio.to_thread(
+                self._outcomes.write,
                 Outcome(
                     self._outcome_id(row),
                     display_name(row),
@@ -496,7 +479,7 @@ class Verifier:
                     "ready" if video_passed else "rejected",
                     skipped,
                     self._clock(),
-                )
+                ),
             )
             for item in failing:
                 self._audit_rejected(row, item)
@@ -508,6 +491,35 @@ class Verifier:
             if video_passed:
                 audit.quarantine_passed(display_name(row), len(passing))
         return "partial" if video_passed else "rejected"
+
+    def _link_all(self, row: dict, checked: list[_Checked], media_dir: str) -> None:
+        """Re-resolve every checked file, then link; blocking, so it runs in a worker thread.
+
+        Raises _Stop("aborted") when a file is gone, unsafe or changed since its probe, and
+        HandoffError when a link cannot be made. The failing files are secured in rejected before
+        the passing ones go into media (WR-04).
+        """
+        settings = self._settings
+        sources: dict[int, Path] = {}
+        for item in checked:
+            try:
+                src = source_path(str(row["save_path"]), item.file.name, settings.quarantine_root)
+                if _identity(src) != item.identity:
+                    raise _Stop("aborted")
+            except (HandoffError, OSError):
+                raise _Stop("aborted") from None
+            sources[item.file.index] = src
+        rejected_dir = self._outcomes.rejected_dir(self._outcome_id(row))
+        for item in checked:
+            if not item.passed:
+                link_into_rejected(sources[item.file.index], rejected_dir, item.file.name)
+        for item in checked:
+            if item.passed:
+                link_into_media(
+                    sources[item.file.index],
+                    media_target(media_dir, item.file.name),
+                    media_dir=media_dir,
+                )
 
     def _audit_rejected(self, row: dict, item: _Checked) -> None:
         facts = summary(item.facts) if item.facts is not None else {}

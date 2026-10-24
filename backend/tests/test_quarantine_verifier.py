@@ -1140,6 +1140,47 @@ async def test_a_mixed_pack_whose_media_link_fails_has_already_secured_the_faili
     assert rig.fake.deleted == []
 
 
+async def test_blocking_file_work_runs_off_the_event_loop_thread(
+    rig: Rig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """WR-02: stat, hardlinks and the fsync'ed sidecar write must never block the loop (login,
+    the list and the healthcheck share it)."""
+    import threading
+
+    from app.quarantine.outcomes import OutcomeStore
+
+    loop_thread = threading.get_ident()
+    seen: dict[str, int] = {}
+
+    def spy(name: str, original):
+        def wrapper(*args, **kwargs):
+            seen.setdefault(name, threading.get_ident())
+            return original(*args, **kwargs)
+
+        return wrapper
+
+    monkeypatch.setattr(verifier_module, "source_path", spy("source_path", source_path))
+    monkeypatch.setattr(verifier_module, "link_into_media", spy("media", link_into_media))
+    monkeypatch.setattr(
+        verifier_module, "link_into_rejected", spy("rejected", verifier_module.link_into_rejected)
+    )
+    monkeypatch.setattr(OutcomeStore, "write", spy("write", OutcomeStore.write))
+    monkeypatch.setattr(OutcomeStore, "get", spy("get", OutcomeStore.get))
+    rig.add_finished(
+        FILM_HASH,
+        "Pack",
+        [("Pack/a.mkv", GB), ("Pack/b.mkv", GB)],
+        category="SerieTV",
+    )
+    rig.runner.script("SerieTV/Pack/a.mkv", film_facts(duration=3000.0, size=GB))
+    rig.runner.script("SerieTV/Pack/b.mkv", failed_facts("probe_failed"))
+
+    assert await rig.verifier.check_torrent(await rig.only_row()) == "partial"
+
+    assert set(seen) == {"source_path", "media", "rejected", "write", "get"}
+    assert all(thread != loop_thread for thread in seen.values()), seen
+
+
 async def test_a_torrent_that_already_has_an_outcome_is_not_probed_again_only_deleted(
     rig: Rig,
 ) -> None:
