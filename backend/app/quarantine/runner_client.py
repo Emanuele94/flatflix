@@ -123,8 +123,8 @@ def _answer(response: httpx.Response) -> object:
     """The parsed JSON of a 200 answer; every other outcome raises one of the two exceptions.
 
     A host fault must never become a rejection (D-58): anything that is not a contract answer
-    means "wait" (RunnerUnavailable). A refusal (400, 404, 409) is about the file, so the verifier
-    treats it as unprobeable. Messages are fixed text plus a short token, never a body or a path.
+    means "wait" (RunnerUnavailable). A refusal (400, 404, 409 with one of the contract's error
+    codes) is about the file; the verifier decides which codes are a verdict. Messages are fixed text plus a short token, never a body or a path.
     """
     status = response.status_code
     if status == 200:
@@ -141,7 +141,11 @@ def _answer(response: httpx.Response) -> object:
     if status in _REFUSAL_BY_STATUS:
         body = _json_or_none(response)
         error = body.get("error") if isinstance(body, dict) else None
-        raise RunnerRefused(error if error in _REFUSAL_CODES else _REFUSAL_BY_STATUS[status])
+        if error in _REFUSAL_CODES:
+            raise RunnerRefused(error)
+        # A 400/404/409 without the runner's own contract body is another service, another version
+        # or an unknown route: the host is wrong, not the file (D-58, CR-02).
+        raise RunnerUnavailable("unexpected_status")
     raise RunnerUnavailable("unexpected_status")
 
 

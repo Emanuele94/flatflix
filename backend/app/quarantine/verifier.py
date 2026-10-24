@@ -311,8 +311,14 @@ class Verifier:
             except RunnerUnavailable as exc:
                 self._runner_unavailable(exc.why)
                 raise _Stop("waiting") from None
-            except RunnerRefused:
-                # It answered, about this file and not about the host: this file cannot be probed.
+            except RunnerRefused as refused:
+                if refused.code != "not_regular_file":
+                    # The backend lstat'ed this file a moment ago, so "not found" or "invalid path"
+                    # means the runner and the backend disagree about the quarantine folder (a stale
+                    # bind mount, another version): a host fault, never a verdict (D-58, CR-02).
+                    self._runner_unavailable("path_mismatch")
+                    raise _Stop("waiting") from None
+                # It answered about this file, and not about the host: this file cannot be probed.
                 self._runner_down = None
                 return _Checked(file, identity, False, "unprobeable")
             self._runner_down = None

@@ -9,7 +9,8 @@ exits 0 when every check passes, 1 otherwise. `--wait SECONDS` re-checks every 2
 checks pass or the time runs out, which covers the first start while bootstrap is running.
 
 The sandbox lines need the stack's sandbox service: the runner with its Firecracker, kernel and
-ffmpeg versions, a selftest VM, quarantine and media on one filesystem, a test hardlink between
+ffmpeg versions, a selftest VM, a canary file that proves the runner sees the same quarantine
+folder as the backend, quarantine and media on one filesystem, a test hardlink between
 them, how many files are held in rejected, and a note with the number of Film/SerieTV torrents
 that save outside quarantine (never checked, D-79). A sandbox that is down, has no usable
 /dev/kvm or fails its selftest prints a FAIL line and the exit code is 1; the qBittorrent lines
@@ -36,7 +37,7 @@ from app.download.allowlist import EXCLUDED_FILE_PATTERNS
 from app.qbit.bootstrap import parse_version, same_save_path
 from app.qbit.client import QbitClient, QbitError
 from app.quarantine.rules import in_quarantine
-from app.quarantine.runner_client import RunnerClient, RunnerError
+from app.quarantine.runner_client import RunnerClient, RunnerError, RunnerRefused
 
 RECHECK_SECONDS = 2.0
 PORTAL_TAG = "fx"
@@ -171,6 +172,41 @@ async def sandbox_checks(runner: RunnerClient) -> list[Check]:
     else:
         checks.append((False, f"sandbox selftest failed ({facts.status})"))
     return checks
+
+
+async def canary_check(runner: RunnerClient, settings: Settings) -> Check:
+    """Does the runner see the same quarantine folder as the backend? (D-58, CR-02)
+
+    Writes a throwaway file into quarantine and asks the runner to probe it. Any contract answer
+    about the content (even "probe_failed" for these bytes) proves the two share the folder; a
+    refusal, such as "not_found", means a stale or wrong bind mount, where the verifier would
+    otherwise wait on every torrent forever.
+    """
+    path: str | None = None
+    try:
+        fd, path = tempfile.mkstemp(dir=settings.quarantine_root, prefix=LINK_PROBE_PREFIX)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(b"flatflix doctor canary\n")
+        os.chmod(path, 0o644)  # the runner reads as another user
+        name = os.path.basename(path)
+    except OSError as exc:
+        if path is not None:
+            with contextlib.suppress(OSError):
+                os.unlink(path)
+        return False, f"sandbox canary file could not be written ({errno_token(exc)})"
+    try:
+        await runner.probe(name)
+    except RunnerRefused as exc:
+        return False, (
+            f"sandbox does not see the quarantine folder ({runner_token(exc)}): "
+            "check the sandbox volume mount and docs/setup.md"
+        )
+    except RunnerError as exc:
+        return False, f"sandbox canary probe failed ({runner_token(exc)})"
+    finally:
+        with contextlib.suppress(OSError):
+            os.unlink(path)
+    return True, "sandbox sees the quarantine folder"
 
 
 def runner_token(exc: RunnerError) -> str:
@@ -314,7 +350,10 @@ async def run(settings: Settings, wait_seconds: float) -> int:
         deadline = time.monotonic() + wait_seconds
         while True:
             checks = await collect(qbit, settings)
-            checks.extend(await sandbox_checks(runner))
+            sandbox = await sandbox_checks(runner)
+            checks.extend(sandbox)
+            if all(ok for ok, _ in sandbox):  # the canary boots a VM: only when the runner is up
+                checks.append(await canary_check(runner, settings))
             checks.extend(await asyncio.to_thread(storage_checks, settings))
             if all(ok for ok, _ in checks) or time.monotonic() >= deadline:
                 break

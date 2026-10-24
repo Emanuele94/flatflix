@@ -382,6 +382,9 @@ qBittorrent lines:
 
 - `sandbox runner reachable, kvm True, firecracker ..., kernel ..., ffmpeg ...`
 - `sandbox selftest ok` (a real VM booted on a clip baked into the image)
+- `sandbox sees the quarantine folder` (the doctor writes a small file there and the sandbox probes
+  it; a `FAIL` here means the sandbox mounts another folder than the backend, so downloads would
+  wait instead of being checked)
 - `quarantine and media are on one filesystem` and `hardlink quarantine -> media works`
 - `N file(s) held in rejected (purged after 7 days)`
 - `note: N Film/SerieTV torrent(s) save outside quarantine and are never checked`

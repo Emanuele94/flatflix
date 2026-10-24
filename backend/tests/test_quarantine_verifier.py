@@ -294,7 +294,8 @@ async def test_a_file_the_runner_refuses_is_unprobeable_and_rejected_without_a_r
     rig: Rig, caplog: pytest.LogCaptureFixture
 ) -> None:
     caplog.set_level(logging.INFO, logger="app.audit")
-    rig.add_finished(FILM_HASH, "Movie", [(FILM_FILE, 4 * GB)])  # nothing scripted: 404
+    rig.add_finished(FILM_HASH, "Movie", [(FILM_FILE, 4 * GB)])
+    rig.runner.script(FILM_REL, 409)  # not_regular_file: about this file only
 
     outcome = await rig.verifier.check_torrent(await rig.only_row())
 
@@ -305,6 +306,35 @@ async def test_a_file_the_runner_refuses_is_unprobeable_and_rejected_without_a_r
     (line,) = audit_lines(caplog)
     assert "reason=unprobeable" in line
     assert "format=none codec=none duration=none" in line
+
+
+@pytest.mark.parametrize("status", [400, 404])
+async def test_a_runner_that_does_not_see_the_file_is_a_host_fault_never_a_verdict(
+    rig: Rig, caplog: pytest.LogCaptureFixture, status: int
+) -> None:
+    """CR-02: the backend lstat'ed the file, so a 400/404 means the runner sees another
+    quarantine folder (stale bind mount, other version). Nothing may be rejected or deleted."""
+    caplog.set_level(logging.INFO, logger="app.audit")
+    add_film(rig)
+    rig.runner.script(FILM_REL, status)
+    rig.add_finished("b" * 40, "Other", [("Other/o.mkv", GB)], completion_on=200)
+    rig.runner.script("Film/Other/o.mkv", film_facts(duration=3000.0, size=GB))
+
+    for _ in range(2):
+        await rig.verifier.run_once()
+
+    assert rig.verifier.runner_down == "path_mismatch"
+    assert rig.runner.calls == [FILM_REL, FILM_REL]  # one probe per tick, the queue waits
+    assert rig.fake.deleted == []
+    assert rig.media_files() == []
+    assert not list(Path(rig.settings.rejected_root).glob("*.json"))
+    assert audit_lines(caplog) == ["event=quarantine.runner_unavailable why=path_mismatch"]
+
+    rig.runner.script(FILM_REL, film_facts(duration=6000.0, size=4_000_000_000))
+    await rig.verifier.run_once()  # the host is fixed: the same torrent is checked normally
+
+    assert rig.verifier.runner_down is None
+    assert "Film/Movie/movie.mkv" in rig.media_files()
 
 
 NOT_CANDIDATES = {

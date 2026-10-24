@@ -84,17 +84,34 @@ async def test_a_refused_path_is_runner_refused_with_the_code(status, code) -> N
     ("response", "code"),
     [
         (httpx.Response(400, json={"error": "invalid_json"}), "invalid_json"),
-        (httpx.Response(400, text="no body"), "invalid_path"),
-        (httpx.Response(404, json={"error": "something else"}), "not_found"),
-        (httpx.Response(409, text="x"), "not_regular_file"),
+        (httpx.Response(400, json={"error": "invalid_path"}), "invalid_path"),
+        (httpx.Response(404, json={"error": "not_found"}), "not_found"),
+        (httpx.Response(409, json={"error": "not_regular_file"}), "not_regular_file"),
     ],
 )
-async def test_the_refusal_code_comes_from_a_known_body_else_from_the_status(
-    response, code
-) -> None:
+async def test_the_refusal_code_comes_from_the_runners_contract_body(response, code) -> None:
     with pytest.raises(RunnerRefused) as caught:
         await raw_client(response).probe(PATH)
     assert caught.value.code == code
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        httpx.Response(400, text="no body"),
+        httpx.Response(404, json={"error": "something else"}),
+        httpx.Response(404, json={"error": "unknown_route"}),  # a wrong route, not a missing file
+        httpx.Response(404, text="<html>nginx</html>"),  # another service behind SANDBOX_URL
+        httpx.Response(409, text="x"),
+    ],
+)
+async def test_a_refusal_without_a_contract_code_is_a_host_fault_not_a_file_refusal(
+    response,
+) -> None:
+    """CR-02: only the runner's own error codes can say something about a file."""
+    with pytest.raises(RunnerUnavailable) as caught:
+        await raw_client(response).probe(PATH)
+    assert caught.value.why == "unexpected_status"
 
 
 @pytest.mark.parametrize(

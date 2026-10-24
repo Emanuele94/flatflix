@@ -123,6 +123,61 @@ async def test_a_failing_selftest_is_a_fail_line_with_a_token_only(answer, token
     await client.aclose()
 
 
+# -- the canary: does the runner see the backend's quarantine folder? -------------------------------
+
+
+async def test_the_canary_passes_when_the_runner_answers_about_the_file_and_leaves_nothing(
+    tmp_path: Path,
+) -> None:
+    settings = make_settings(tmp_path)
+    make_tree(settings)
+    fake = FakeRunner()
+    fake.answer_unscripted(failed_facts("probe_failed"))  # junk bytes: any contract answer will do
+    client = runner_client(fake)
+
+    check = await doctor.canary_check(client, settings)
+
+    assert check == (True, "sandbox sees the quarantine folder")
+    (probed,) = fake.calls
+    assert probed.startswith(doctor.LINK_PROBE_PREFIX)
+    assert leftovers(settings) == []
+    await client.aclose()
+
+
+@pytest.mark.parametrize(("answer", "token"), [(404, "not_found"), (400, "invalid_path")])
+async def test_the_canary_fails_when_the_runner_cannot_find_the_file(
+    tmp_path: Path, answer: int, token: str
+) -> None:
+    settings = make_settings(tmp_path)
+    make_tree(settings)
+    fake = FakeRunner()  # nothing scripted: the runner sees another folder
+    if answer != 404:
+        fake.answer_unscripted(answer)
+    client = runner_client(fake)
+
+    ok, text = await doctor.canary_check(client, settings)
+
+    assert ok is False
+    assert f"sandbox does not see the quarantine folder ({token})" in text
+    assert str(tmp_path) not in text
+    assert leftovers(settings) == []
+    await client.aclose()
+
+
+async def test_the_canary_fails_with_a_token_when_the_runner_is_down(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    make_tree(settings)
+    fake = FakeRunner()
+    fake.answer_unscripted(("down", "permission"))
+    client = runner_client(fake)
+
+    check = await doctor.canary_check(client, settings)
+
+    assert check == (False, "sandbox canary probe failed (permission)")
+    assert leftovers(settings) == []
+    await client.aclose()
+
+
 # -- the filesystem and the held files -------------------------------------------------------
 
 
@@ -317,6 +372,7 @@ async def test_no_doctor_line_holds_a_credential_a_key_a_hash_or_a_name(
     settings = make_settings(tmp_path)
     make_tree(settings)
     fake = FakeRunner()
+    fake.answer_unscripted(failed_facts("probe_failed"))  # the canary's probe
     monkeypatch.setattr(
         doctor,
         "RunnerClient",

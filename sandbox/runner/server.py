@@ -102,7 +102,8 @@ class Handler(BaseHTTPRequestHandler):
             self._selftest()
             return
         if route != "/probe":
-            self._send(404, {"error": "not_found"})
+            # Not the file-not-found answer: the backend must tell "wrong route" from "no such file".
+            self._send(404, {"error": "unknown_route"})
             return
         body = self._read_json_body()
         rel = body.get("path") if body is not None else None
@@ -136,7 +137,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         if self.path.split("?", 1)[0] != "/health":
-            self._send(404, {"error": "not_found"})
+            self._send(404, {"error": "unknown_route"})
             return
         cfg = self.server.cfg
         versions = read_versions(cfg.versions_file)

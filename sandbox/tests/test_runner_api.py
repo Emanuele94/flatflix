@@ -67,9 +67,10 @@ def test_an_unusable_body_is_invalid_json(runner, raw):
     assert runner.request("POST", "/probe", raw=raw) == (400, {"error": "invalid_json"})
 
 
-def test_unknown_routes_are_not_found(runner):
-    assert runner.request("GET", "/nope") == (404, {"error": "not_found"})
-    assert runner.request("POST", "/nope", {"path": "x"}) == (404, {"error": "not_found"})
+def test_unknown_routes_are_not_the_file_not_found_answer(runner):
+    # CR-02: the backend must tell a wrong route from a missing file.
+    assert runner.request("GET", "/nope") == (404, {"error": "unknown_route"})
+    assert runner.request("POST", "/nope", {"path": "x"}) == (404, {"error": "unknown_route"})
 
 
 # -- file faults are reported ---------------------------------------------------------------

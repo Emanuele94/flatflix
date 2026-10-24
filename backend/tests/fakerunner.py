@@ -5,7 +5,8 @@
 - `script(rel_path, *answers)` says what `POST /probe` answers for one path. An answer is a facts
   dict (HTTP 200), an int HTTP status (answered with the contract's error body), or
   `("down", why)` (HTTP 503 `runner_unavailable`). Each call consumes the next answer; the last
-  one repeats. A path nobody scripted answers 404 `not_found`.
+  one repeats. A path nobody scripted answers 404 `not_found` unless `answer_unscripted` says
+  otherwise, and an unknown route answers 404 `unknown_route`.
 - `script_selftest(*answers)` does the same for `POST /selftest`; `health_body` is what
   `GET /health` answers.
 - `calls` lists the relative paths probed, in order; `bodies` keeps the decoded request bodies.
@@ -103,6 +104,7 @@ class FakeRunner:
         self.unreachable = False
         self.health_body: dict = dict(HEALTH_OK)
         self._scripts: dict[str, list] = {}
+        self._unscripted: list | None = None
         self._selftest: list = [film_facts(duration=60.0, size=1_600_000)]
 
     @property
@@ -111,6 +113,10 @@ class FakeRunner:
 
     def script(self, rel_path: str, *answers) -> None:
         self._scripts[rel_path] = list(answers)
+
+    def answer_unscripted(self, *answers) -> None:
+        """What `POST /probe` answers for a path nobody scripted (default: 404 not_found)."""
+        self._unscripted = list(answers)
 
     def script_selftest(self, *answers) -> None:
         self._selftest = list(answers)
@@ -139,7 +145,7 @@ class FakeRunner:
             ("GET", "/health"): self._health,
         }.get((request.method, request.url.path))
         if route is None:
-            return httpx.Response(404, json={"error": "not_found"})
+            return httpx.Response(404, json={"error": "unknown_route"})
         return route(request)
 
     def _probe(self, request: httpx.Request) -> httpx.Response:
@@ -150,7 +156,7 @@ class FakeRunner:
             return httpx.Response(400, json={"error": "invalid_json"})
         self.bodies.append(body)
         self.calls.append(path)
-        answers = self._scripts.get(path)
+        answers = self._scripts.get(path, self._unscripted)
         if answers is None:
             return httpx.Response(404, json={"error": "not_found"})
         return self._render(self._take(answers))
