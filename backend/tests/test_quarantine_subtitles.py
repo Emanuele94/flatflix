@@ -88,12 +88,35 @@ def test_the_size_cap_is_checked_before_the_content() -> None:
     assert check(".srt", b"\x00" * 10, size=TEXT_MAX + 1) == Verdict(False, "subtitle_too_big")
 
 
+VOBSUB = b"\x00\x00\x01\xba" + bytes(range(256)) * 4  # an MPEG program stream pack header
+
+
+def test_a_vobsub_sub_passes_on_its_pack_header_up_to_the_bitmap_cap() -> None:
+    assert check(".sub", VOBSUB) == PASS
+    assert check(".sub", VOBSUB, size=BITMAP_MAX) == PASS
+    assert check(".sub", VOBSUB, size=BITMAP_MAX + 1) == Verdict(False, "subtitle_too_big")
+
+
+def test_a_microdvd_text_sub_passes_as_text() -> None:
+    assert check(".sub", b"{1}{25}Hello|world\n{30}{60}Bye\n") == PASS
+
+
 @pytest.mark.parametrize("extension", [".sub", ".idx"])
-def test_bitmap_subtitles_pass_on_a_size_cap_only(extension) -> None:
-    binary = bytes(range(256)) * 4
-    assert check(extension, binary) == PASS
-    assert check(extension, binary, size=BITMAP_MAX) == PASS
-    assert check(extension, binary, size=BITMAP_MAX + 1) == Verdict(False, "subtitle_too_big")
+def test_binary_content_behind_a_sub_or_idx_name_is_refused(extension) -> None:
+    """WR-07: a size cap alone used to vouch for any bytes with these extensions."""
+    elf = b"\x7fELF\x02\x01\x01\x00" + b"\x00" * 8 + b"\x03\x00>\x00"
+    assert check(extension, elf) == Verdict(False, "subtitle_binary")
+    assert check(extension, bytes(range(256)) * 4) == Verdict(False, "subtitle_binary")
+
+
+def test_an_idx_is_a_text_file_with_the_text_cap() -> None:
+    idx = b"# VobSub index file, v7 (do not modify this line!)\nsize: 720x576\n"
+    assert check(".idx", idx) == PASS
+    assert check(".idx", idx, size=TEXT_MAX + 1) == Verdict(False, "subtitle_too_big")
+
+
+def test_a_big_sub_that_is_not_a_vobsub_stream_is_binary() -> None:
+    assert check(".sub", b"{1}{25}x", size=TEXT_MAX + 1) == Verdict(False, "subtitle_binary")
 
 
 @pytest.mark.parametrize("extension", [".ass", ".ssa"])
