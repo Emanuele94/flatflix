@@ -178,14 +178,21 @@ class OutcomeStore:
             return False
         return True
 
-    def purge(self, now: float, retention_seconds: float) -> int:
+    def purge(
+        self, now: float, retention_seconds: float, ready_retention_seconds: float | None = None
+    ) -> int:
         """Remove sidecars and held folders older than the retention; returns how many entries.
 
-        A sidecar is aged by its `at` (its file time when unreadable), a folder or a stray file by
+        A "ready" sidecar lives for `ready_retention_seconds` (how long the household sees a Ready
+        row, COMPLETED_VISIBLE_DAYS) and every other entry for `retention_seconds`
+        (REJECTED_RETENTION_DAYS); without the first, both are the same (WR-08). A sidecar is aged by its `at` (its file time when unreadable), a folder or a stray file by
         its own modification time. A symlink is never one of ours: it is removed as a link at once
         and never followed, and `shutil.rmtree` does not follow links inside a folder. Never raises.
         """
         cutoff = now - retention_seconds
+        ready_cutoff = now - (
+            retention_seconds if ready_retention_seconds is None else ready_retention_seconds
+        )
         try:
             with os.scandir(self._root) as entries:
                 listing = [entry.path for entry in entries]
@@ -194,14 +201,14 @@ class OutcomeStore:
         removed = 0
         for path in listing:
             try:
-                if self._purge_entry(path, cutoff):
+                if self._purge_entry(path, cutoff, ready_cutoff):
                     removed += 1
             except Exception as exc:  # noqa: BLE001 - one stubborn entry must not stop the rest
                 logger.error("purge of a held entry failed (%s)", type(exc).__name__)
         return removed
 
     @staticmethod
-    def _purge_entry(path: str, cutoff: float) -> bool:
+    def _purge_entry(path: str, cutoff: float, ready_cutoff: float) -> bool:
         info = os.lstat(path)
         if stat.S_ISLNK(info.st_mode):
             os.unlink(path)
@@ -217,6 +224,8 @@ class OutcomeStore:
             outcome = _parse(_read_json(path), match.group(1))
             if outcome is not None:
                 stored_at = outcome.at
+                if outcome.kind == "ready":
+                    cutoff = ready_cutoff
         if stored_at >= cutoff:
             return False
         os.unlink(path)

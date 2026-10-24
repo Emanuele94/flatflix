@@ -140,6 +140,23 @@ def test_purge_removes_sidecars_and_folders_older_than_the_retention(
     assert sorted(p.name for p in root.iterdir()) == [OTHER_ID, f"{OTHER_ID}.json"]
 
 
+def test_a_ready_sidecar_is_purged_by_the_visible_window_not_by_the_rejected_retention(
+    store: OutcomeStore, root: Path
+) -> None:
+    """WR-08: a short retention must not hide a Ready row early, and a longer retention must
+    not keep one past its window."""
+    store.write(outcome(ID, kind="ready", at=NOW - 5 * DAY))
+    store.write(outcome(OTHER_ID, kind="rejected", at=NOW - 5 * DAY))
+
+    # retention 3 days, Ready rows visible for 7: only the rejected sidecar goes
+    assert store.purge(NOW, 3 * DAY, 7 * DAY) == 1
+    assert sorted(p.name for p in root.iterdir()) == [f"{ID}.json"]
+
+    # the Ready row is past its own window now
+    assert store.purge(NOW, 3 * DAY, 4 * DAY) == 1
+    assert list(root.iterdir()) == []
+
+
 def test_purge_removes_a_symlink_as_a_link_and_never_follows_it(
     store: OutcomeStore, root: Path, tmp_path: Path
 ) -> None:

@@ -196,9 +196,16 @@ class Verifier:
         self._backoff[key] = (self._clock() + delay, failures)
 
     async def _purge(self) -> None:
-        """Remove held files and outcomes older than the retention (D-55)."""
+        """Remove held files and outcomes older than their retention (D-55).
+
+        Held files and "rejected" outcomes go after REJECTED_RETENTION_DAYS, "ready" outcomes after
+        COMPLETED_VISIBLE_DAYS: a short retention must not hide a Ready row early (WR-08).
+        """
         removed = await asyncio.to_thread(
-            self._outcomes.purge, self._clock(), self._settings.rejected_retention_seconds
+            self._outcomes.purge,
+            self._clock(),
+            self._settings.rejected_retention_seconds,
+            self._settings.completed_visible_seconds,
         )
         if removed > 0:
             audit.quarantine_purged(removed)

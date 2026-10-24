@@ -1348,6 +1348,26 @@ async def test_every_tick_purges_old_held_files_and_logs_the_count_only_when_som
     assert store.get(old_id) is None
 
 
+async def test_a_ready_outcome_outlives_a_shorter_rejected_retention(
+    tmp_path: Path, rig: Rig
+) -> None:
+    """WR-08: REJECTED_RETENTION_DAYS applies to held files, COMPLETED_VISIBLE_DAYS to Ready rows."""
+    from app.quarantine.outcomes import Outcome, OutcomeStore
+
+    settings = make_settings(tmp_path, rejected_retention_days=1, completed_visible_days=7)
+    verifier = rig.make_verifier()
+    verifier._settings = settings
+    store = OutcomeStore(settings.rejected_root)
+    ready_id, rejected_id = "0123456789abcdef", "fedcba9876543210"
+    store.write(Outcome(ready_id, "Kept", "film", "ready", 0, NOW - 3 * DAY))
+    store.write(Outcome(rejected_id, "Held", "film", "rejected", 1, NOW - 3 * DAY))
+
+    await verifier._purge()
+
+    assert store.get(ready_id) is not None
+    assert store.get(rejected_id) is None
+
+
 @pytest.mark.parametrize("state", ["stoppedUP", "pausedUP"])
 async def test_seeding_end_stores_the_outcome_and_deletes_only_the_quarantine_link(
     rig: Rig, caplog: pytest.LogCaptureFixture, state: str
