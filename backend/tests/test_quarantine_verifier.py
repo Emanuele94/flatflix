@@ -1062,6 +1062,8 @@ async def test_a_link_fail_with_exdev_never_becomes_a_copy_and_is_logged_once_ov
 
     caplog.set_level(logging.INFO, logger="app.audit")
     add_film(rig)
+    now = [NOW]
+    verifier = rig.make_verifier(clock=lambda: now[0])
     copies: list[str] = []
 
     def cross_device(*args, **kwargs):
@@ -1075,8 +1077,8 @@ async def test_a_link_fail_with_exdev_never_becomes_a_copy_and_is_logged_once_ov
     for name in ("copy", "copy2", "copyfile", "copytree", "move"):
         monkeypatch.setattr(shutil, name, no_copy)
 
-    await rig.verifier.run_once()
-    await rig.verifier.run_once()
+    await verifier.run_once()
+    await verifier.run_once()
 
     assert copies == []
     assert rig.media_files() == []
@@ -1084,7 +1086,13 @@ async def test_a_link_fail_with_exdev_never_becomes_a_copy_and_is_logged_once_ov
     assert rig.fake.deleted == []
     assert not list(Path(rig.settings.rejected_root).glob("*.json"))  # no outcome either
     assert audit_lines(caplog) == ['event=quarantine.link_failed name="Movie" why=EXDEV']
-    assert len(rig.runner.calls) == 2  # still a candidate: probed again on the second tick
+    assert len(rig.runner.calls) == 1  # WR-04: held, so the second tick does not re-probe it
+
+    now[0] += 61  # the backoff is over: still a candidate, probed again, still logged once
+    await verifier.run_once()
+
+    assert len(rig.runner.calls) == 2
+    assert audit_lines(caplog) == ['event=quarantine.link_failed name="Movie" why=EXDEV']
 
 
 async def test_a_link_fail_into_rejected_deletes_nothing_either(
@@ -1102,6 +1110,34 @@ async def test_a_link_fail_into_rejected_deletes_nothing_either(
 
     assert rig.fake.deleted == []
     assert not list(Path(rig.settings.rejected_root).glob("*.json"))
+
+
+async def test_a_mixed_pack_whose_media_link_fails_has_already_secured_the_failing_file(
+    rig: Rig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """WR-04: the failing files are held before the passing ones go into media, so a link that
+    fails half way never leaves partial content in Jellyfin without the held copy."""
+    rig.add_finished(
+        FILM_HASH, "Pack", [("Pack/a.mkv", GB), ("Pack/b.mkv", GB)], category="SerieTV"
+    )
+    rig.runner.script("SerieTV/Pack/a.mkv", film_facts(duration=3000.0, size=GB))
+    rig.runner.script("SerieTV/Pack/b.mkv", failed_facts("probe_failed"))
+    real_link = os.link
+    order: list[str] = []
+
+    def spying_link(src, dst, **kwargs):
+        order.append("rejected" if "rejected" in str(dst) else "media")
+        if order[-1] == "media":
+            raise OSError(28, "No space left on device")
+        return real_link(src, dst, **kwargs)
+
+    monkeypatch.setattr(os, "link", spying_link)
+
+    assert await rig.verifier.check_torrent(await rig.only_row()) == "held"
+
+    assert order == ["rejected", "media"]
+    assert rig.media_files() == []
+    assert rig.fake.deleted == []
 
 
 async def test_a_torrent_that_already_has_an_outcome_is_not_probed_again_only_deleted(

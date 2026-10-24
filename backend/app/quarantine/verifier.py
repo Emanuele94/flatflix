@@ -175,7 +175,10 @@ class Verifier:
                     continue
                 if outcome == "waiting":
                     break  # the runner is down: later torrents would only hit the same wall
-                self._backoff.pop(str(row["hash"]).lower(), None)
+                if outcome == "held":  # a link or a file that keeps failing: do not re-probe it
+                    self._back_off(row)  # in a VM every tick (WR-04)
+                else:
+                    self._backoff.pop(str(row["hash"]).lower(), None)
         finally:
             try:
                 await self._purge()
@@ -426,6 +429,8 @@ class Verifier:
         changed since the VM looked at it. Everything that can fail comes first and the delete
         comes last: links, then the outcome sidecar, then the audit lines, then the delete.
 
+        The failing files go into rejected before the passing ones go into media.
+
         Every checked file passed: link all into media and tag the torrent (it keeps seeding).
         Otherwise a file failed, or there was no video to check: link what passed into media and
         the failing files into the rejected folder, store a sidecar ("ready" when a video
@@ -464,14 +469,16 @@ class Verifier:
                 sources[item.file.index] = src
             rejected_dir = self._outcomes.rejected_dir(self._outcome_id(row))
             try:
+                # The failing files are secured first: when a link fails half way, nothing of a
+                # suspect torrent is in media while the held copies are still missing (WR-04).
+                for item in failing:
+                    link_into_rejected(sources[item.file.index], rejected_dir, item.file.name)
                 for item in passing:
                     link_into_media(
                         sources[item.file.index],
                         media_target(media_dir, item.file.name),
                         media_dir=media_dir,
                     )
-                for item in failing:
-                    link_into_rejected(sources[item.file.index], rejected_dir, item.file.name)
             except HandoffError as exc:
                 self._link_failed(row, exc.why)
                 return "held"
