@@ -214,33 +214,61 @@ class Verifier:
         `max_ratio_act` set to RemoveWithContent qBittorrent would also delete torrents that were
         never checked, so its action stays "Stop" and the verifier removes what it verified.
         """
-        settings = self._settings
-        now = self._clock()
         for row in rows:
-            content_type = type_for_category(settings, str(row.get("category") or ""))
-            verified = verified_at(tags_of(row))
-            if (
-                content_type is None
-                or verified is None
-                or str(row.get("state") or "") not in SEEDING_END_STATES
-                or not in_quarantine(str(row.get("save_path") or ""), settings.quarantine_root)
-            ):
+            if self._seeding_content_type(row) is None:
                 continue
             torrent_hash = str(row["hash"])
-            async with self._guard.lock(torrent_hash):
-                if now - verified < settings.completed_visible_seconds:
-                    self._outcomes.write(
-                        Outcome(
-                            self._outcome_id(row),
-                            display_name(row),
-                            content_type,
-                            "ready",
-                            0,
-                            verified,
+            try:
+                async with self._guard.lock(torrent_hash):
+                    # The listing is old (probes took minutes): decide on a fresh row, so a torrent
+                    # that was removed and added again is never deleted by a stale snapshot.
+                    current = await self._current_row(torrent_hash)
+                    content_type = self._seeding_content_type(current) if current else None
+                    if current is None or content_type is None:
+                        continue
+                    verified = verified_at(tags_of(current))
+                    if verified is not None and (
+                        self._clock() - verified < self._settings.completed_visible_seconds
+                    ):
+                        self._outcomes.write(
+                            Outcome(
+                                self._outcome_id(current),
+                                display_name(current),
+                                content_type,
+                                "ready",
+                                0,
+                                verified,
+                            )
                         )
-                    )
-                await self._qbit.delete([torrent_hash], delete_files=True)
-            audit.quarantine_seeding_done(display_name(row))
+                    await self._qbit.delete([torrent_hash], delete_files=True)
+            except QbitError as exc:  # one torrent's error must not stop the others
+                audit.error("verifier", type(exc).__name__, exc.status)
+                continue
+            audit.quarantine_seeding_done(display_name(current))
+
+    def _seeding_content_type(self, row: dict) -> ContentType | None:
+        """The content type of a row that qualifies for the seeding-end removal, else None."""
+        settings = self._settings
+        content_type = type_for_category(settings, str(row.get("category") or ""))
+        if (
+            content_type is None
+            or verified_at(tags_of(row)) is None
+            or str(row.get("state") or "") not in SEEDING_END_STATES
+            or not in_quarantine(str(row.get("save_path") or ""), settings.quarantine_root)
+        ):
+            return None
+        return content_type
+
+    async def _current_row(self, torrent_hash: str) -> dict | None:
+        """The torrent's row as qBittorrent shows it now, or None when it is gone."""
+        return next(
+            (
+                r
+                for r in await self._qbit.torrents_info(hashes=torrent_hash)
+                if str(r.get("hash") or "").lower() == torrent_hash.lower()
+            ),
+            None,
+        )
 
     def _runner_unavailable(self, why: str) -> None:
         if self._runner_down is None:  # one line per outage, not one per tick
@@ -414,14 +442,7 @@ class Verifier:
         async with self._guard.lock(torrent_hash):
             if self._guard.cancel_requested(torrent_hash):
                 return "aborted"
-            current = next(
-                (
-                    r
-                    for r in await self._qbit.torrents_info(hashes=torrent_hash)
-                    if str(r.get("hash") or "").lower() == torrent_hash.lower()
-                ),
-                None,
-            )
+            current = await self._current_row(torrent_hash)
             if (
                 current is None
                 or not is_candidate(current, settings)

@@ -1259,6 +1259,34 @@ async def test_seeding_end_stores_the_outcome_and_deletes_only_the_quarantine_li
     assert rig.runner.calls == []
 
 
+@pytest.mark.parametrize("change", ["re-added", "removed"])
+async def test_the_seeding_cleanup_decides_on_a_fresh_row_not_on_the_tick_snapshot(
+    rig: Rig, monkeypatch: pytest.MonkeyPatch, change: str
+) -> None:
+    """WR-03: probes take minutes. A hash that was removed or re-added since the listing is a
+    different download and must not be deleted (with files) nor given a Ready sidecar."""
+    delete_removes_quarantine_names(rig)
+    finished_and_linked(rig, state="stoppedUP", tags=(f"fx-ok-{int(NOW) - 1000}",))
+    real_purge = rig.verifier._purge
+
+    async def purge_then_the_world_changes() -> None:
+        await real_purge()
+        torrent = rig.fake.torrents[FILM_HASH]
+        if change == "removed":
+            del rig.fake.torrents[FILM_HASH]
+        else:  # the same hash, added again: unverified and downloading
+            torrent.tags = []
+            torrent.state = "downloading"
+
+    monkeypatch.setattr(rig.verifier, "_purge", purge_then_the_world_changes)
+
+    await rig.verifier.run_once()
+
+    assert rig.fake.deleted == []
+    assert not sidecar_of(rig).exists()
+    assert (Path(rig.settings.save_path_film) / FILM_FILE).exists()
+
+
 async def test_a_verified_torrent_that_is_still_seeding_is_left_alone(rig: Rig) -> None:
     finished_and_linked(rig, state="stalledUP", tags=(f"fx-ok-{int(NOW) - 1000}",))
 
