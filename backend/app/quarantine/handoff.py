@@ -73,21 +73,29 @@ def media_target(media_dir: str, name: str) -> Path:
     return Path(target)
 
 
-def _refuse_symlinked_parents(dst: Path, media_dir: str) -> None:
-    """No folder between the media folder and the target may be a symlink."""
+def _make_parents(dst: Path, media_dir: str) -> None:
+    """Create the folders between the media folder and the target, one at a time.
+
+    Each existing segment is lstat'ed first and a symlink is refused before anything is created
+    below it: `os.makedirs` follows links, so it would build folders at the link's target and
+    only then could the hand-off be refused (WR-05).
+    """
     base = Path(os.path.normpath(media_dir))
     try:
         parts = dst.parent.relative_to(base).parts
     except ValueError:
         raise HandoffError("unsafe_path") from None
+    os.makedirs(base, mode=0o775, exist_ok=True)  # the configured media folder itself
     current = base
     for part in parts:
         current = current / part
         try:
-            if stat.S_ISLNK(os.lstat(current).st_mode):
-                raise HandoffError("unsafe_path")
-        except OSError as exc:
-            raise HandoffError(errno.errorcode.get(exc.errno or 0, "unsafe_path")) from None
+            mode = os.lstat(current).st_mode
+        except FileNotFoundError:
+            os.mkdir(current, 0o775)
+            continue
+        if not stat.S_ISDIR(mode):  # a symlink (never followed) or a file in the way
+            raise HandoffError("unsafe_path")
 
 
 MAX_COLLISION_NAME = 99
@@ -112,9 +120,10 @@ def link_into_media(src: Path, dst: Path, *, media_dir: str | None = None) -> Pa
     if not stat.S_ISREG(src_stat.st_mode):
         raise HandoffError("unsafe_path")
     try:
-        os.makedirs(dst.parent, mode=0o775, exist_ok=True)
         if media_dir is not None:
-            _refuse_symlinked_parents(dst, media_dir)
+            _make_parents(dst, media_dir)
+        else:
+            os.makedirs(dst.parent, mode=0o775, exist_ok=True)
         candidates = [dst] + [
             dst.with_name(f"{dst.stem} ({n}){dst.suffix}") for n in range(2, MAX_COLLISION_NAME + 1)
         ]

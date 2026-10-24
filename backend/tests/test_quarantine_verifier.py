@@ -813,6 +813,41 @@ def test_a_symlinked_media_folder_is_refused(folders: tuple[Path, Path], tmp_pat
     assert list(elsewhere.iterdir()) == []
 
 
+def test_a_symlinked_parent_is_refused_before_any_folder_is_created_behind_it(
+    folders: tuple[Path, Path], tmp_path: Path
+) -> None:
+    """WR-05: makedirs follows links, so the folders used to be built at the link's target."""
+    quarantine, media = folders
+    src = quarantine / "Film" / "a.mkv"
+    src.write_bytes(b"film")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (media / "Series").symlink_to(elsewhere)
+
+    with pytest.raises(HandoffError) as refused:
+        link_into_media(
+            src, media_target(str(media), "Series/Season 01/a.mkv"), media_dir=str(media)
+        )
+
+    assert refused.value.why == "unsafe_path"
+    assert list(elsewhere.iterdir()) == []
+
+
+def test_missing_folders_below_media_are_created_one_by_one(
+    folders: tuple[Path, Path],
+) -> None:
+    quarantine, media = folders
+    src = quarantine / "Film" / "a.mkv"
+    src.write_bytes(b"film")
+
+    used = link_into_media(
+        src, media_target(str(media), "Series/Season 01/a.mkv"), media_dir=str(media)
+    )
+
+    assert used == media / "Series" / "Season 01" / "a.mkv"
+    assert os.stat(used).st_ino == os.stat(src).st_ino
+
+
 def test_a_link_across_filesystems_names_the_errno(
     folders: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
