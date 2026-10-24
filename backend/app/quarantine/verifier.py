@@ -70,6 +70,10 @@ SEEDING_END_STATES = frozenset({"stoppedUP", "pausedUP"})
 # While bootstrap has not marked qBittorrent ready (its categories do not point at quarantine yet),
 # the loop does not touch qBittorrent at all; it looks again after this many seconds.
 READINESS_WAIT_SECONDS = 1
+# A torrent whose check keeps failing (a qBittorrent call that errors for it alone) is left alone
+# for 60 s, then 120 s, doubling up to 15 minutes, so it cannot starve the torrents behind it.
+BACKOFF_BASE_SECONDS = 60.0
+BACKOFF_MAX_SECONDS = 900.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,6 +128,7 @@ class Verifier:
         self._outcomes = outcomes if outcomes is not None else OutcomeStore(settings.rejected_root)
         self._runner_down: str | None = None
         self._link_failures: set[tuple[str, str]] = set()
+        self._backoff: dict[str, tuple[float, int]] = {}  # hash -> (retry not before, failures)
 
     @property
     def runner_down(self) -> str | None:
@@ -144,19 +149,48 @@ class Verifier:
                 logger.error("verifier tick failed (%s)", type(exc).__name__)
 
     async def run_once(self) -> None:
-        """Check every candidate, oldest completion first, one at a time (D-52)."""
+        """Check every candidate, oldest completion first, one at a time (D-52).
+
+        One torrent that cannot be handled never starves the rest: a qBittorrent error for it is
+        audited and the torrent backs off, and the purge and the seeding cleanup run whatever
+        happened to the checks.
+        """
         rows = await self._qbit.torrents_info()
         listed = {str(row.get("hash") or "").lower() for row in rows}
         for gone in self._guard.known() - listed:
             self._guard.forget(gone)
         self._link_failures = {key for key in self._link_failures if key[0] in listed}
+        self._backoff = {key: value for key, value in self._backoff.items() if key in listed}
         candidates = [row for row in rows if is_candidate(row, self._settings)]
         candidates.sort(key=lambda row: (row.get("completion_on") or 0, str(row.get("hash"))))
-        for row in candidates:
-            if await self.check_torrent(row) == "waiting":
-                break  # the runner is down: later torrents would only hit the same wall
-        await self._purge()
-        await self._finish_seeding(rows)
+        try:
+            for row in candidates:
+                if self._backing_off(row):
+                    continue
+                try:
+                    outcome = await self.check_torrent(row)
+                except QbitError as exc:
+                    audit.error("verifier", type(exc).__name__, exc.status)
+                    self._back_off(row)
+                    continue
+                if outcome == "waiting":
+                    break  # the runner is down: later torrents would only hit the same wall
+                self._backoff.pop(str(row["hash"]).lower(), None)
+        finally:
+            try:
+                await self._purge()
+            finally:
+                await self._finish_seeding(rows)
+
+    def _backing_off(self, row: dict) -> bool:
+        entry = self._backoff.get(str(row["hash"]).lower())
+        return entry is not None and self._clock() < entry[0]
+
+    def _back_off(self, row: dict) -> None:
+        key = str(row["hash"]).lower()
+        failures = self._backoff.get(key, (0.0, 0))[1] + 1
+        delay = min(BACKOFF_BASE_SECONDS * 2 ** (failures - 1), BACKOFF_MAX_SECONDS)
+        self._backoff[key] = (self._clock() + delay, failures)
 
     async def _purge(self) -> None:
         """Remove held files and outcomes older than the retention (D-55)."""

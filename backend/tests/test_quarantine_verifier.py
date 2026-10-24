@@ -613,6 +613,43 @@ async def test_a_qbittorrent_error_in_a_tick_is_audited_and_the_loop_continues(
     assert rig.media_files() == ["Film/Movie/movie.mkv"]  # the loop went on to the next tick
 
 
+async def test_one_torrent_whose_qbittorrent_call_fails_does_not_starve_the_queue_or_the_cleanup(
+    rig: Rig, caplog: pytest.LogCaptureFixture
+) -> None:
+    """WR-01: a poison torrent at the head of the queue is audited and backs off; the torrents
+    behind it, the purge and the seeding cleanup still run on every tick."""
+    caplog.set_level(logging.INFO, logger="app.audit")
+    now = [NOW]
+    verifier = rig.make_verifier(clock=lambda: now[0])
+    poison, seeded = "b" * 40, "c" * 40
+    rig.add_finished(poison, "Poison", [("Poison/p.mkv", GB)], completion_on=50)
+    add_film(rig)  # completed after the poison one
+    rig.add_finished(seeded, "Seeded", [("Seeded/s.mkv", GB)], state="stoppedUP", tags=("fx-ok-1",))
+    original = rig.fake._routes[("GET", FILES)]
+
+    def files(request: httpx.Request) -> httpx.Response:
+        if request.url.params.get("hash") == poison:
+            return httpx.Response(500, text="boom")
+        return original(request)
+
+    rig.fake.register("GET", FILES, files)
+
+    await verifier.run_once()
+
+    assert rig.media_files() == ["Film/Movie/movie.mkv"]  # the torrent behind the poison one
+    assert len(rig.tag_calls()) == 1
+    assert (seeded, True) in rig.fake.deleted  # the seeding cleanup ran as well
+    assert len([line for line in audit_lines(caplog) if "event=error" in line]) == 1
+
+    asked = len(rig.fake.calls_to(FILES))
+    await verifier.run_once()  # backing off: the poison torrent is not asked about again
+    assert len(rig.fake.calls_to(FILES)) == asked
+    now[0] += 61
+    await verifier.run_once()
+    assert len(rig.fake.calls_to(FILES)) == asked + 1
+    assert len([line for line in audit_lines(caplog) if "event=error" in line]) == 2
+
+
 async def test_the_loop_survives_an_unexpected_error_in_a_tick(
     rig: Rig, monkeypatch: pytest.MonkeyPatch
 ) -> None:
