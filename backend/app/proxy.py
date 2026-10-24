@@ -8,7 +8,8 @@ peer (`uvicorn --forwarded-allow-ips "*"`) would let it pick a fresh throttle ke
 This middleware replaces uvicorn's proxy handling. The header is honored only when the TCP peer
 is one of the configured proxy hosts, looked up through the compose network's DNS (`web` by
 default). Any other peer keeps its own address, so a spoofing container is throttled as itself.
-Names that do not resolve trust nobody.
+Names that do not resolve trust nobody, and a name that stops resolving keeps its last good
+addresses until a lookup succeeds again.
 """
 
 import asyncio
@@ -58,26 +59,40 @@ class TrustedProxyHeaders:
         self._hosts = tuple(hosts)
         self._resolver = resolver  # None: app.netutil.resolve_host, looked up at call time
         self._clock = clock
+        self._by_host: dict[str, frozenset[str]] = {}  # the last good answer of each name
         self._trusted: frozenset[str] = frozenset()
         self._resolved_at: float | None = None
+        self._lookup_failed = False
         self._lock = asyncio.Lock()
 
     async def _refresh(self) -> None:
-        trusted: set[str] = set()
+        """Look every name up again. A name that fails keeps its last good addresses.
+
+        Dropping the proxy after one failed lookup would attribute every request to the proxy's own
+        address, and the login throttle would count the whole household as one client (WR-06). An
+        address leaves the set only after a successful lookup that no longer lists it.
+        """
+        failed = False
         for host in self._hosts:
             try:
                 addresses = await asyncio.wait_for(
                     (self._resolver or netutil.resolve_host)(host), RESOLVE_TIMEOUT_SECONDS
                 )
             except (OSError, TimeoutError):
-                continue  # not resolvable (yet) or too slow: trust nobody for this name
-            trusted.update(a for a in map(_normalize, addresses) if a is not None)
-        self._trusted = frozenset(trusted)
+                failed = True  # not resolvable (yet) or too slow: keep what was known for it
+                continue
+            self._by_host[host] = frozenset(
+                a for a in map(_normalize, addresses) if a is not None
+            )
+        self._trusted = frozenset().union(*self._by_host.values())
+        self._lookup_failed = failed
         self._resolved_at = self._clock()
 
     def _needs_refresh(self, peer: str) -> bool:
         age = None if self._resolved_at is None else self._clock() - self._resolved_at
-        if age is None or age > RESOLVE_TTL_SECONDS:
+        # after a failed lookup the answer is only half known: look again soon, not in 30 s
+        ttl = RESOLVE_MIN_INTERVAL_SECONDS if self._lookup_failed else RESOLVE_TTL_SECONDS
+        if age is None or age > ttl:
             return True
         # maybe the proxy was recreated with a new address
         return peer not in self._trusted and age > RESOLVE_MIN_INTERVAL_SECONDS

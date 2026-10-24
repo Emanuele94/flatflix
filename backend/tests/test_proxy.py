@@ -112,6 +112,34 @@ async def test_a_recreated_proxy_with_a_new_address_is_trusted_after_a_lookup() 
     assert seen == [(REAL_CLIENT, 0), (REAL_CLIENT, 0)]
 
 
+async def test_a_failed_lookup_keeps_the_last_good_proxy_address_and_retries_soon() -> None:
+    """WR-06: one DNS hiccup must not make the proxy untrusted, or the login throttle would count
+    the whole household as one client."""
+    answers: list = [[PROXY]]
+
+    async def resolver(host: str) -> list[str]:
+        answer = answers[0]
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    clock = Clock()
+    middleware, seen = make(resolver, clock)
+    await call(middleware, PROXY, REAL_CLIENT.encode())
+    answers[0] = OSError("temporary failure in name resolution")
+    clock.now += 31  # the answer is due for a refresh, and the refresh fails
+    await call(middleware, PROXY, REAL_CLIENT.encode())
+    assert seen == [(REAL_CLIENT, 0), (REAL_CLIENT, 0)]  # still trusted
+
+    answers[0] = [OTHER]  # DNS is back and the proxy has a new address
+    clock.now += 3  # a failed lookup is retried after seconds, not after the full TTL
+    await call(middleware, OTHER, REAL_CLIENT.encode())
+    await call(middleware, PROXY, REAL_CLIENT.encode())  # dropped only after a good answer
+
+    assert seen[2] == (REAL_CLIENT, 0)
+    assert seen[3] == (PROXY, 5000)
+
+
 async def test_unknown_peers_do_not_cause_a_lookup_per_request() -> None:
     lookups: list[str] = []
 
