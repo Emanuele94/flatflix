@@ -370,8 +370,8 @@ If a good file was rejected (a short film under the minimum, say), within `REJEC
    chmod 0644 "DATA_ROOT/media/Film/<file>"
    ```
 
-   Use `media/SerieTV` for a series. Held files are mode 0600, so without the `chmod` Jellyfin
-   could not read it later.
+   Use `media/SerieTV` for a series. The `chmod` makes sure Jellyfin can read the file later,
+   whatever mode the download had.
 3. To stop it happening again for films of that kind, lower the minimum in `.env` and run
    `docker compose up -d backend`.
 

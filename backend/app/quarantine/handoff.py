@@ -152,7 +152,9 @@ def link_into_rejected(src: Path, rejected_dir: Path, name: str) -> Path:
 
     A link, not a rename, so a crash never leaves a torrent with missing files (RESEARCH Pattern 5);
     the torrent's delete afterwards removes the quarantine name and leaves this one. Folders are
-    created 0700 and the file is set to 0600, so it is never executable and never world readable.
+    created 0700, so nobody but the owner can enter them. The file's own mode is never changed: a
+    hardlink shares its inode with the quarantine name, so a chmod here would also lock the sandbox
+    runner (another uid) out of the quarantine file and stall every later check (CR-01).
     The rejected folder belongs to the backend, so a stale file at the target (a torrent that came
     back under the same id) is replaced; a target that already is this file is left alone.
     """
@@ -187,7 +189,6 @@ def link_into_rejected(src: Path, rejected_dir: Path, name: str) -> Path:
             existing = None
         if existing is None:
             os.link(src, dst, follow_symlinks=False)
-        os.chmod(dst, 0o600)
     except OSError as exc:
         raise HandoffError(errno.errorcode.get(exc.errno or 0, "OSError")) from None
     return dst

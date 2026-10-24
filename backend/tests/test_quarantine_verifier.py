@@ -269,7 +269,7 @@ async def test_a_renamed_executable_fails_twice_and_is_held_owner_only_then_dele
     assert rig.runner.calls == [FILM_REL, FILM_REL]  # probed once more in a fresh VM (D-57)
     held = Path(rig.settings.rejected_root) / outcome_id / "Movie" / "movie.mkv"
     assert held.exists()
-    assert stat.S_IMODE(os.stat(held).st_mode) == 0o600
+    assert stat.S_IMODE(os.stat(held.parent).st_mode) & 0o077 == 0  # the folder is the barrier
     assert stat.S_IMODE(os.stat(held.parent).st_mode) == 0o700
     assert stat.S_IMODE(os.stat(held.parent.parent).st_mode) == 0o700
     sidecar = Path(rig.settings.rejected_root) / f"{outcome_id}.json"
@@ -1089,7 +1089,26 @@ def test_a_stale_held_file_of_a_returning_torrent_is_replaced_not_a_collision(
 
     assert used == stale
     assert os.stat(stale).st_ino == os.stat(src).st_ino
-    assert stat.S_IMODE(os.stat(stale).st_mode) == 0o600
+
+
+def test_holding_a_file_never_changes_the_mode_of_the_shared_quarantine_inode(
+    tmp_path: Path,
+) -> None:
+    """CR-01: a hardlink shares its inode, so a chmod on the held name would lock the sandbox
+    runner (another uid) out of the quarantine file and stall every later check."""
+    from app.quarantine.handoff import link_into_rejected
+
+    src = tmp_path / "q.mkv"
+    src.write_bytes(b"data")
+    os.chmod(src, 0o644)
+    held = tmp_path / "rejected" / "0123456789abcdef"
+
+    used = link_into_rejected(src, held, "Movie/movie.mkv")
+
+    assert os.stat(used).st_ino == os.stat(src).st_ino
+    assert stat.S_IMODE(os.stat(src).st_mode) == 0o644
+    assert stat.S_IMODE(os.stat(held).st_mode) == 0o700  # the folders keep other users out
+    assert stat.S_IMODE(os.stat(held / "Movie").st_mode) == 0o700
 
 
 # --- plan 02.1-07 Task 3: the purge, the seeding-end removal and the lifespan -------------------------
