@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 03
 current_phase_name: Jellyfin Server & TV Playback Gate
 status: executing
-stopped_at: Completed 03-05-PLAN.md
-last_updated: "2026-10-25T21:49:29.646Z"
+stopped_at: Completed 03-06-PLAN.md
+last_updated: "2026-10-25T22:09:59.831Z"
 last_activity: 2026-10-25
 last_activity_desc: Phase 03 execution started
-state_head: 0ae5713b854881ccdd87a7ecad061b4784b097c5
+state_head: 2a6cacbbd8c10d827aa1e7e21522b308a7e1823c
 progress:
   total_phases: 7
   completed_phases: 2
   total_plans: 45
-  completed_plans: 41
+  completed_plans: 42
   percent: 29
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-23)
 ## Current Position
 
 Phase: 03 (Jellyfin Server & TV Playback Gate) — EXECUTING
-Plan: 6 of 9
+Plan: 7 of 9
 Status: Ready to execute
 Last activity: 2026-10-25 — Phase 03 execution started
 
@@ -98,6 +98,7 @@ Progress: [███░░░░░░░] 29%
 | Phase 03 P03 | 17 min | 2 tasks | 3 files |
 | Phase 03 P04 | 17 min | 2 tasks | 3 files |
 | Phase 03 P05 | 15 min | 2 tasks | 4 files |
+| Phase 03 P06 | 19 min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -184,6 +185,9 @@ Recent decisions affecting current work:
 - [Phase 03]: Jellyfin test videos have no audio track, so K01-K03 and R03 carry audio none and the probe requires no audio stream there
 - [Phase 03]: Compat matching of files to items uses only the row id (first token), because Jellyfin may clean codec words out of a home-video name
 - [Phase 03]: 03-05: naming scan results.json carries a source key (sample|real) and the sample run also writes sample-results.json; report shows real counts only from source=real and never prints a real name (validate_report guard)
+- [Phase 03]: 03-06: Reason cell of the compat matrix comes from the catalogue note and the manifest n/a, not the gitignored manifest note, so the committed doc renders byte-identical on any machine
+- [Phase 03]: 03-06: validate_doc also requires the transcoding line to equal the line recomputed from the matrix, and refuses GO over a failed gating row
+- [Phase 03]: 03-06: subtitle and PGS rows count only plays with a subtitle stream on; a play with subtitles off stays not tested
 
 ### Pending Todos
 
@@ -214,6 +218,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-25T21:49:29.151Z
-Stopped at: Completed 03-05-PLAN.md
+Last session: 2026-10-25T22:09:59.472Z
+Stopped at: Completed 03-06-PLAN.md
 Resume file: None
