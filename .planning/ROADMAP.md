@@ -169,7 +169,7 @@ Plans:
   4. After a laptop or router restart the TV still reaches the same address, and Caddy, Jellyfin and the portal run on the documented port map with no collisions.
   5. The naming decision (who puts downloads into Jellyfin's layout) is recorded in PROJECT.md Key Decisions, backed by a scan test with raw torrent-style names.
 
-**Plans**: 2/9 plans executed in 7 waves (plans 08 and 09 need the user: the real-TV session and the verdict decision)
+**Plans**: 3/9 plans executed in 7 waves (plans 08 and 09 need the user: the real-TV session and the verdict decision)
 
 Plans:
 **Wave 1**
@@ -177,7 +177,7 @@ Plans:
 - [x] 03-02-PLAN.md — Tracer: Jellyfin env keys (admin and household passwords, bitrate limit, empty opt-in TMDB key) and a TV-typable household password from dev_env.py; key-match and hygiene tests (wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 03-03-PLAN.md — Tracer: one idempotent setup script provisions Jellyfin through Caddy (wizard, hidden admin, household with English audio and Smart subtitles, Movies and TV Series, bitrate limit, check); Blender films and Pioneer One sample library with real metadata (wave 2)
+- [x] 03-03-PLAN.md — Tracer: one idempotent setup script provisions Jellyfin through Caddy (wizard, hidden admin, household with English audio and Smart subtitles, Movies and TV Series, bitrate limit, check); Blender films and Pioneer One sample library with real metadata (wave 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 - [ ] 03-04-PLAN.md — Tracer: codec clip matrix (24 A rows, subtitle, PGS, 4K/HDR10 and real-release rows) proven with ffprobe, in an admin-only Compat library that lists every clip for the admin (wave 3)
@@ -247,7 +247,7 @@ Phases execute in numeric order: 1 → 2 → 2.1 → 3 → 4 → 5 → 6 (Phases
 | 1. Portal Search & Start Download | 16/16 | Complete    | 2026-10-22 |
 | 2. Portal Download Management & Hardening | 11/11 | Complete    | 2026-10-23 |
 | 2.1 Download Quarantine & Firecracker Validation | 9/9 | In Progress | - |
-| 3. Jellyfin Server & TV Playback Gate | 2/9 | In Progress | - |
+| 3. Jellyfin Server & TV Playback Gate | 3/9 | In Progress | - |
 | 4. Library Hand-off | 0/TBD | Not started | - |
 | 5. TV App Browse & Play | 0/TBD | Not started | - |
 | 6. TV Icon & End-to-End Acceptance | 0/TBD | Not started | - |
