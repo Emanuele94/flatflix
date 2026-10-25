@@ -17,6 +17,7 @@ import pytest
 import yaml
 
 LOOPBACK = "127.0.0.1"
+JELLYFIN_IMAGE = "jellyfin/jellyfin:12.3.20261023-013714"
 
 
 def _repo_root() -> Path:
@@ -200,7 +201,8 @@ def test_admin_override_only_adds_loopback_ports_to_qbittorrent(admin):
 def test_qbittorrent_and_web_share_no_network(base):
     services = base["services"]
     assert _networks(services["qbittorrent"]) == {"qbit"}
-    assert _networks(services["web"]) == {"edge"}
+    assert _networks(services["web"]) == {"edge", "jellyfin"}
+    assert _networks(services["jellyfin"]) == {"jellyfin"}
     assert _networks(services["backend"]) == {"edge", "qbit", "sandbox"}
     assert not (base["networks"].get("qbit") or {}).get("internal", False)
 
@@ -278,6 +280,7 @@ def test_images_are_pinned_and_compose_is_versionless(base):
     assert "version" not in base
     images = [svc["image"] for svc in base["services"].values() if "image" in svc]
     assert base["services"]["qbittorrent"]["image"].endswith(":5.2.4")
+    assert base["services"]["jellyfin"]["image"] == JELLYFIN_IMAGE
     assert images and not any(image.endswith(":latest") or ":" not in image for image in images)
     for dockerfile in ("web/Dockerfile", "backend/Dockerfile", "sandbox/Dockerfile"):
         froms = re.findall(
@@ -348,10 +351,17 @@ def test_index_and_spa_fallback_are_revalidated():
     assert "immutable" not in catch_all
 
 
+def test_handle_errors_is_not_counted_as_a_handle_block():
+    blocks = _caddy_handle_blocks()
+    assert blocks
+    assert not any(block.lstrip().startswith("handle_errors") for block in blocks)
+    assert blocks[-1].lstrip().startswith("handle {")
+
+
 # -- every container logs to stdout through Docker, rotated (D-40, SEC-06) --------------------
 
 
-@pytest.mark.parametrize("name", ["qbittorrent", "backend", "sandbox", "web"])
+@pytest.mark.parametrize("name", ["qbittorrent", "backend", "sandbox", "jellyfin", "web"])
 def test_every_service_rotates_its_logs(base, name):
     assert base["services"][name]["logging"] == {
         "driver": "json-file",
@@ -516,3 +526,123 @@ def test_a_sandbox_on_a_second_network_is_caught(base):
 
 def test_the_admin_override_does_not_touch_the_sandbox(admin):
     assert "sandbox" not in admin["services"]
+
+
+# -- Jellyfin: stock image, hardened, unpublished, reached only through Caddy (JFIN-01, D-80, D-82, D-97)
+
+
+def check_jellyfin(service: dict) -> list[str]:
+    """Every way the jellyfin service is weaker than decided, not just the first."""
+    return []  # RED stub
+
+
+def _mutated_jellyfin(base: dict, change: dict) -> dict:
+    """A deep copy of the real jellyfin service; a value of None removes the key."""
+    service = copy.deepcopy(base["services"]["jellyfin"])
+    for key, value in change.items():
+        if value is None:
+            service.pop(key, None)
+        else:
+            service[key] = value
+    return service
+
+
+def _jellyfin_volumes(base: dict) -> list[dict]:
+    return copy.deepcopy(base["services"]["jellyfin"]["volumes"])
+
+
+def test_the_jellyfin_service_is_hardened_as_decided(base):
+    assert check_jellyfin(base["services"]["jellyfin"]) == []
+
+
+def _scratch_without_read_only(base: dict) -> list[dict]:
+    volumes = _jellyfin_volumes(base)
+    for volume in volumes:
+        if volume["target"] == "/scratch":
+            volume.pop("read_only")
+    return volumes
+
+
+def _with_a_data_root_bind(base: dict) -> list[dict]:
+    extra = {
+        "type": "bind",
+        "source": "${DATA_ROOT:-./data}",
+        "target": "/data",
+        "bind": {"create_host_path": False},
+    }
+    return [*_jellyfin_volumes(base), extra]
+
+
+def _config_without_create_host_path_guard(base: dict) -> list[dict]:
+    volumes = _jellyfin_volumes(base)
+    for volume in volumes:
+        if volume["target"] == "/config":
+            volume["bind"] = {"create_host_path": True}
+    return volumes
+
+
+@pytest.mark.parametrize(
+    ("change", "expected"),
+    [
+        ({"ports": ["8096:8096"]}, "ports"),
+        ({"ports": ["127.0.0.1:8096:8096"]}, "ports"),
+        ({"expose": ["8096"]}, "expose"),
+        ({"user": None}, "user"),
+        ({"user": "0:0"}, "user"),
+        ({"read_only": False}, "read_only"),
+        ({"cap_drop": None}, "cap_drop"),
+        ({"cap_add": ["NET_ADMIN"]}, "cap_add"),
+        ({"privileged": True}, "privileged"),
+        ({"security_opt": None}, "no-new-privileges"),
+        ({"pids_limit": None}, "pids_limit"),
+        ({"tmpfs": None}, "tmpfs"),
+        ({"env_file": ".env"}, "env_file"),
+        ({"networks": ["jellyfin", "edge"]}, "networks"),
+        ({"image": "jellyfin/jellyfin:latest"}, "image"),
+        ({"image": "jellyfin/jellyfin:12.3"}, "image"),
+        ({"healthcheck": None}, "healthcheck"),
+        ({"logging": None}, "logging"),
+    ],
+)
+def test_a_weakened_jellyfin_entry_is_caught(base, change, expected):
+    violations = check_jellyfin(_mutated_jellyfin(base, change))
+    assert any(expected in violation for violation in violations), violations
+
+
+@pytest.mark.parametrize(
+    ("build", "expected"),
+    [
+        (_with_a_data_root_bind, "DATA_ROOT"),
+        (_scratch_without_read_only, "read_only"),
+        (_config_without_create_host_path_guard, "create_host_path"),
+    ],
+)
+def test_a_weakened_jellyfin_volume_is_caught(base, build, expected):
+    violations = check_jellyfin(_mutated_jellyfin(base, {"volumes": build(base)}))
+    assert any(expected in violation for violation in violations), violations
+
+
+def test_the_jellyfin_network_is_shared_by_web_and_jellyfin_only(base):
+    assert not (base["networks"]["jellyfin"] or {}).get("internal", False)
+    members = {
+        name for name, service in base["services"].items() if "jellyfin" in _networks(service)
+    }
+    assert members == {"web", "jellyfin"}
+
+
+def test_web_does_not_wait_for_jellyfin(base):
+    depends = base["services"]["web"].get("depends_on") or {}
+    assert "jellyfin" not in depends
+
+
+def test_the_admin_override_does_not_touch_jellyfin(admin):
+    assert "jellyfin" not in admin["services"]
+
+
+def test_ports_doc_names_the_jellyfin_route_and_no_publish():
+    doc = (ROOT / "docs" / "ports-and-media.md").read_text(encoding="utf-8")
+    rows = [line for line in doc.splitlines() if line.startswith("| Jellyfin |")]
+    assert len(rows) == 1
+    assert "never published" in rows[0]
+    assert any(line.startswith("- `jellyfin`") for line in doc.splitlines())
+    assert "reserved for Phase 3" not in doc
