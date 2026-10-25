@@ -99,8 +99,9 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def auth_header(token: str | None) -> str:
-    parts = f'MediaBrowser Client="{CLIENT}", Device="{CLIENT}", DeviceId="{CLIENT}", Version="1.0"'
+def auth_header(token: str | None, device: str = CLIENT) -> str:
+    """The Authorization value; `device` lets another script sign in as its own device."""
+    parts = f'MediaBrowser Client="{CLIENT}", Device="{device}", DeviceId="{device}", Version="1.0"'
     if token:
         parts += f', Token="{token}"'
     return parts
@@ -109,9 +110,10 @@ def auth_header(token: str | None) -> str:
 class Api:
     """Tiny Jellyfin client: JSON in and out, the token only in the Authorization header."""
 
-    def __init__(self, base: str, token: str | None = None) -> None:
+    def __init__(self, base: str, token: str | None = None, device: str = CLIENT) -> None:
         self.base = base.rstrip("/")
         self.token = token
+        self.device = device
         self.opener = urllib.request.build_opener(NoRedirect())
 
     def request(
@@ -125,7 +127,10 @@ class Api:
         url = self.base + path
         if query:
             url += "?" + urllib.parse.urlencode(query, quote_via=urllib.parse.quote)
-        headers = {"Authorization": auth_header(self.token), "Accept": "application/json"}
+        headers = {
+            "Authorization": auth_header(self.token, self.device),
+            "Accept": "application/json",
+        }
         data = None
         if body is not None:
             data = json.dumps(body).encode("utf-8")
