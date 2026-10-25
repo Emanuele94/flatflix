@@ -132,8 +132,252 @@ The phone opens `http://<laptop-ip>/`. Only Caddy is published to the LAN.
 - Ubuntu Server: nothing extra. ufw does not filter Docker-published ports,
   which is why only Caddy is ever published (see
   [ports-and-media.md](ports-and-media.md)).
-- Bookmark `http://<laptop-ip>/` on each phone. A stable address (DHCP
-  reservation on the router) comes in Phase 3.
+- Bookmark `http://<laptop-ip>/` on each phone. To keep that address from changing,
+  see "Keep the laptop on the same address" in "Jellyfin and the TV" below.
+
+## Jellyfin and the TV
+
+Stock Jellyfin runs behind Caddy at `/jellyfin` on port 80 (D-80); its own port 8096 is never
+published and the admin dashboard is reachable only through `/jellyfin` (D-82). In Phase 3 it
+holds a scratch library of open-licensed films and one Creative Commons series; the portal's
+media folders join in Phase 4.
+
+On the TV browser, open http://<laptop-ip>/jellyfin.
+
+### First start
+
+Run these on the laptop, from the repo root, in this order:
+
+1. Add the Jellyfin keys to `.env` (it adds what is missing and never overwrites a value):
+
+   ```
+   uv run --project backend --frozen python scripts/dev_env.py
+   ```
+
+2. Create the host folders with the right owner:
+
+   ```
+   bash scripts/init-host-dirs.sh
+   ```
+
+3. Start the stack and provision Jellyfin in one line:
+
+   ```
+   docker compose up -d --wait && python3 scripts/jellyfin_setup.py setup --no-scan
+   ```
+
+   Keep it on one line: until setup finishes, anyone on the LAN who opens `/jellyfin` could run
+   Jellyfin's first-run wizard and become its admin.
+
+4. Download the open films and the Creative Commons series (about 1.8 GB of Blender open
+   movies), then build the scratch library:
+
+   ```
+   python3 scripts/make_compat_clips.py sources
+   python3 scripts/make_compat_clips.py library
+   ```
+
+5. Run setup again, now with the library scan:
+
+   ```
+   python3 scripts/jellyfin_setup.py setup
+   ```
+
+6. Check the result. Every one of the 11 lines must start with `OK`:
+
+   ```
+   python3 scripts/jellyfin_setup.py check
+   ```
+
+7. Open /jellyfin on the PC, choose Manual Login, sign in as admin. The password is
+   `JELLYFIN_ADMIN_PASSWORD` in `.env`. The admin is hidden from the TV's login list on purpose.
+
+Every step is safe to repeat: setup reads the current state and changes only what differs.
+
+### The household account
+
+The household uses one shared account, `household` (D-94), separate from the hidden `admin`.
+Separate profiles are out of scope for now.
+
+- Password: `JELLYFIN_HOUSEHOLD_PASSWORD` in `.env`. `dev_env.py` makes it 10 characters
+  without look-alikes, so it can be typed with the TV remote.
+- Or tap **Use Quick Connect** on the TV login page, then on the PC open the user menu, choose
+  **Quick Connect** and type the code the TV shows.
+- Audio is English and subtitles are Smart English: forced subtitles always show (D-95).
+- Jellyfin locks an account after repeated wrong passwords. Run
+  `python3 scripts/jellyfin_setup.py setup` to unlock `household`.
+
+The household account sees only **Movies** and **TV Series** and cannot delete anything.
+
+### Streaming bitrate limit
+
+`JELLYFIN_MAX_BITRATE_MBPS` in `.env` is the limit (20 to 80, whole numbers). Pick it in one of
+two ways:
+
+1. Measure it. Copy `scripts/jellyfin_setup.py` to another wired computer on the LAN and run:
+
+   ```
+   python3 jellyfin_setup.py measure --base http://<laptop-ip>/jellyfin
+   ```
+
+   The file is self-contained. It prints the median speed and the cap that follows (70 percent,
+   clamped to 20-80).
+
+2. Or take the TV's link speed from its network screen and run:
+
+   ```
+   python3 scripts/jellyfin_setup.py cap --mbps <link speed>
+   ```
+
+Then set the value in `.env` and run `python3 scripts/jellyfin_setup.py setup` again.
+
+On the TV also open **Settings > Playback > Maximum streaming bitrate** in the web client and
+choose the same value. Jellyfin applies its server limit (**Dashboard > Playback > Streaming**)
+only to clients it sees as remote, and the TV on your LAN is not remote, so the TV's own setting
+is what holds it.
+
+### Keep the laptop on the same address
+
+The TV remembers one address, so the laptop must keep it (INFRA-04).
+
+1. In the router's DHCP settings, reserve `<laptop-ip>` for the laptop's `<mac-address>`. The
+   router lists the MAC address next to the laptop's name in its client list.
+2. On Windows, turn off random hardware addresses for the adapter the laptop uses
+   (**Settings > Network & internet**, the adapter's **Random hardware addresses**), or the
+   router sees a new MAC address and the reservation no longer matches.
+3. On Windows, stop the laptop sleeping when the lid closes and when it is on power
+   (**Settings > System > Power & battery** and **Control Panel > Power Options > Choose what
+   closing the lid does**). A sleeping laptop is unreachable.
+4. In Docker Desktop, turn on
+   **Settings > General > Start Docker Desktop when you sign in to your computer**, and sign
+   in to Windows after every restart. Docker Desktop starts at sign-in, not at boot; the
+   containers then restart by themselves.
+5. On the Ubuntu Server box, Docker runs as a system service and starts at boot: nothing else
+   is needed.
+6. Restart the laptop and the router. The TV must still open the same address without any change.
+
+### A name instead of the address (.local)
+
+A `.local` name is optional (D-81). Keep the IP form as the household address unless the TV
+opens the name.
+
+1. Read the laptop's name in **Settings > System > About** (**Device name**). Written
+   here as `<laptop-name>`.
+2. On a phone on the same Wi-Fi, open `http://<laptop-name>.local/`. The portal must open.
+   Windows answers for its own name with no extra software.
+3. On the TV browser, open `http://<laptop-name>.local/`. If it opens, record "yes" in
+   [tv-compatibility.md](tv-compatibility.md) under **Address check**; if it does not, keep
+   the IP address.
+
+On the production box (Ubuntu Server) publish the household name `flatflix.local` with avahi:
+
+1. Install it: `sudo apt install avahi-daemon`
+2. In `/etc/avahi/avahi-daemon.conf`, under `[server]`, set these two lines (the second keeps
+   Docker's bridges from being advertised; use your LAN interface name for `<lan-nic>`):
+
+   ```
+   host-name=flatflix
+   allow-interfaces=<lan-nic>
+   ```
+
+3. Restart it: `sudo systemctl restart avahi-daemon`
+4. If ufw is on, allow mDNS: `sudo ufw allow 5353/udp`
+5. From another computer on the LAN, check the name:
+
+   ```
+   avahi-resolve -n flatflix.local
+   ```
+
+   It must print the box's address. This is documented from avahi-daemon.conf(5) and is
+   checked when the box exists.
+
+### TV compatibility test
+
+This measures what the TV does with each test clip and fills
+[tv-compatibility.md](tv-compatibility.md).
+
+1. Build and prove the test clips (a few minutes):
+
+   ```
+   python3 scripts/make_compat_clips.py clips
+   python3 scripts/make_compat_clips.py clips --verify
+   ```
+
+2. Prove the helper itself, without the TV (it plays one clip four ways through Jellyfin):
+
+   ```
+   python3 scripts/tv_gate.py selftest --row A01 --all
+   ```
+
+3. Run `python3 scripts/jellyfin_setup.py setup` once more so Jellyfin lists every clip.
+4. On the TV, sign in as `admin` with Quick Connect. The **Compat** library is admin-only
+   (D-98), so the household never sees the clips.
+5. On the laptop, start the recorder and leave it running:
+
+   ```
+   python3 scripts/tv_gate.py watch
+   ```
+
+6. On the TV, play each clip in the **Compat** library. When a clip ends, answer the question
+   the recorder asks on the laptop.
+7. Write the results into the document, check it and read the verdict:
+
+   ```
+   python3 scripts/tv_gate.py render --doc docs/tv-compatibility.md
+   python3 scripts/tv_gate.py validate
+   python3 scripts/tv_gate.py verdict
+   ```
+
+To repeat one clip, forget its plays and play it again: `python3 scripts/tv_gate.py forget A01`.
+
+### Naming scan test
+
+This tests how well stock Jellyfin recognises real torrent names (NAME-01).
+
+1. Create `jellyfin/name-scan/queries.txt`, one search per line, each starting with
+   `film:` or `serie:`, for example `film: Big Buck Bunny`.
+2. Collect names from the portal search, 7 seconds apart:
+
+   ```
+   python3 scripts/name_scan.py capture
+   ```
+
+3. Confirm or correct the truth label of each name:
+
+   ```
+   python3 scripts/name_scan.py label
+   ```
+
+4. Scan them with Jellyfin and print the verdict:
+
+   ```
+   python3 scripts/name_scan.py run
+   ```
+
+5. Write the report, which holds counts and failure classes only:
+
+   ```
+   python3 scripts/name_scan.py report
+   ```
+
+Real names stay in the gitignored `jellyfin/` folder and never reach the repo (D-101).
+[naming-scan.md](naming-scan.md) is the committed result.
+
+### Reset Jellyfin
+
+Reset when setup says the admin password does not open Jellyfin (someone else ran the first-run
+wizard) or to start over. The household's library files in `jellyfin/scratch` stay.
+
+1. Stop Jellyfin and remove its settings and cache. Read this first:
+
+   This removes all Jellyfin settings and watch history. It cannot be undone.
+
+   ```
+   docker compose stop jellyfin && sudo rm -rf jellyfin/config jellyfin/cache
+   ```
+
+2. Recreate the folders: `bash scripts/init-host-dirs.sh`
+3. Repeat steps 3 to 6 of "First start".
 
 ## Admin tasks
 
@@ -450,3 +694,8 @@ sandbox suite below.
 | Doctor: `sandbox selftest failed (...)` | The VM could not boot. `docker compose logs sandbox` names the cause; a kernel or Firecracker change needs `docker compose build sandbox`. |
 | Downloads stay in "Checking..." | The sandbox is down or the folders are on two filesystems. Run the doctor: it names which. Rows wait and resume by themselves; after `CHECKING_PROBLEM_HOURS` they read "Problem". |
 | Doctor: `quarantine and media are on different filesystems` | `DATA_ROOT` spans two filesystems (a second mount inside it, or `/mnt/c` on WSL). Put the whole tree on one Linux filesystem; the backend never copies. |
+| Jellyfin page is blank or has no styles | The page's security header is wrong. Run `curl -sI http://127.0.0.1/jellyfin/web/index.html \| grep -ci '^content-security-policy'`: it must print 1, and that header must include `'wasm-unsafe-eval'`. Then `docker compose up -d --wait caddy`. |
+| The TV cannot open the .local name | Use the IP address, `http://<laptop-ip>/jellyfin` (see "A name instead of the address (.local)"). |
+| Jellyfin says it is starting | Wait one minute and reload. |
+| `/jellyfin` shows 'Jellyfin is not available right now' | Jellyfin is down or restarting. `docker compose ps jellyfin`, then `docker compose logs jellyfin`. |
+| The household account is locked | Run `python3 scripts/jellyfin_setup.py setup`. |
