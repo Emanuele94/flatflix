@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 03
 current_phase_name: Jellyfin Server & TV Playback Gate
 status: executing
-stopped_at: Completed 03-01-PLAN.md
-last_updated: "2026-10-25T20:53:21.571Z"
+stopped_at: Completed 03-02-PLAN.md
+last_updated: "2026-10-25T20:58:31.269Z"
 last_activity: 2026-10-25
 last_activity_desc: Phase 03 execution started
-state_head: 6589d32d9812a86e030feaeb4ef73eb42456e165
+state_head: dfa3ceac18bbcc6da81e69ca78585e98560aeb3b
 progress:
   total_phases: 7
   completed_phases: 2
   total_plans: 45
-  completed_plans: 37
+  completed_plans: 38
   percent: 29
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-23)
 ## Current Position
 
 Phase: 03 (Jellyfin Server & TV Playback Gate) — EXECUTING
-Plan: 2 of 9
+Plan: 3 of 9
 Status: Ready to execute
 Last activity: 2026-10-25 — Phase 03 execution started
 
@@ -94,6 +94,7 @@ Progress: [███░░░░░░░] 29%
 | Phase 02.1 P08 | 40 min | 3 tasks | 12 files |
 | Phase 02.1 P09 | 55 min | 2 tasks | 7 files |
 | Phase 03 P01 | 35 min | 2 tasks | 9 files |
+| Phase 03 P02 | 3 min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -172,6 +173,7 @@ Recent decisions affecting current work:
 - [Phase 02.1]: smoke all tracks the film it started by an id absent from the list before the run and removes only that item
 - [Phase 03]: Portal CSP scoped with @notjellyfin; /jellyfin/* has its own policy with 'wasm-unsafe-eval' — A route-level header cannot override a site-level one; jellyfin-web 12.3 needs WebAssembly for ASS and PGS subtitles (03-01)
 - [Phase 03]: Jellyfin container has no DATA_ROOT mount, no env_file and no published port; Docker commands in WSL need a scratch DOCKER_CONFIG when the desktop credential helper fails — Phase 4 owns the read-only media mount; keeps portal secrets and household downloads out of reach (03-01)
+- [Phase 03]: 03-02: household password is 10 characters from a look-alike-free alphabet; admin password stays token_urlsafe(32); empty secret-like template value allowed (TMDB_API_KEY opt-in, D-93, D-94)
 
 ### Pending Todos
 
@@ -202,6 +204,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-25T20:53:21.197Z
-Stopped at: Completed 03-01-PLAN.md
+Last session: 2026-10-25T20:58:30.230Z
+Stopped at: Completed 03-02-PLAN.md
 Resume file: None
