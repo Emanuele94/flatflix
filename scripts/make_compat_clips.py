@@ -164,7 +164,11 @@ def _download(url: str, target: Path) -> None:
 
 def fetch_source(name: str) -> Path:
     """Download one source (or keep the verified file already there) and return its path."""
-    source = SOURCES[name]
+    return _fetch(SOURCES[name])
+
+
+def _fetch(source: Source) -> Path:
+    name = source.name
     SOURCES_DIR.mkdir(parents=True, exist_ok=True)
     SOURCES_DIR.chmod(0o755)
     dest = SOURCES_DIR / source.file
@@ -417,22 +421,42 @@ def clip_path(row: Row) -> Path:
     return SCRATCH / "Compat" / (" ".join(parts) + _EXTENSIONS[row.container])
 
 
-def mux_args(row: Row, video: Path, audio: Path, out: Path) -> list[str]:
-    """The ffmpeg arguments that copy one video and one audio intermediate into the row's file."""
-    args = [
-        "-i", str(video),
-        "-i", str(audio),
-        "-map", "0:v:0",
-        "-map", "1:a:0",
-        "-c", "copy",
-        "-metadata:s:a:0", "language=eng",
-    ]  # fmt: skip
+def mux_args(row: Row, video: Path, audio: Path, out: Path, subtitle: Path | None = None) -> list[str]:
+    """The ffmpeg arguments that copy one video and one audio intermediate into the row's file.
+
+    An embedded-subtitle row also takes the subtitle file (its text is encoded into the container)."""
+    codec = _SUBTITLE_CODECS[row.subtitles]
+    embedded = {"subrip": "srt", "ass": "ass", "mov_text": "mov_text"}.get(codec or "")
+    if embedded and subtitle is None:
+        raise ValueError(f"{row.id} embeds subtitles: a subtitle file is needed")
+    args = ["-i", str(video), "-i", str(audio)]
+    if embedded and subtitle is not None:
+        args += ["-i", str(subtitle)]
+    args += ["-map", "0:v:0", "-map", "1:a:0"]
+    if embedded:
+        args += ["-map", "2:0"]
+    args += ["-c", "copy", "-metadata:s:a:0", "language=eng"]
+    if embedded:
+        args += ["-c:s", embedded, "-metadata:s:s:0", "language=eng"]
     if row.container == "MP4":
         if "HEVC" in row.video:
             args += ["-tag:v", "hvc1"]
+        if row.audio == "DTS":
+            args += ["-strict", "-2"]
         args += ["-movflags", "+faststart"]
     args += ["-f", _FORMATS[row.container], str(out)]
     return args
+
+
+def sidecar_path(row: Row) -> Path:
+    """The external English subtitle file Jellyfin picks up next to the clip."""
+    return clip_path(row).with_suffix(".en.srt")
+
+
+def na_reason(stderr: str) -> str:
+    """`n/a - <the muxer's one-line reason>` for the manifest and the compatibility doc."""
+    line = next((ln.strip() for ln in (stderr or "").splitlines() if ln.strip()), "")
+    return "n/a \u2014 " + (line[:120] or "ffmpeg refused the combination")
 
 
 def expected_streams(row: Row) -> dict:
@@ -547,6 +571,44 @@ def _entry(file: Path | None, na: str | None, note: str | None, probed_values: d
     }
 
 
+# --- downloaded test videos (D-84 b, D-85) ----------------------------------------------
+
+_JELLYFIN_VIDEOS = "https://repo.jellyfin.org/test-videos/"
+
+# Jellyfin's published test videos; the sha256 is the one published next to each file
+# (`<name>.sha256sum` on repo.jellyfin.org), checked again on every download.
+TEST_VIDEOS: dict[str, Source] = {
+    "K01": Source(
+        name="K01",
+        url=_JELLYFIN_VIDEOS + "HDR/HDR10/HEVC/Test%20Jellyfin%204K%20HEVC%20HDR10%2040M.mp4",
+        file="Test Jellyfin 4K HEVC HDR10 40M.mp4",
+        unzip_member=None,
+        sha256="da108da499153ae4816b6cd50296a6dc56996ae3d30a08c7a14a1108b25a4221",
+    ),
+    "K02": Source(
+        name="K02",
+        url=_JELLYFIN_VIDEOS + "SDR/HEVC%2010bit/Test%20Jellyfin%204K%20HEVC%2010bit%2040M.mp4",
+        file="Test Jellyfin 4K HEVC 10bit 40M.mp4",
+        unzip_member=None,
+        sha256="738a7fb8fd951421791286a9609f03b963acd3d424420b3e58edac50ec8cf31c",
+    ),
+    "K03": Source(
+        name="K03",
+        url=_JELLYFIN_VIDEOS + "SDR/AVC/Test%20Jellyfin%204K%20AVC%2040M.mp4",
+        file="Test Jellyfin 4K AVC 40M.mp4",
+        unzip_member=None,
+        sha256="247511299989ae9d194c09012f10740f7d074d0fd7768073f2b8f0424c2060df",
+    ),
+    "R03": Source(
+        name="R03",
+        url=_JELLYFIN_VIDEOS + "SDR/HEVC%2010bit/Test%20Jellyfin%201080p%20HEVC%2010bit%203M.mp4",
+        file="Test Jellyfin 1080p HEVC 10bit 3M.mp4",
+        unzip_member=None,
+        sha256="b4dc866907df217157c53288db95ff22e002ec3e24cd818de6616ff06a1d6cae",
+    ),
+}
+
+
 # --- generating the clips ---------------------------------------------------------------
 
 # One intermediate per video and per audio codec, encoded once and muxed by stream copy.
@@ -558,9 +620,30 @@ VIDEO_ENCODES: dict[str, tuple[str, list[str]]] = {
             "-pix_fmt", "yuv420p", "-b:v", "8M", "-maxrate", "10M", "-bufsize", "20M",
         ],
     ),
+    "HEVC 8-bit": (
+        "video-hevc8.mkv",
+        [
+            "-c:v", "libx265", "-preset", "ultrafast", "-profile:v", "main", "-pix_fmt", "yuv420p",
+            "-b:v", "8M", "-x265-params", "log-level=error",
+        ],
+    ),
+    "HEVC 10-bit": (
+        "video-hevc10.mkv",
+        [
+            "-c:v", "libx265", "-preset", "ultrafast", "-profile:v", "main10",
+            "-pix_fmt", "yuv420p10le", "-b:v", "8M", "-x265-params", "log-level=error",
+        ],
+    ),
 }  # fmt: skip
 AUDIO_ENCODES: dict[str, tuple[str, list[str]]] = {
     "AAC": ("audio-aac.mka", ["-c:a", "aac", "-ac", "2", "-b:a", "192k"]),
+    "AC3": ("audio-ac3.mka", ["-c:a", "ac3", "-b:a", "640k"]),
+    "EAC3": ("audio-eac3.mka", ["-c:a", "eac3", "-b:a", "640k"]),
+    "DTS": ("audio-dts.mka", ["-c:a", "dca", "-strict", "-2", "-b:a", "768k"]),
+}
+# Used when the encoder refuses the first choice (the dca encoder may refuse six channels).
+AUDIO_FALLBACKS: dict[str, list[str]] = {
+    "DTS": ["-c:a", "dca", "-strict", "-2", "-ac", "2", "-b:a", "192k"],
 }
 
 
@@ -581,7 +664,13 @@ def _encoder_of(args: list[str]) -> str:
     raise ValueError("no encoder in the arguments")
 
 
-def _intermediate(name: str, source: str, selection: list[str], encode: list[str]) -> Path:
+def _intermediate(
+    name: str,
+    source: str,
+    selection: list[str],
+    encode: list[str],
+    fallback: list[str] | None = None,
+) -> Path:
     """Encode one minute of a source once; an existing intermediate is kept."""
     dest = INTERMEDIATE_DIR / name
     if dest.exists():
@@ -592,11 +681,22 @@ def _intermediate(name: str, source: str, selection: list[str], encode: list[str
     path = fetch_source(source)
     _folder(INTERMEDIATE_DIR)
     part = dest.with_name(dest.name + ".part")
-    part.unlink(missing_ok=True)
-    ffmpeg(
-        "-ss", str(CLIP_OFFSET), "-t", str(CLIP_SECONDS), "-i", str(path),
-        *selection, *encode, "-f", "matroska", str(part),
-    )  # fmt: skip
+    for attempt in (encode, fallback):
+        if attempt is None:
+            break
+        part.unlink(missing_ok=True)
+        try:
+            ffmpeg(
+                "-ss", str(CLIP_OFFSET), "-t", str(CLIP_SECONDS), "-i", str(path),
+                *selection, *attempt, "-f", "matroska", str(part),
+                capture_stderr=True,
+            )  # fmt: skip
+        except subprocess.CalledProcessError:
+            part.unlink(missing_ok=True)
+            if attempt is fallback or fallback is None:
+                raise
+        else:
+            break
     _finish(part, dest)
     return dest
 
@@ -612,17 +712,81 @@ def audio_intermediate(audio: str) -> Path:
     if audio not in AUDIO_ENCODES:
         raise RuntimeError(f"no audio encode defined for {audio}")
     name, encode = AUDIO_ENCODES[audio]
+    tag = ["-metadata:s:a:0", "language=eng"]
+    fallback = AUDIO_FALLBACKS.get(audio)
     return _intermediate(
-        name, "sintel", ["-map", "0:a:0", "-vn", "-sn"], [*encode, "-metadata:s:a:0", "language=eng"]
+        name,
+        "sintel",
+        ["-map", "0:a:0", "-vn", "-sn"],
+        [*encode, *tag],
+        [*fallback, *tag] if fallback else None,
     )
+
+
+# --- subtitle texts ------------------------------------------------------------------------
+
+CUES = 12
+CUE_STEP = 5  # seconds between cue starts
+CUE_LENGTH = 3
+
+
+def _cue_text(n: int) -> str:
+    return f"Subtitle test line {n} of {CUES}"
+
+
+def _stamp(seconds: int, *, comma: bool) -> str:
+    return f"{seconds // 3600:02d}:{seconds % 3600 // 60:02d}:{seconds % 60:02d}" + (
+        ",000" if comma else ".00"
+    )
+
+
+def srt_text() -> str:
+    blocks = []
+    for n in range(1, CUES + 1):
+        start = (n - 1) * CUE_STEP + 1
+        span = f"{_stamp(start, comma=True)} --> {_stamp(start + CUE_LENGTH, comma=True)}"
+        blocks.append(f"{n}\n{span}\n{_cue_text(n)}\n")
+    return "\n".join(blocks)
+
+
+def ass_text() -> str:
+    head = (
+        "[Script Info]\nScriptType: v4.00+\nPlayResX: 1920\nPlayResY: 1080\n\n"
+        "[V4+ Styles]\n"
+        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, "
+        "BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, "
+        "BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
+        "Style: Default,Arial,54,&H00FFFFFF,&H000000FF,&H00000000,&H64000000,0,0,0,0,"
+        "100,100,0,0,1,2,1,2,10,10,40,1\n\n"
+        "[Events]\n"
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+    )
+    lines = []
+    for n in range(1, CUES + 1):
+        start = (n - 1) * CUE_STEP + 1
+        span = f"{_stamp(start, comma=False)},{_stamp(start + CUE_LENGTH, comma=False)}"
+        lines.append(f"Dialogue: 0,{span},Default,,0,0,0,,{_cue_text(n)}\n")
+    return head + "".join(lines)
+
+
+def subtitle_file(kind: str) -> Path:
+    """The shared subtitle source (srt or ass), written once beside the intermediates."""
+    _folder(INTERMEDIATE_DIR)
+    dest = INTERMEDIATE_DIR / f"subs.en.{kind}"
+    dest.write_text(srt_text() if kind == "srt" else ass_text(), encoding="utf-8")
+    dest.chmod(0o644)
+    return dest
+
+
+# --- building one row ------------------------------------------------------------------------
 
 
 def _channel_words(count: int | None) -> str:
     return {1: "mono", 2: "stereo", 6: "5.1"}.get(count or 0, f"{count} channels")
 
 
-def build_av(row: Row) -> dict:
-    """Mux one A row from its two intermediates; an existing file is kept; returns its entry."""
+def _mux(row: Row, subtitle: Path | None) -> dict:
+    """Mux a generated row from its intermediates; a muxer refusal becomes an n/a entry."""
     video, audio = video_intermediate(row.video), audio_intermediate(row.audio)
     dest = clip_path(row)
     _folder(dest.parent)
@@ -630,20 +794,70 @@ def build_av(row: Row) -> dict:
         part = dest.with_name(dest.name + ".part")
         part.unlink(missing_ok=True)
         try:
-            ffmpeg(*mux_args(row, video, audio, part), capture_stderr=True)
-        except subprocess.CalledProcessError:
+            ffmpeg(*mux_args(row, video, audio, part, subtitle), capture_stderr=True)
+        except subprocess.CalledProcessError as exc:
             part.unlink(missing_ok=True)
-            raise
+            return _entry(None, na_reason(exc.stderr or ""), None, None)
         _finish(part, dest)
-    found = probe(dest)
     channels = _first_stream(probe(audio), "audio").get("channels")
-    return _entry(dest, None, f"audio {_channel_words(channels)}", probed(found))
+    note = f"audio {_channel_words(channels)}"
+    return _entry(dest, None, note, probed(probe(dest)))
+
+
+def build_av(row: Row) -> dict:
+    return _mux(row, None)
+
+
+def build_subs(row: Row) -> dict:
+    kind = {"ASS (embedded)": "ass"}.get(row.subtitles, "srt")
+    if row.subtitles == "SRT (external file)":
+        entry = _mux(row, None)
+        if entry["file"]:
+            side = sidecar_path(row)
+            side.write_text(srt_text(), encoding="utf-8")
+            side.chmod(0o644)
+            entry["note"] = f"{entry['note']}; sidecar {side.name}"
+        return entry
+    return _mux(row, subtitle_file(kind))
+
+
+def _link(source: Path, dest: Path) -> None:
+    """Hardlink a downloaded or original file into Compat (a copy only across devices)."""
+    _folder(dest.parent)
+    if dest.exists() and os.path.samefile(source, dest):
+        return
+    dest.unlink(missing_ok=True)
+    try:
+        os.link(source, dest)
+    except OSError as exc:
+        if exc.errno != errno.EXDEV:
+            raise
+        part = dest.with_name(dest.name + ".part")
+        shutil.copyfile(source, part)
+        _finish(part, dest)
+    else:
+        dest.chmod(0o644)
+
+
+def build_download(row: Row) -> dict:
+    if row.id in TEST_VIDEOS:
+        source = _fetch(TEST_VIDEOS[row.id])
+    else:
+        source = fetch_source({"R01": "sintel", "R02": "bbb"}[row.id])
+    dest = clip_path(row)
+    _link(source, dest)
+    return _entry(dest, None, row.note, probed(probe(dest)))
 
 
 def build_row(row: Row) -> dict:
+    """Build one row and return its manifest entry (file, n/a reason, note, probed codecs)."""
+    if row.id == "P01":
+        return _entry(None, None, row.note, None)  # D-99: nothing to encode
     if row.group == "av":
         return build_av(row)
-    raise RuntimeError(f"{row.id}: this version does not build the {row.group} group")
+    if row.group == "subs":
+        return build_subs(row)
+    return build_download(row)
 
 
 def _size_mb(path: Path) -> str:
@@ -683,6 +897,8 @@ def verify_clips(ids: list[str]) -> int:
             print(f"FAIL {rid}: {path.name} is missing")
             continue
         problems = probe_mismatches(row, probe(path))
+        if row.subtitles == "SRT (external file)" and not sidecar_path(row).is_file():
+            problems.append("sidecar: the external subtitle file is missing")
         if problems:
             failures += 1
             print(f"FAIL {rid}: " + "; ".join(problems))
