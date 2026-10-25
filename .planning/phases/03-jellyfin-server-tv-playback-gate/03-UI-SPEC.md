@@ -1,7 +1,8 @@
 ---
 phase: "03"
 slug: jellyfin-server-tv-playback-gate
-status: draft
+status: approved
+reviewed_at: "2026-10-25"
 shadcn_initialized: false
 preset: none
 created: "2026-10-25"
@@ -91,7 +92,7 @@ Language: English only. Plain words for the household, exact words for the admin
 | Library content types | Movies library: type "Movies"; TV library: type "Shows" |
 | Audio language (household user) | English; "Play default audio track regardless of language" off |
 | Subtitle mode (household user) | Smart; subtitle language English; forced subtitles always shown |
-| Metadata and artwork | Local only after fetch: TheMovieDb and TVmaze/TVDb as shipped, "Save artwork and metadata into media folders" **off** (scratch library is mounted read-only), real-time monitoring on |
+| Metadata and artwork | Fetch online from TheMovieDb and TVmaze/TVDb (as shipped), do not write into the media folders: "Save artwork and metadata into media folders" **off** (scratch library is mounted read-only), real-time monitoring on |
 
 Notes:
 - Library display names use the portal's household words ("Movie", "TV Series", see `frontend/src/messages.js`), not the folder names `Film` and `SerieTV`. Folder names stay as in `docs/ports-and-media.md`. MEDIA-02 says "Film and SerieTV libraries" in terms of folders; Phase 4 repoints these same two libraries to the media folders and does not rename them.
@@ -220,16 +221,22 @@ Acceptance checks (re-runnable, belong in the plan's verification):
 
 ## UI Considerations
 
-Applicable state considerations resolved: 5 covered, 0 backstop, 1 unresolved
+Applicable state considerations from the UI probe (30 raised): 9 covered, 20 dismissed, 1 unresolved. Copy for empty and error states stays in the Copywriting Contract; rows here reference it.
 
 | Category | Element(s) | Status | Resolution / Reason |
 |----------|------------|--------|---------------------|
-| empty | Compatibility matrix cells | ✅ covered | An untested clip shows `not tested`, never a blank cell; the verdict cannot be written while any gating row reads `not tested`. |
-| error | Jellyfin container down or starting | ✅ covered | `/jellyfin` answers 502 or 503 with `Jellyfin is not available right now. Ask the admin to check the server.` instead of an empty page. |
-| error | `.local` name not resolved by the TV | ✅ covered | The IP form `http://<laptop-ip>/jellyfin` is the documented fallback in `docs/setup.md` and the Address check section records which one is the household default. |
-| populated | Scratch library on first scan | ✅ covered | Movies library shows posters and plots for the Blender films; TV library shows seasons and episode plots for the chosen CC series; verified by opening each library on the PC and confirming poster, plot, seasons and episodes are present. |
-| partial | Library with some unidentified items (NAME-01 scan test) | ✅ covered | The scan-test result table in the NAME-01 write-up lists each name as `identified`, `unidentified` or `wrong title`; the D-92 bar (>= 90 % identified, 0 wrong) reads from that table. |
-| overflow / long-text | Long raw torrent-style names in the scan test | ⚠ unresolved | Stock Jellyfin truncates titles in its own grid. No fix is in scope; the planner treats it as an assumption and Phase 5 handles long titles in the TV app. |
+| empty | E1 Compatibility matrix cells | ✅ covered | An untested clip shows `not tested`, never a blank cell; the verdict cannot be written while any gating row reads `not tested`. |
+| populated | E1 Compatibility matrix | ✅ covered | One row per clip in the fixed 9-column, 5-group layout; Method is one of the four allowed values. |
+| partial | E1 Compatibility matrix | ✅ covered | Partially tested groups keep `not tested` in the missing cells; information-only rows never block the verdict. |
+| error | E2 Jellyfin container down or starting | ✅ covered | `/jellyfin` answers 502 or 503 with `Jellyfin is not available right now. Ask the admin to check the server.` instead of an empty page. |
+| error | E3 `.local` name not resolved by the TV | ✅ covered | The IP form `http://<laptop-ip>/jellyfin` is the documented fallback in `docs/setup.md`; the Address check section records which one is the household default. |
+| populated | E4 Scratch library on first scan | ✅ covered | Movies shows posters and plots for the Blender films; TV Series shows seasons and episode plots for the CC series; verified by opening each library on the PC. |
+| empty / populated | E5 NAME-01 scan-test table | ✅ covered | One row per captured name (~30); the table is written only after the scan completes, so it is never empty. |
+| partial | E5 NAME-01 scan-test table | ✅ covered | Each name reads `identified`, `unidentified` or `wrong title`; the D-92 bar (>= 90 % identified, 0 wrong) reads from that table. |
+| loading, empty, error, partial, zero-one-many, overflow | E4 library grids, E6 login screen | ✖ dismissed | Stock Jellyfin UI; no custom code in this phase, so these states are Jellyfin's own behaviour. |
+| long-text | E6 login screen | ✖ dismissed | Stock Jellyfin UI; one short user name (`household`). |
+| loading, error, overflow, long-text, zero-one-many | E1 matrix, E5 scan-test table | ✖ dismissed | Static markdown docs: no loading or failure state; GitHub/editor rendering wraps long cells. |
+| long-text | E4 long raw torrent-style titles in Jellyfin's grid | ⚠ unresolved — planner must treat as assumption | Stock Jellyfin truncates titles in its grid. No fix is in scope; Phase 5 handles long titles in the TV app. |
 
 ---
 
@@ -244,14 +251,14 @@ Applicable state considerations resolved: 5 covered, 0 backstop, 1 unresolved
 
 ## Checker Sign-Off
 
-- [ ] Dimension 1 Copywriting: PASS
-- [ ] Dimension 2 Visuals: PASS
-- [ ] Dimension 3 Color: PASS
-- [ ] Dimension 4 Typography: PASS
-- [ ] Dimension 5 Spacing: PASS
-- [ ] Dimension 6 Registry Safety: PASS
-- [ ] Dimension 7 Inventory Provenance: PASS
+- [x] Dimension 1 Copywriting: PASS
+- [x] Dimension 2 Visuals: PASS
+- [x] Dimension 3 Color: PASS
+- [x] Dimension 4 Typography: PASS
+- [x] Dimension 5 Spacing: PASS
+- [x] Dimension 6 Registry Safety: PASS
+- [x] Dimension 7 Inventory Provenance: PASS
 
 Dimensions 2 to 7 are expected to be reported as not applicable (no custom UI, `Tool: none`).
 
-**Approval:** pending
+**Approval:** approved 2026-10-25
