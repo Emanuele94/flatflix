@@ -185,17 +185,26 @@ def test_generated_secrets_are_ignored(path):
     assert _ignored(path)
 
 
-def test_secret_like_example_values_are_placeholders():
+def secret_like_offenders(lines: list[str]) -> list[str]:
+    """Keys that look secret and hold anything but a change-me placeholder or an empty value.
+
+    An empty value holds no secret: the opt-in TMDB_API_KEY ships empty (D-93).
+    """
     offenders = []
-    for line in (ROOT / ".env.example").read_text(encoding="utf-8").splitlines():
+    for line in lines:
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, _, value = line.partition("=")
-        if any(word in key.upper() for word in ("PASS", "SECRET", "KEY", "HASH", "TOKEN")):
-            if not value.startswith("change-me"):
-                offenders.append(key)
-    assert offenders == []
+        secret_like = any(word in key.upper() for word in ("PASS", "SECRET", "KEY", "HASH", "TOKEN"))
+        if secret_like and value != "" and not value.startswith("change-me"):
+            offenders.append(key)
+    return offenders
+
+
+def test_secret_like_example_values_are_placeholders():
+    lines = (ROOT / ".env.example").read_text(encoding="utf-8").splitlines()
+    assert secret_like_offenders(lines) == []
 
 
 @pytest.mark.parametrize(
