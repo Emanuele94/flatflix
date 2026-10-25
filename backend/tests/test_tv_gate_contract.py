@@ -298,3 +298,320 @@ def test_auth_header_without_a_device_is_unchanged(js: ModuleType) -> None:
 def test_the_api_passes_its_device_to_the_header(js: ModuleType) -> None:
     assert js.Api("http://x", None, device="d").device == "d"
     assert js.Api("http://x").device == js.CLIENT
+
+
+# --- Task 2: profiles, results, verdict candidate ---------------------------------------------
+
+
+def played(method: str, ok: str | None = "yes", *, reasons=None, subtitles_on: bool = False, flag: str = "") -> dict:
+    return {
+        "method": method,
+        "reasons": list(reasons or []),
+        "flag": flag,
+        "ok": ok,
+        "subtitles_on": subtitles_on,
+    }
+
+
+def all_gating_ok(mc: ModuleType, method: str = "Remux") -> dict:
+    out = {}
+    for r in mc.CATALOGUE:
+        if r.gating:
+            out[r.id] = [played(method, "yes", subtitles_on=r.group in ("subs", "pgs"))]
+    return out
+
+
+def test_expected_method_maps_the_four_profiles(tg: ModuleType) -> None:
+    assert tg.EXPECTED_METHOD == {
+        "remux": "Remux",
+        "audio": "Audio transcode",
+        "video": "Video transcode",
+        "direct": "Direct play",
+    }
+
+
+def test_the_audio_profile_forbids_audio_copy_and_the_video_profile_forbids_video_copy(tg: ModuleType) -> None:
+    audio = tg.profile_body("audio")
+    video = tg.profile_body("video")
+    remux = tg.profile_body("remux")
+
+    assert audio["AllowAudioStreamCopy"] is False and audio["AllowVideoStreamCopy"] is True
+    assert video["AllowVideoStreamCopy"] is False
+    assert remux["AllowAudioStreamCopy"] is True and remux["AllowVideoStreamCopy"] is True
+    for body in (audio, video, remux):
+        assert body["EnableDirectPlay"] is False
+        assert body["DeviceProfile"]["DirectPlayProfiles"] == []
+        assert body["DeviceProfile"]["TranscodingProfiles"][0]["Protocol"] == "hls"
+
+
+def test_the_direct_profile_allows_direct_play_of_one_mkv_profile(tg: ModuleType) -> None:
+    body = tg.profile_body("direct")
+
+    assert body["EnableDirectPlay"] is True
+    assert body["DeviceProfile"]["DirectPlayProfiles"] == [
+        {"Container": "mkv", "Type": "Video", "VideoCodec": "h264", "AudioCodec": "aac"}
+    ]
+
+
+def test_finalize_adds_the_evidence_and_flags_disagreement(tg: ModuleType) -> None:
+    entry = {"play_method": "Transcode", "transcoding": info(video_direct=False), "reasons": []}
+
+    done = tg.finalize(dict(entry), ["Remux"])
+
+    assert done["method"] == "Remux"
+    assert done["log_types"] == ["Remux"]
+    assert done["flag"] == "[signals disagree: log Remux, session IsVideoDirect=False]"
+    assert done["ok"] is None
+
+
+def test_finalize_without_a_flag_when_the_signals_agree(tg: ModuleType) -> None:
+    done = tg.finalize({"play_method": "Transcode", "transcoding": info(), "reasons": []}, ["Remux"])
+
+    assert done["flag"] == ""
+
+
+def test_the_verdict_is_go_when_every_gating_row_passes(tg: ModuleType, mc: ModuleType) -> None:
+    assert tg.verdict_of(all_gating_ok(mc), {}) == ("GO", [])
+    assert tg.verdict_of(all_gating_ok(mc, "Audio transcode"), {}) == ("GO", [])
+    assert tg.verdict_of(all_gating_ok(mc, "Direct play"), {}) == ("GO", [])
+
+
+def test_a_video_transcode_or_a_no_answer_fails_the_row(tg: ModuleType, mc: ModuleType) -> None:
+    results = all_gating_ok(mc)
+    results["A04"] = [played("Video transcode", "yes")]
+    results["A16"] = [played("Remux", "no")]
+
+    assert tg.verdict_of(results, {}) == ("NO-GO-OR-CONDITIONS", ["A04", "A16"])
+
+
+def test_a_gating_row_not_tested_makes_the_verdict_incomplete(tg: ModuleType, mc: ModuleType) -> None:
+    results = all_gating_ok(mc)
+    del results["A07"]
+
+    assert tg.verdict_of(results, {}) == ("INCOMPLETE", ["A07"])
+
+
+def test_a_played_row_without_an_answer_is_still_incomplete(tg: ModuleType, mc: ModuleType) -> None:
+    results = all_gating_ok(mc)
+    results["A07"] = [played("Remux", None)]
+
+    assert tg.verdict_of(results, {}) == ("INCOMPLETE", ["A07"])
+
+
+def test_with_nothing_played_every_gating_row_is_missing(tg: ModuleType, mc: ModuleType) -> None:
+    headline, ids = tg.verdict_of({}, {})
+
+    assert headline == "INCOMPLETE"
+    assert ids == [r.id for r in mc.CATALOGUE if r.gating]
+
+
+def test_information_rows_and_na_gating_rows_never_change_the_outcome(tg: ModuleType, mc: ModuleType) -> None:
+    results = all_gating_ok(mc)
+    results["A24"] = []
+    for r in mc.CATALOGUE:
+        if not r.gating:
+            results[r.id] = [played("Video transcode", "no")]
+
+    manifest = fake_manifest(mc, na={"A24": "n/a — muxer refused"})
+
+    assert tg.verdict_of(results, manifest) == ("GO", [])
+
+
+def test_the_transcoding_line_says_never_or_names_the_rows(tg: ModuleType, mc: ModuleType) -> None:
+    assert tg.transcoding_line(all_gating_ok(mc)) == "1080p content needed video transcoding: never"
+
+    results = all_gating_ok(mc)
+    results["A16"] = [played("Video transcode")]
+    results["A04"] = [played("Video transcode")]
+    results["K01"] = [played("Video transcode")]  # 2160p: not counted
+
+    assert tg.transcoding_line(results) == "1080p content needed video transcoding: for rows A04, A16"
+
+
+def test_verdict_lines_print_the_candidate_and_the_transcoding_line(tg: ModuleType, mc: ModuleType) -> None:
+    go = tg.verdict_lines(all_gating_ok(mc), {})
+    assert go == ["CANDIDATE GO", "1080p content needed video transcoding: never"]
+
+    results = all_gating_ok(mc)
+    results["A04"] = [played("Video transcode")]
+    assert tg.verdict_lines(results, {})[0] == (
+        "CANDIDATE NO-GO or GO with conditions; failing rows: A04"
+    )
+
+    assert tg.verdict_lines({}, {})[0].startswith("INCOMPLETE rows not tested: A01, A02")
+
+
+def test_a_subtitle_row_played_with_subtitles_off_stays_not_tested(tg: ModuleType, mc: ModuleType) -> None:
+    results = {"S01": [played("Remux", "yes", subtitles_on=False)]}
+
+    text = tg.render_matrix(results, fake_manifest(mc))
+    line = next(ln for ln in text.splitlines() if ln.startswith("| S01 |"))
+
+    assert "| not tested | subtitles were off | not tested |" in line
+
+
+def test_a_subtitle_row_played_with_subtitles_on_counts(tg: ModuleType, mc: ModuleType) -> None:
+    results = {"S01": [played("Remux", "yes", subtitles_on=False), played("Audio transcode", "yes", subtitles_on=True)]}
+
+    line = next(ln for ln in tg.render_matrix(results, {}).splitlines() if ln.startswith("| S01 |"))
+
+    assert "| Audio transcode |" in line
+
+
+def test_two_plays_of_one_clip_merge_into_one_row_with_the_worst_method(tg: ModuleType, mc: ModuleType) -> None:
+    results = {
+        "A02": [
+            played("Remux", "yes", reasons=["ContainerNotSupported"]),
+            played("Video transcode", "no", reasons=["VideoCodecNotSupported", "ContainerNotSupported"]),
+        ]
+    }
+
+    text = tg.render_matrix(results, {})
+    rows = [ln for ln in text.splitlines() if ln.startswith("| A02 |")]
+
+    assert len(rows) == 1
+    assert rows[0].endswith("| Video transcode | ContainerNotSupported, VideoCodecNotSupported | no |")
+
+
+def test_two_clips_that_differ_only_in_audio_are_two_rows(tg: ModuleType) -> None:
+    text = tg.render_matrix({}, {})
+    first = next(ln for ln in text.splitlines() if ln.startswith("| A01 |"))
+    second = next(ln for ln in text.splitlines() if ln.startswith("| A02 |"))
+
+    assert "| AAC |" in first and "| AC3 |" in second
+    assert first.split("|")[2:4] == second.split("|")[2:4]
+
+
+def test_the_last_answer_given_wins(tg: ModuleType) -> None:
+    results = {"A01": [played("Remux", "no"), played("Remux", None), played("Remux", "yes")]}
+
+    line = next(ln for ln in tg.render_matrix(results, {}).splitlines() if ln.startswith("| A01 |"))
+
+    assert line.endswith("| yes |")
+
+
+def test_rows_render_in_catalogue_order_whatever_the_play_order(tg: ModuleType, mc: ModuleType) -> None:
+    forward = {r.id: [played("Remux")] for r in mc.CATALOGUE}
+    backward = dict(reversed(list(forward.items())))
+
+    assert tg.render_matrix(forward, {}) == tg.render_matrix(backward, {})
+    ids = [ln.split("|")[1].strip() for ln in tg.render_matrix(forward, {}).splitlines() if ln.startswith("| ") and "---" not in ln and "| ID |" not in ln]
+    assert ids == [r.id for r in mc.CATALOGUE]
+
+
+def test_rendering_twice_gives_identical_text(tg: ModuleType, mc: ModuleType) -> None:
+    results = {"A03": [played("Audio transcode", "yes", reasons=["AudioCodecNotSupported"])]}
+    manifest = fake_manifest(mc)
+
+    assert tg.render_matrix(results, manifest) == tg.render_matrix(results, manifest)
+
+
+def test_results_for_an_unknown_row_are_not_rendered(tg: ModuleType) -> None:
+    text = tg.render_matrix({"Z99": [played("Remux")]}, {})
+
+    assert "Z99" not in text
+
+
+def test_a_manifest_na_row_renders_its_reason_as_the_method(tg: ModuleType, mc: ModuleType) -> None:
+    manifest = fake_manifest(mc, na={"A24": "n/a — muxer refused DTS in MP4"})
+
+    line = next(ln for ln in tg.render_matrix({}, manifest).splitlines() if ln.startswith("| A24 |"))
+
+    assert "| n/a — muxer refused DTS in MP4 | - | not tested |" in line
+
+
+def test_the_pgs_row_keeps_its_decided_reason_and_the_burn_in_line_is_not_tested(tg: ModuleType) -> None:
+    text = tg.render_matrix({}, {})
+    line = next(ln for ln in text.splitlines() if ln.startswith("| P01 |"))
+
+    assert "no PGS encoder in ffmpeg (D-99)" in line
+    assert "burn-in forced: not tested" in text.splitlines()
+
+
+def test_a_disagreement_flag_lands_in_the_reason_cell(tg: ModuleType) -> None:
+    flag = "[signals disagree: log Remux, session IsVideoDirect=False]"
+    results = {"A01": [played("Remux", "yes", reasons=["ContainerNotSupported"], flag=flag)]}
+
+    line = next(ln for ln in tg.render_matrix(results, {}).splitlines() if ln.startswith("| A01 |"))
+
+    assert f"ContainerNotSupported {flag}" in line
+
+
+def test_an_entry_never_carries_device_data_or_a_url(tg: ModuleType) -> None:
+    dirty = {
+        "row": "A01",
+        "DeviceId": "x",
+        "DeviceName": "y",
+        "RemoteEndPoint": "192.168.1.5",
+        "UserName": "household",
+        "client": "http://leak.example/?ApiKey=t",
+        "version": "12.3.0",
+        "transcoding": {**info(), "SomeUrl": "http://x"},
+        "reasons": ["A"],
+    }
+
+    clean = tg.clean_entry(dirty)
+
+    assert set(clean) <= set(tg.ENTRY_KEYS)
+    assert "client" not in clean
+    assert "SomeUrl" not in clean["transcoding"]
+    assert "http" not in repr(clean)
+
+
+def test_the_store_saves_and_loads_rows_and_forgets(tg: ModuleType, tmp_path: Path) -> None:
+    path = tmp_path / "tv-gate" / "results.json"
+    store = tg.ResultStore(path)
+    store.add("A01", {"row": "A01", "method": "Remux", "DeviceId": "x"})
+    store.add("A01", {"row": "A01", "method": "Audio transcode"})
+    store.save()
+
+    again = tg.ResultStore(path)
+    assert [e["method"] for e in again.rows()["A01"]] == ["Remux", "Audio transcode"]
+    assert "DeviceId" not in path.read_text()
+    assert again.forget("A01") is True and again.forget("A01") is False
+    assert again.rows() == {}
+
+
+def test_a_missing_or_broken_results_file_reads_as_empty(tg: ModuleType, tmp_path: Path) -> None:
+    assert tg.ResultStore(tmp_path / "none.json").rows() == {}
+    broken = tmp_path / "broken.json"
+    broken.write_text("{not json")
+    assert tg.ResultStore(broken).rows() == {}
+
+
+def test_save_leaves_the_previous_file_intact_when_the_replace_fails(
+    tg: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "results.json"
+    first = tg.ResultStore(path)
+    first.add("A01", {"row": "A01", "method": "Remux"})
+    first.save()
+    before = path.read_text()
+
+    second = tg.ResultStore(path)
+    second.add("A02", {"row": "A02", "method": "Remux"})
+
+    def boom(*_args, **_kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(tg.os, "replace", boom)
+    with pytest.raises(OSError):
+        second.save()
+
+    assert path.read_text() == before
+    assert [p.name for p in tmp_path.iterdir()] == ["results.json"]
+
+
+def test_save_refuses_data_it_cannot_serialise_and_keeps_the_old_file(tg: ModuleType, tmp_path: Path) -> None:
+    path = tmp_path / "results.json"
+    store = tg.ResultStore(path)
+    store.add("A01", {"row": "A01"})
+    store.save()
+    before = path.read_text()
+    store.data["A02"] = [{"row": object()}]
+
+    with pytest.raises(TypeError):
+        store.save()
+
+    assert path.read_text() == before
+    assert [p.name for p in tmp_path.iterdir()] == ["results.json"]
