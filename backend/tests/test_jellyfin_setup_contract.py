@@ -222,3 +222,239 @@ def test_every_source_comes_from_the_blender_download_host(mc: ModuleType) -> No
         parsed = urlparse(source.url)
         assert parsed.scheme == "https"
         assert parsed.hostname == "download.blender.org"
+
+
+# --- bitrate (JFIN-03, D-96) ---------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("measured", "cap"),
+    [(28, 20), (86, 60), (100, 70), (114, 79), (115, 80), (200, 80), (28.6, 20), (114.9, 80)],
+)
+def test_bitrate_cap_is_seventy_percent_floored_and_clamped(
+    js: ModuleType, measured: float, cap: int
+) -> None:
+    assert js.bitrate_cap(measured) == cap
+
+
+@pytest.mark.parametrize("measured", [0, -5, -0.1])
+def test_bitrate_cap_refuses_a_measurement_of_zero_or_less(
+    js: ModuleType, measured: float
+) -> None:
+    with pytest.raises(ValueError):
+        js.bitrate_cap(measured)
+
+
+def test_bitrate_bps_is_whole_megabits_times_a_million(js: ModuleType) -> None:
+    assert js.bitrate_bps("60") == 60_000_000
+    assert js.bitrate_bps("20") == 20_000_000
+    assert js.bitrate_bps("80") == 80_000_000
+
+
+@pytest.mark.parametrize("raw", ["19", "81", "60.5", "", "sixty", "-60", "6e1"])
+def test_bitrate_bps_refuses_out_of_range_or_non_integer_values(
+    js: ModuleType, raw: str
+) -> None:
+    with pytest.raises(js.Fail) as caught:
+        js.bitrate_bps(raw)
+
+    assert caught.value.step == "config"
+    assert "JELLYFIN_MAX_BITRATE_MBPS" in caught.value.reason
+
+
+def test_cap_subcommand_prints_the_cap_line_without_a_network(
+    js: ModuleType, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert js.main(["jellyfin_setup.py", "cap", "--mbps", "100"]) == 0
+    assert capsys.readouterr().out == "cap 70 Mbps\n"
+
+
+# --- household permissions and preferences (D-94, D-95, D-98) -----------------------
+
+
+def sample_policy() -> dict:
+    return {
+        "IsAdministrator": True,
+        "IsHidden": True,
+        "IsDisabled": True,
+        "EnableContentDeletion": True,
+        "EnableContentDeletionFromFolders": ["x"],
+        "EnableRemoteControlOfOtherUsers": True,
+        "EnableCollectionManagement": True,
+        "EnableVideoPlaybackTranscoding": False,
+        "EnableAllFolders": True,
+        "EnabledFolders": [],
+        "RemoteClientBitrateLimit": 0,
+        "AuthenticationProviderId": "provider",
+    }
+
+
+def test_household_policy_is_the_decided_permission_set(js: ModuleType) -> None:
+    policy = js.household_policy(sample_policy(), ["m", "t"], 60_000_000)
+
+    assert policy["IsAdministrator"] is False
+    assert policy["IsHidden"] is False
+    assert policy["IsDisabled"] is False
+    assert policy["EnableContentDeletion"] is False
+    assert policy["EnableContentDeletionFromFolders"] == []
+    assert policy["EnableRemoteControlOfOtherUsers"] is False
+    assert policy["EnableCollectionManagement"] is False
+    assert policy["EnableVideoPlaybackTranscoding"] is True
+    assert policy["EnableAllFolders"] is False
+    assert policy["EnabledFolders"] == ["m", "t"]
+    assert policy["RemoteClientBitrateLimit"] == 60_000_000
+
+
+def test_household_policy_keeps_unknown_keys_and_does_not_mutate_its_input(
+    js: ModuleType,
+) -> None:
+    original = sample_policy()
+    result = js.household_policy(original, ["m"], 20_000_000)
+
+    assert result["AuthenticationProviderId"] == "provider"
+    assert original == sample_policy()
+    assert result is not original
+
+
+def test_policy_gaps_names_each_flag_that_differs_and_accepts_the_decided_set(
+    js: ModuleType,
+) -> None:
+    good = js.household_policy(sample_policy(), ["m", "t"], 60_000_000)
+
+    assert js.policy_gaps(good, ["t", "m"], 60_000_000) == []
+    gaps = js.policy_gaps(sample_policy(), ["m", "t"], 60_000_000)
+    assert "IsAdministrator" in gaps
+    assert "EnabledFolders" in gaps
+    assert "RemoteClientBitrateLimit" in gaps
+
+
+def test_user_prefs_sets_english_audio_and_smart_subtitles_and_keeps_the_rest(
+    js: ModuleType,
+) -> None:
+    config = {"AudioLanguagePreference": "ita", "SubtitleMode": "Default", "Other": 7}
+    result = js.user_prefs(config)
+
+    assert result["AudioLanguagePreference"] == "eng"
+    assert result["PlayDefaultAudioTrack"] is False
+    assert result["SubtitleLanguagePreference"] == "eng"
+    assert result["SubtitleMode"] == "Smart"
+    assert result["Other"] == 7
+    assert config["SubtitleMode"] == "Default"
+
+
+# --- check order and comparisons -----------------------------------------------------
+
+
+def test_check_steps_run_in_the_fixed_order(js: ModuleType) -> None:
+    assert js.CHECK_STEPS == (
+        "wizard-complete",
+        "admin-login",
+        "public-users",
+        "admin-hidden",
+        "household-policy",
+        "household-prefs",
+        "libraries",
+        "bitrate",
+        "movies-metadata",
+        "series-metadata",
+        "metadata-local",
+    )
+    assert [step for step, _ in js.CHECKS] == list(js.CHECK_STEPS)
+
+
+def folder(name: str, kind: str, path: str, item_id: str) -> dict:
+    return {
+        "Name": name,
+        "CollectionType": kind,
+        "Locations": [path],
+        "ItemId": item_id,
+        "LibraryOptions": js_options(),
+    }
+
+
+def js_options() -> dict:
+    return {
+        "SaveLocalMetadata": False,
+        "EnableRealtimeMonitor": True,
+        "EnableInternetProviders": True,
+    }
+
+
+def test_library_gaps_ignores_the_order_jellyfin_returns_libraries_in(js: ModuleType) -> None:
+    movies = folder("Movies", "movies", "/scratch/Movies", "m")
+    series = folder("TV Series", "tvshows", "/scratch/TV", "t")
+    compat = folder("Compat", "homevideos", "/scratch/Compat", "c")
+
+    assert js.library_gaps([movies, series]) == []
+    assert js.library_gaps([compat, series, movies]) == []
+    assert js.library_gaps([movies]) == ["TV Series library is missing"]
+    wrong = {**movies, "Locations": ["/elsewhere"]}
+    assert js.library_gaps([wrong, series]) == ["Movies has the wrong folder"]
+
+
+# --- clip maker: series stand-ins ----------------------------------------------------
+
+
+def test_episode_path_follows_the_series_season_episode_naming(mc: ModuleType) -> None:
+    assert mc.episode_path(1) == (
+        mc.SCRATCH / "TV" / "Pioneer One" / "Season 01" / "Pioneer One S01E01.mkv"
+    )
+    assert mc.episode_path(3).name == "Pioneer One S01E03.mkv"
+
+
+@pytest.mark.parametrize(("number", "offset"), [(1, "120"), (2, "300"), (3, "480")])
+def test_episode_command_cuts_sixty_seconds_of_sintel_with_english_audio(
+    mc: ModuleType, number: int, offset: str
+) -> None:
+    command = mc.episode_command(number, Path("/in.mkv"), Path("/out.part"))
+
+    assert command[command.index("-ss") + 1] == offset
+    assert command[command.index("-t") + 1] == "60"
+    assert "language=eng" in command
+    assert "scale=1280:720" in " ".join(command)
+    assert "yuv420p" in command
+    assert command[-1] == "/out.part"
+    with pytest.raises(ValueError):
+        mc.episode_command(4, Path("/in.mkv"), Path("/out.part"))
+
+
+# --- setup stops on a bad config before any request ----------------------------------
+
+
+class NoRequestsAllowed:
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        raise AssertionError("setup made a request before it had checked its config")
+
+
+@pytest.mark.parametrize(
+    ("values", "needle"),
+    [
+        (
+            {"JELLYFIN_ADMIN_PASSWORD": "samesamesame", "JELLYFIN_HOUSEHOLD_PASSWORD": "samesamesame"},
+            "two different passwords",
+        ),
+        ({**GOOD, "JELLYFIN_MAX_BITRATE_MBPS": "81"}, "JELLYFIN_MAX_BITRATE_MBPS"),
+        ({**GOOD, "JELLYFIN_MAX_BITRATE_MBPS": "60.5"}, "JELLYFIN_MAX_BITRATE_MBPS"),
+        ({**GOOD, "JELLYFIN_MAX_BITRATE_MBPS": "19"}, "JELLYFIN_MAX_BITRATE_MBPS"),
+        ({**GOOD, "JELLYFIN_HOUSEHOLD_PASSWORD": ""}, "JELLYFIN_HOUSEHOLD_PASSWORD"),
+    ],
+)
+def test_setup_fails_with_config_before_any_request(
+    js: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    values: dict[str, str],
+    needle: str,
+) -> None:
+    env = {"JELLYFIN_MAX_BITRATE_MBPS": "60", **values}
+    monkeypatch.setattr(js, "ENV_FILE", write_env(tmp_path, **env))
+    monkeypatch.setattr(js, "Api", NoRequestsAllowed)
+
+    assert js.main(["jellyfin_setup.py", "setup", "--no-scan"]) == 1
+
+    out = capsys.readouterr().out
+    assert out.startswith("FAIL config: ")
+    assert needle in out
+    for secret in ("samesamesame", GOOD["JELLYFIN_ADMIN_PASSWORD"], GOOD["JELLYFIN_HOUSEHOLD_PASSWORD"]):
+        assert secret not in out
