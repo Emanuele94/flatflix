@@ -46,22 +46,25 @@ Filled by the planner per task; source map is `03-RESEARCH.md` § Validation Arc
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
 | 03-01-01 | 01 | 1 | INFRA-03, JFIN-01 | T-03-01, T-03-05 | One CSP on /jellyfin, portal CSP byte-identical, 308 on the bare path, health 200 through Caddy | live (curl + smoke) | the Task 1 verify line of 03-01-PLAN.md | n/a (live) | ⬜ pending |
 | 03-01-02 | 01 | 1 | INFRA-03, JFIN-01 | T-03-04, T-03-05 | Jellyfin pinned, unpublished, hardened, scratch read-only, no DATA_ROOT; Caddy route contract; 502 text | unit (YAML, text) + live | `uv run --project backend --frozen pytest infra/tests -q` | ❌ W0 (`test_caddyfile.py` new, `test_compose_invariants.py` extended) | ⬜ pending |
-| 03-01-03 | 01 | 1 | JFIN-01 | T-03-06 | Env keys are placeholders or empty; household password short and readable | unit | `uv run --project backend --frozen pytest backend/tests/test_config.py infra/tests -q` | extend | ⬜ pending |
-| 03-02-01 | 02 | 2 | JFIN-01, JFIN-02 | T-03-08, T-03-09 | Wizard run in the same step as the start; `/Users/Public` is exactly household | unit + live | `uv run --project backend --frozen pytest backend/tests/test_jellyfin_setup_contract.py -q && python3 scripts/jellyfin_setup.py check` | ❌ W0 (new) | ⬜ pending |
-| 03-02-02 | 02 | 2 | JFIN-01, JFIN-02, JFIN-03 | T-03-11, T-03-12 | Household non-admin, two libraries only; bitrate limit; idempotent; persistent | unit + live | `python3 scripts/jellyfin_setup.py check` (also after a recreate) | ✅ after 03-02-01 | ⬜ pending |
-| 03-03-01 | 03 | 3 | COMPAT-01, COMPAT-02, COMPAT-03 | T-03-13, T-03-14 | Helper keeps no device data and prints no URL | unit + live | `uv run --project backend --frozen pytest backend/tests/test_tv_gate_contract.py -q && python3 scripts/tv_gate.py selftest --row A01 --profile remux` | ❌ W0 (new) | ⬜ pending |
-| 03-03-02 | 03 | 3 | COMPAT-01, COMPAT-02, COMPAT-03 | T-03-15 | Test videos checked against their published sha256 | live | `python3 scripts/make_compat_clips.py clips --verify && python3 scripts/tv_gate.py selftest --row A01 --all` | ✅ | ⬜ pending |
-| 03-03-03 | 03 | 3 | COMPAT-01..04 | T-03-13 | Doc forbids IPv4, MAC and serial/ESN/device-id values | doc lint | `python3 scripts/tv_gate.py validate` | ❌ W0 (new) | ⬜ pending |
-| 03-04-01 | 04 | 3 | NAME-01 | T-03-18 | Torrent names become safe path components inside scratch/Raw | unit + live | `uv run --project backend --frozen pytest backend/tests/test_name_scan_contract.py -q && python3 scripts/name_scan.py run --corpus scripts/name_scan_sample.json` | ❌ W0 (new) | ⬜ pending |
-| 03-04-02 | 04 | 3 | NAME-01 | T-03-17, T-03-20 | No real name in the report; capture never downloads | unit | `python3 scripts/name_scan.py validate-report` | ✅ | ⬜ pending |
-| 03-05-01 | 05 | 4 | INFRA-04, INFRA-03 | T-03-21, T-03-23 | Placeholders only; warning sentence before the reset command; documented commands exist | doc lint | `uv run --project backend --frozen pytest infra/tests -q` | ❌ W0 (`test_docs_contract.py` new) | ⬜ pending |
-| 03-05-02 | 05 | 4 | JFIN-01, INFRA-03 | T-03-21 | Decisions recorded in PROJECT.md | doc lint | `uv run --project backend --frozen pytest infra/tests -q` | ✅ | ⬜ pending |
-| 03-06-01 | 06 | 5 | all phase IDs | — | Preflight on the rebuilt stack; no frontend change | live | the Task 1 verify line of 03-06-PLAN.md | ✅ | ⬜ pending |
-| 03-06-02 | 06 | 5 | COMPAT-01..03, INFRA-04, JFIN-02, JFIN-03, NAME-01 | T-03-25 | TV leaves the admin session at the end | manual (human-action) | `python3 scripts/tv_gate.py verdict` exits 0 afterwards | — | ⬜ pending |
-| 03-06-03 | 06 | 5 | COMPAT-01..03, JFIN-03, INFRA-04 | T-03-24 | Facts written without private data | doc lint + live | `python3 scripts/tv_gate.py validate && python3 scripts/tv_gate.py verdict && python3 scripts/jellyfin_setup.py check` | ✅ | ⬜ pending |
-| 03-07-01 | 07 | 6 | NAME-01 | T-03-29 | Counts and failure classes only | live + doc lint | `python3 scripts/name_scan.py run && python3 scripts/name_scan.py validate-report && uv run --project backend --frozen pytest infra/tests -q` | ✅ | ⬜ pending |
-| 03-07-02 | 07 | 6 | COMPAT-04 | — | Human verdict on recorded evidence | manual (decision) | — | — | ⬜ pending |
-| 03-07-03 | 07 | 6 | COMPAT-04, INFRA-04 | T-03-28 | Headline allowed by the rows; Pending refused at phase end | doc lint | `python3 scripts/tv_gate.py validate && uv run --project backend --frozen pytest backend/tests infra/tests -q` | ✅ | ⬜ pending |
+| 03-02-01 | 02 | 1 | JFIN-01 | T-03-31 | Household password 10 readable characters, generated locally, never printed | unit + local env | `uv run --project backend --frozen pytest backend/tests/test_config.py infra/tests/test_repo_hygiene.py -q` | extend | ⬜ pending |
+| 03-02-02 | 02 | 1 | JFIN-01, JFIN-03 | T-03-06, T-03-31 | Env keys are placeholders or empty; every .env.example key accounted for | unit | `uv run --project backend --frozen pytest backend/tests/test_config.py infra/tests -q` | extend | ⬜ pending |
+| 03-03-01 | 03 | 2 | JFIN-01, JFIN-02 | T-03-08, T-03-09 | Wizard run in the same step as the start; `/Users/Public` is exactly household; backend doctor passes with the new env keys | unit + live | `uv run --project backend --frozen pytest backend/tests/test_jellyfin_setup_contract.py -q && python3 scripts/jellyfin_setup.py check` | ❌ W0 (new) | ⬜ pending |
+| 03-03-02 | 03 | 2 | JFIN-01, JFIN-02, JFIN-03 | T-03-11, T-03-12 | Household non-admin, two libraries only; bitrate limit; idempotent; persistent | unit + live | `python3 scripts/jellyfin_setup.py check` (also after a recreate) | ✅ after 03-03-01 | ⬜ pending |
+| 03-04-01 | 04 | 3 | COMPAT-01, COMPAT-02, COMPAT-03 | T-03-32 | Compat library admin-only; every clip listed for the admin under its row id | unit + live | `uv run --project backend --frozen pytest backend/tests/test_compat_clips_contract.py -q && python3 scripts/make_compat_clips.py clips --verify --only A01 && python3 scripts/jellyfin_setup.py check` | ❌ W0 (new) | ⬜ pending |
+| 03-04-02 | 04 | 3 | COMPAT-01, COMPAT-02, COMPAT-03 | T-03-15 | Test videos checked against their published sha256; refused combinations recorded as n/a | unit + live | `python3 scripts/make_compat_clips.py clips --verify && python3 scripts/jellyfin_setup.py check` | ✅ after 03-04-01 | ⬜ pending |
+| 03-05-01 | 05 | 3 | NAME-01 | T-03-18 | Torrent names become safe path components inside scratch/Raw | unit + live | `uv run --project backend --frozen pytest backend/tests/test_name_scan_contract.py -q && python3 scripts/name_scan.py run --corpus scripts/name_scan_sample.json` | ❌ W0 (new) | ⬜ pending |
+| 03-05-02 | 05 | 3 | NAME-01 | T-03-17, T-03-20 | No real name in the report; capture never downloads | unit | `python3 scripts/name_scan.py validate-report` | ✅ | ⬜ pending |
+| 03-06-01 | 06 | 4 | COMPAT-01, COMPAT-02, COMPAT-03 | T-03-13, T-03-14 | Helper keeps no device data and prints no URL | unit + live | `uv run --project backend --frozen pytest backend/tests/test_tv_gate_contract.py -q && python3 scripts/tv_gate.py selftest --row A01 --profile remux` | ❌ W0 (new) | ⬜ pending |
+| 03-06-02 | 06 | 4 | COMPAT-01, COMPAT-02, COMPAT-03 | T-03-13, T-03-16 | Results entries carry no device data; all four play methods proven | unit + live | `python3 scripts/tv_gate.py selftest --row A01 --all` | ✅ after 03-06-01 | ⬜ pending |
+| 03-06-03 | 06 | 4 | COMPAT-01..04 | T-03-13 | Doc forbids IPv4, MAC and serial/ESN/device-id values | doc lint | `python3 scripts/tv_gate.py validate` | ❌ W0 (new doc) | ⬜ pending |
+| 03-07-01 | 07 | 5 | INFRA-04, INFRA-03 | T-03-21, T-03-23 | Placeholders only; warning sentence before the reset command; documented commands exist | doc lint | `uv run --project backend --frozen pytest infra/tests -q` | ❌ W0 (`test_docs_contract.py` new) | ⬜ pending |
+| 03-07-02 | 07 | 5 | JFIN-01, INFRA-03 | T-03-21 | Decisions recorded in PROJECT.md | doc lint | `uv run --project backend --frozen pytest infra/tests -q` | ✅ | ⬜ pending |
+| 03-08-01 | 08 | 6 | all phase IDs | — | Preflight on the rebuilt stack; no frontend change | live | the Task 1 verify line of 03-08-PLAN.md | ✅ | ⬜ pending |
+| 03-08-02 | 08 | 6 | COMPAT-01..03, INFRA-04, JFIN-02, JFIN-03, NAME-01 | T-03-25 | TV leaves the admin session at the end | manual (human-action) | `python3 scripts/tv_gate.py verdict` exits 0 afterwards | — | ⬜ pending |
+| 03-08-03 | 08 | 6 | COMPAT-01..03, JFIN-03, INFRA-04 | T-03-24 | Facts written without private data | doc lint + live | `python3 scripts/tv_gate.py validate && python3 scripts/tv_gate.py verdict && python3 scripts/jellyfin_setup.py check` | ✅ | ⬜ pending |
+| 03-09-01 | 09 | 7 | NAME-01 | T-03-29 | Counts and failure classes only | live + doc lint | `python3 scripts/name_scan.py run && python3 scripts/name_scan.py validate-report && uv run --project backend --frozen pytest infra/tests -q` | ✅ | ⬜ pending |
+| 03-09-02 | 09 | 7 | COMPAT-04 | — | Human verdict on recorded evidence | manual (decision) | — | — | ⬜ pending |
+| 03-09-03 | 09 | 7 | COMPAT-04, INFRA-04 | T-03-28 | Headline allowed by the rows; Pending refused at phase end | doc lint | `python3 scripts/tv_gate.py validate && uv run --project backend --frozen pytest backend/tests infra/tests -q` | ✅ | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -71,12 +74,14 @@ Filled by the planner per task; source map is `03-RESEARCH.md` § Validation Arc
 
 - [ ] `infra/tests/test_caddyfile.py` — portal CSP identical, Jellyfin route contract, tolerant of `handle_errors` (plan 03-01)
 - [ ] `infra/tests/test_compose_invariants.py` (extend) — Jellyfin service, network sets (replace `web == {"edge"}`), image pin, ports doc row (plan 03-01)
-- [ ] `backend/tests/test_jellyfin_setup_contract.py` — setup script pure functions, bitrate rule, policy builder (plan 03-02)
-- [ ] `backend/tests/test_tv_gate_contract.py` — catalogue, classifier, tracker, renderer, validator, verdict, committed doc (plan 03-03)
-- [ ] `backend/tests/test_name_scan_contract.py` — normaliser, layout, classifier, D-92 bar, report privacy (plan 03-04)
-- [ ] `infra/tests/test_docs_contract.py` — setup.md copy and commands, PROJECT.md rows, MAC/device-id scans, phase-end verdict and naming checks (plans 03-05, 03-07)
-- [ ] `.gitignore` (`/jellyfin/`, which also holds the real name corpus), `.env.example` (Jellyfin passwords, bitrate, empty `TMDB_API_KEY`), `scripts/init-host-dirs.sh` Jellyfin dirs + seed `network.xml` (plan 03-01)
-- No new pytest marker: live checks run as script commands (`jellyfin_setup.py check`, `tv_gate.py selftest`, `name_scan.py run`), not as an opt-in pytest suite.
+- [ ] `backend/tests/test_config.py` and `infra/tests/test_repo_hygiene.py` (extend) — Jellyfin keys accounted for, household password rule, empty-or-placeholder secret values (plan 03-02)
+- [ ] `backend/tests/test_jellyfin_setup_contract.py` — setup script pure functions, bitrate rule, policy builder (plan 03-03)
+- [ ] `backend/tests/test_compat_clips_contract.py` — catalogue, clip file names, mux arguments, ffprobe comparison, manifest, Compat listing (plan 03-04)
+- [ ] `backend/tests/test_name_scan_contract.py` — normaliser, layout, classifier, D-92 bar, report privacy (plan 03-05)
+- [ ] `backend/tests/test_tv_gate_contract.py` — classifier, tracker, renderer, validator, verdict, committed doc (plan 03-06)
+- [ ] `infra/tests/test_docs_contract.py` — setup.md copy and commands, PROJECT.md rows, MAC/device-id scans, phase-end verdict and naming checks (plans 03-07, 03-09)
+- [ ] `.gitignore` (`/jellyfin/`, which also holds the real name corpus) and `scripts/init-host-dirs.sh` Jellyfin dirs + seed `network.xml` (plan 03-01); `.env.example` (Jellyfin passwords, bitrate, empty `TMDB_API_KEY`) (plan 03-02)
+- No new pytest marker: live checks run as script commands (`jellyfin_setup.py check`, `make_compat_clips.py clips --verify`, `tv_gate.py selftest`, `name_scan.py run`), not as an opt-in pytest suite.
 
 ---
 

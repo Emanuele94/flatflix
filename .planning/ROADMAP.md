@@ -169,27 +169,31 @@ Plans:
   4. After a laptop or router restart the TV still reaches the same address, and Caddy, Jellyfin and the portal run on the documented port map with no collisions.
   5. The naming decision (who puts downloads into Jellyfin's layout) is recorded in PROJECT.md Key Decisions, backed by a scan test with raw torrent-style names.
 
-**Plans**: 7 plans in 6 waves (plans 06 and 07 need the user: the real-TV session and the verdict decision)
+**Plans**: 9 plans in 7 waves (plans 08 and 09 need the user: the real-TV session and the verdict decision)
 
 Plans:
 **Wave 1**
-- [ ] 03-01-PLAN.md — Tracer: pinned, hardened, unpublished Jellyfin at /jellyfin through Caddy with its own CSP while the portal's stays byte for byte; BaseURL seed; infra invariants; ports doc; env keys and TV-typable household password; UI-SPEC amended (wave 1)
+- [ ] 03-01-PLAN.md — Tracer: pinned, hardened, unpublished Jellyfin at /jellyfin through Caddy with its own CSP while the portal's stays byte for byte; BaseURL seed; infra invariants; ports doc; UI-SPEC amended (wave 1)
+- [ ] 03-02-PLAN.md — Tracer: Jellyfin env keys (admin and household passwords, bitrate limit, empty opt-in TMDB key) and a TV-typable household password from dev_env.py; key-match and hygiene tests (wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 03-02-PLAN.md — Tracer: one idempotent setup script provisions Jellyfin through Caddy (wizard, hidden admin, household with English audio and Smart subtitles, Movies and TV Series, bitrate limit, check); Blender films and Pioneer One sample library with real metadata (wave 2)
+- [ ] 03-03-PLAN.md — Tracer: one idempotent setup script provisions Jellyfin through Caddy (wizard, hidden admin, household with English audio and Smart subtitles, Movies and TV Series, bitrate limit, check); Blender films and Pioneer One sample library with real metadata (wave 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
-- [ ] 03-03-PLAN.md — Tracer: codec clip matrix in an admin-only Compat library, tv_gate helper (Sessions + ffmpeg logs -> Method) proven by a four-method self-test, docs/tv-compatibility.md skeleton with an enforced layout (wave 3)
-- [ ] 03-04-PLAN.md — Tracer: NAME-01 scan harness: raw names as hand-off-shaped clips, Jellyfin scan, identified / unidentified / wrong title, D-92 bar; capture and label tools; docs/naming-scan.md without real names (wave 3)
+- [ ] 03-04-PLAN.md — Tracer: codec clip matrix (24 A rows, subtitle, PGS, 4K/HDR10 and real-release rows) proven with ffprobe, in an admin-only Compat library that lists every clip for the admin (wave 3)
+- [ ] 03-05-PLAN.md — Tracer: NAME-01 scan harness: raw names as hand-off-shaped clips, Jellyfin scan, identified / unidentified / wrong title, D-92 bar; capture and label tools; docs/naming-scan.md without real names (wave 3)
 
 **Wave 4** *(blocked on Wave 3 completion)*
-- [ ] 03-05-PLAN.md — Tracer: admin guide "Jellyfin and the TV" (first start, household account, bitrate, DHCP reservation, .local ladder with avahi, TV test, naming scan, reset) with a docs contract test; Phase 3 decisions recorded in PROJECT.md (wave 4)
+- [ ] 03-06-PLAN.md — Tracer: tv_gate helper (Sessions + ffmpeg logs -> Method) proven by a four-method self-test, watch and verdict candidate, docs/tv-compatibility.md skeleton with an enforced layout (wave 4)
 
 **Wave 5** *(blocked on Wave 4 completion)*
-- [ ] 03-06-PLAN.md — Tracer + real-TV session: preflight on the rebuilt stack and name capture, then the human session (address, household browsing, console, bitrate, every codec clip, labels, restart test), then the measured matrix and facts in docs/tv-compatibility.md (wave 5)
+- [ ] 03-07-PLAN.md — Tracer: admin guide "Jellyfin and the TV" (first start, household account, bitrate, DHCP reservation, .local ladder with avahi, TV test, naming scan, reset) with a docs contract test; Phase 3 decisions recorded in PROJECT.md (wave 5)
 
 **Wave 6** *(blocked on Wave 5 completion)*
-- [ ] 03-07-PLAN.md — Tracer + decision: real naming scan and NAME-01 decision in PROJECT.md, then the user's go/no-go verdict and mitigation written into docs/tv-compatibility.md and PROJECT.md; phase-end contract tests (wave 6)
+- [ ] 03-08-PLAN.md — Tracer + real-TV session: preflight on the rebuilt stack and name capture, then the human session (address, household browsing, console, bitrate, every codec clip, labels, restart test), then the measured matrix and facts in docs/tv-compatibility.md (wave 6)
+
+**Wave 7** *(blocked on Wave 6 completion)*
+- [ ] 03-09-PLAN.md — Tracer + decision: real naming scan and NAME-01 decision in PROJECT.md, then the user's go/no-go verdict and mitigation written into docs/tv-compatibility.md and PROJECT.md; phase-end contract tests (wave 7)
 
 ### Phase 4: Library Hand-off
 

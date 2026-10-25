@@ -1,7 +1,7 @@
 # API Coverage — Jellyfin REST API 12.3 (stock server)
 
 > Full coverage by default. Opt-outs are explicit, reasoned decisions.
-> Source of truth for INTEGRATE rows: `scripts/jellyfin_setup.py` (plan 03-02), `scripts/tv_gate.py` (plan 03-03) and `scripts/name_scan.py` (plan 03-04).
+> Source of truth for INTEGRATE rows: `scripts/jellyfin_setup.py` (plans 03-03 and 03-04), `scripts/tv_gate.py` (plan 03-06) and `scripts/name_scan.py` (plan 03-05).
 > Every call goes through Caddy at `/jellyfin` (D-82); no client calls port 8096. Jellyfin itself talks to TheMovieDb; this phase writes no code against TheMovieDb.
 
 | capability | decision | reason |
