@@ -73,6 +73,11 @@ LIBRARIES = (
     (MOVIES_LIBRARY, "movies", MOVIES_PATH),
     (TV_LIBRARY, "tvshows", TV_PATH),
 )
+# D-98: the codec test clips live in a third, admin-only library; it is never one of LIBRARIES,
+# so it never reaches the household's EnabledFolders.
+COMPAT_LIBRARY = "Compat"
+COMPAT_PATH = "/scratch/Compat"
+COMPAT_TYPE = "homevideos"
 MOVIE_TITLES = (("Big Buck Bunny", 2008), ("Sintel", 2010), ("Tears of Steel", 2012))
 SERIES_TITLE = "Pioneer One"
 SERIES_EPISODES = (1, 2, 3)
@@ -486,6 +491,29 @@ def library_gaps(folders: list[dict]) -> list[str]:
     return gaps
 
 
+def compat_gaps(folders: list[dict]) -> list[str]:
+    """What is wrong with the admin-only Compat library (internet metadata must be off)."""
+    found = next((f for f in folders if f.get("Name") == COMPAT_LIBRARY), None)
+    if found is None:
+        return [f"{COMPAT_LIBRARY} library is missing"]
+    if found.get("CollectionType") != COMPAT_TYPE:
+        return [f"{COMPAT_LIBRARY} has the wrong type"]
+    if list(found.get("Locations") or []) != [COMPAT_PATH]:
+        return [f"{COMPAT_LIBRARY} has the wrong folder"]
+    if (found.get("LibraryOptions") or {}).get("EnableInternetProviders") is not False:
+        return [f"{COMPAT_LIBRARY} has internet metadata on"]
+    return []
+
+
+def missing_compat_rows(file_names: list[str], item_names: list[str]) -> list[str]:
+    """Row ids (the first token of a clip's file name) that no Compat item name starts with.
+
+    Jellyfin may clean codec words out of a home-video name; the row id at the start survives."""
+    listed = {name.split(" ", 1)[0] for name in item_names}
+    ids = (name.split(" ", 1)[0] for name in file_names)
+    return [rid for rid in dict.fromkeys(ids) if rid not in listed]
+
+
 def ensure_library(
     api: Api, name: str, collection_type: str, path: str, *, internet: bool
 ) -> str:
@@ -628,6 +656,10 @@ def cmd_setup(args: argparse.Namespace) -> int:
         folder_ids.append(ensure_library(api, name, kind, path, internet=True))
         step_ok(f"library {name}", "unchanged" if existed else "created")
 
+    compat_existed = find_library(api, COMPAT_LIBRARY) is not None
+    ensure_library(api, COMPAT_LIBRARY, COMPAT_TYPE, COMPAT_PATH, internet=False)
+    step_ok(f"library {COMPAT_LIBRARY}", "unchanged" if compat_existed else "created")
+
     changes = household_changes(folder_ids, bps)
     step_ok("household-policy", changed_or_not(apply_policy(api, household_id, changes)))
     step_ok("household-prefs", changed_or_not(apply_prefs(api, household_id)))
@@ -709,8 +741,23 @@ def check_household_prefs(state: CheckState) -> None:
         raise Fail("household-prefs", "differs: " + ", ".join(gaps))
 
 
+def compat_clip_files() -> list[str]:
+    """File names of the clips on disk (sidecar subtitle files are not items)."""
+    folder = JELLYFIN_DIR / "scratch" / COMPAT_LIBRARY
+    if not folder.is_dir():
+        return []
+    return sorted(p.name for p in folder.iterdir() if p.suffix.lower() in (".mkv", ".mp4"))
+
+
 def check_libraries(state: CheckState) -> None:
-    gaps = library_gaps(virtual_folders(state.admin()))
+    folders = virtual_folders(state.admin())
+    gaps = library_gaps(folders) + compat_gaps(folders)
+    if not compat_gaps(folders):
+        compat_id = state.library_id(COMPAT_LIBRARY, "libraries")
+        items = library_items(state.admin(), state.admin_id, compat_id, "Video", "")
+        missing = missing_compat_rows(compat_clip_files(), [str(i.get("Name")) for i in items])
+        if missing:
+            gaps.append("Compat items missing for " + ", ".join(missing))
     if gaps:
         raise Fail("libraries", "; ".join(gaps))
 
