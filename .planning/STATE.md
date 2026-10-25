@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 03
 current_phase_name: Jellyfin Server & TV Playback Gate
 status: executing
-stopped_at: Phase 3 UI-SPEC approved
-last_updated: "2026-10-25T14:27:42.131Z"
-last_activity: 2026-10-23
-last_activity_desc: Phase 02.1 execution started
-state_head: d5070da7d260d3fe9fbb92e8da264c32b945a8e4
+stopped_at: Completed 03-01-PLAN.md
+last_updated: "2026-10-25T20:53:21.571Z"
+last_activity: 2026-10-25
+last_activity_desc: Phase 03 execution started
+state_head: 6589d32d9812a86e030feaeb4ef73eb42456e165
 progress:
   total_phases: 7
   completed_phases: 2
   total_plans: 45
-  completed_plans: 36
+  completed_plans: 37
   percent: 29
 ---
 
@@ -23,14 +23,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-10-23)
 
 **Core value:** A non-technical household member can get a film or series onto the TV using only a phone and the TV remote, and watch it in at least 1080p with no video transcoding.
-**Current focus:** Phase 02.1 — Download Quarantine & Firecracker Validation (INSERTED)
+**Current focus:** Phase 03 — Jellyfin Server & TV Playback Gate
 
 ## Current Position
 
-Phase: 03 (Jellyfin Server & TV Playback Gate) — READY TO EXECUTE
-Plan: 9 of 9
+Phase: 03 (Jellyfin Server & TV Playback Gate) — EXECUTING
+Plan: 2 of 9
 Status: Ready to execute
-Last activity: 2026-10-23 — Phase 02.1 execution started
+Last activity: 2026-10-25 — Phase 03 execution started
 
 Progress: [███░░░░░░░] 29%
 
@@ -93,6 +93,7 @@ Progress: [███░░░░░░░] 29%
 | Phase 02.1 P07 | 14 min | 3 tasks | 8 files |
 | Phase 02.1 P08 | 40 min | 3 tasks | 12 files |
 | Phase 02.1 P09 | 55 min | 2 tasks | 7 files |
+| Phase 03 P01 | 35 min | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -169,6 +170,8 @@ Recent decisions affecting current work:
 - [Phase 02.1]: 02.1-08: Cancel raises the HandoffGuard flag and deletes inside the per-torrent lock; the flag is lowered after the cancel (HandoffGuard.clear_cancel) so a re-added torrent is still checked
 - [Phase 02.1]: A proxy-name DNS lookup on the request path is bounded to 1 s and shared between concurrent requests (TrustedProxyHeaders)
 - [Phase 02.1]: smoke all tracks the film it started by an id absent from the list before the run and removes only that item
+- [Phase 03]: Portal CSP scoped with @notjellyfin; /jellyfin/* has its own policy with 'wasm-unsafe-eval' — A route-level header cannot override a site-level one; jellyfin-web 12.3 needs WebAssembly for ASS and PGS subtitles (03-01)
+- [Phase 03]: Jellyfin container has no DATA_ROOT mount, no env_file and no published port; Docker commands in WSL need a scratch DOCKER_CONFIG when the desktop credential helper fails — Phase 4 owns the read-only media mount; keeps portal secrets and household downloads out of reach (03-01)
 
 ### Pending Todos
 
@@ -199,6 +202,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-25T12:46:11.720Z
-Stopped at: Phase 3 UI-SPEC approved
-Resume file: .planning/phases/03-jellyfin-server-tv-playback-gate/03-UI-SPEC.md
+Last session: 2026-10-25T20:53:21.197Z
+Stopped at: Completed 03-01-PLAN.md
+Resume file: None

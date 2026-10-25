@@ -169,11 +169,11 @@ Plans:
   4. After a laptop or router restart the TV still reaches the same address, and Caddy, Jellyfin and the portal run on the documented port map with no collisions.
   5. The naming decision (who puts downloads into Jellyfin's layout) is recorded in PROJECT.md Key Decisions, backed by a scan test with raw torrent-style names.
 
-**Plans**: 9 plans in 7 waves (plans 08 and 09 need the user: the real-TV session and the verdict decision)
+**Plans**: 1/9 plans executed in 7 waves (plans 08 and 09 need the user: the real-TV session and the verdict decision)
 
 Plans:
 **Wave 1**
-- [ ] 03-01-PLAN.md — Tracer: pinned, hardened, unpublished Jellyfin at /jellyfin through Caddy with its own CSP while the portal's stays byte for byte; BaseURL seed; infra invariants; ports doc; UI-SPEC amended (wave 1)
+- [x] 03-01-PLAN.md — Tracer: pinned, hardened, unpublished Jellyfin at /jellyfin through Caddy with its own CSP while the portal's stays byte for byte; BaseURL seed; infra invariants; ports doc; UI-SPEC amended (wave 1)
 - [ ] 03-02-PLAN.md — Tracer: Jellyfin env keys (admin and household passwords, bitrate limit, empty opt-in TMDB key) and a TV-typable household password from dev_env.py; key-match and hygiene tests (wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
@@ -247,7 +247,7 @@ Phases execute in numeric order: 1 → 2 → 2.1 → 3 → 4 → 5 → 6 (Phases
 | 1. Portal Search & Start Download | 16/16 | Complete    | 2026-10-22 |
 | 2. Portal Download Management & Hardening | 11/11 | Complete    | 2026-10-23 |
 | 2.1 Download Quarantine & Firecracker Validation | 9/9 | In Progress | - |
-| 3. Jellyfin Server & TV Playback Gate | 0/7 | Planned | - |
+| 3. Jellyfin Server & TV Playback Gate | 1/9 | In Progress | - |
 | 4. Library Hand-off | 0/TBD | Not started | - |
 | 5. TV App Browse & Play | 0/TBD | Not started | - |
 | 6. TV Icon & End-to-End Acceptance | 0/TBD | Not started | - |
