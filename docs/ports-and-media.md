@@ -7,12 +7,12 @@ compose files implement it; the infra invariant tests enforce it.
 
 | Service | Container port | Host publish | Notes |
 |---------|----------------|--------------|-------|
-| web (Caddy) | 80 | `${WEB_PORT:-80}` on the LAN | Portal at `/`, `/api/*` goes to the backend, `/tv/*` is reserved for Phase 5, `/jellyfin/*` is reserved for Phase 3. The only service published to the LAN. |
+| web (Caddy) | 80 | `${WEB_PORT:-80}` on the LAN | Portal at `/`, `/api/*` goes to the backend, `/jellyfin` and `/jellyfin/*` go to Jellyfin (D-80), `/tv/*` is reserved for Phase 5. The only service published to the LAN. |
 | backend (FastAPI) | 8000 | not published | Reachable only on network `edge`. |
 | qBittorrent WebUI | 8088 | not published; admin override `127.0.0.1:8088` only | Reachable by the backend on network `qbit`. |
 | qBittorrent peers | 6881 tcp and udp | not published | Downloads work through outgoing connections. See "Peer port" below. |
 | sandbox (runner) | 8090 | never published | Only on network `sandbox`; the backend calls it, and the opt-in real-sandbox tests go through `docker compose exec backend`. It has no login, so it must never be published. |
-| Jellyfin | 8096 | reserved for Phase 3 | Reached through Caddy, never published directly. |
+| Jellyfin | 8096 | never published; no admin override (D-82) | Only on network `jellyfin`; Caddy proxies `/jellyfin/*` with the BaseURL `/jellyfin`; the admin dashboard is reached through `/jellyfin` only. |
 
 No service uses 8080. That resolves the clash in `qbit-wrapper.md` section 11,
 where 8080 served both the frontend and the qBittorrent WebUI.
@@ -56,6 +56,11 @@ deliberately.
   10002 with the KVM group, no capabilities and a read-only root, and each probe
   boots a throwaway microVM that has no network device at all.
 
+- `jellyfin`: web and jellyfin only. Not `internal: true`, because Jellyfin
+  fetches posters and plots from TheMovieDb. The backend, qbittorrent and the
+  sandbox are not on it (Phase 4 adds the backend only if it must call
+  Jellyfin).
+
 Docker-published ports bypass host firewalls such as ufw on the Ubuntu box
 (Docker writes its own iptables rules). That is why nothing but web is ever
 published, and why the admin override binds `127.0.0.1` only.
@@ -90,6 +95,20 @@ backend can hardlink a checked file without crossing a mount).
   container paths and must stay inside `DATA_PATH`: a save path outside
   `DATA_PATH/quarantine` stops the backend at start, so no download can reach
   `media` without the check.
+
+### Jellyfin folders
+
+Apart from `DATA_ROOT`, in the repo folder (the whole `jellyfin/` folder is
+gitignored):
+
+- `./jellyfin/config`: Jellyfin's database and tokens.
+- `./jellyfin/cache`: transcode segments and image cache.
+- `./jellyfin/scratch`: mounted read-only, with `Movies`, `TV`, `Compat` and `Raw`
+  (the Phase 3 test library, never the household's downloads).
+
+`scripts/init-host-dirs.sh` creates them with the `PUID:PGID` owner and seeds
+`jellyfin/config/config/network.xml` with the BaseURL `/jellyfin` only when that
+file is absent. The media mount comes in Phase 4.
 
 ### Notes for later phases
 

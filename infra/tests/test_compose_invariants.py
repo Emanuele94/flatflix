@@ -320,7 +320,7 @@ def _caddy_handle_blocks() -> list[str]:
     depth = 0
     for line in lines:
         stripped = line.strip()
-        if current is None and depth == 1 and stripped.startswith("handle"):
+        if current is None and depth == 1 and re.match(r"handle(\s|\{)", stripped):
             current = []
             blocks.append(current)
         if current is not None:
@@ -533,7 +533,85 @@ def test_the_admin_override_does_not_touch_the_sandbox(admin):
 
 def check_jellyfin(service: dict) -> list[str]:
     """Every way the jellyfin service is weaker than decided, not just the first."""
-    return []  # RED stub
+    violations = []
+    if service.get("image") != JELLYFIN_IMAGE:
+        violations.append(f"image is {service.get('image')!r}, expected {JELLYFIN_IMAGE!r}")
+    if service.get("user") != "${PUID:-1000}:${PGID:-1000}":
+        violations.append(f"user is {service.get('user')!r}, expected the media owner")
+    if service.get("read_only") is not True:
+        violations.append("read_only is not true")
+    if service.get("cap_drop") != ["ALL"]:
+        violations.append(f"cap_drop is {service.get('cap_drop')!r}, expected ['ALL']")
+    if "cap_add" in service:
+        violations.append(f"cap_add is set: {service['cap_add']!r}")
+    if service.get("privileged"):
+        violations.append("privileged is set")
+    for key in ("devices", "env_file", "ports", "expose", "network_mode", "pid", "ipc"):
+        if key in service:
+            violations.append(f"{key} is set")
+    security_opt = service.get("security_opt") or []
+    if "no-new-privileges:true" not in security_opt:
+        violations.append("no-new-privileges:true is missing")
+    for option in security_opt:
+        if "unconfined" in str(option):
+            violations.append(f"security_opt {option!r} switches a profile off")
+    if not service.get("pids_limit"):
+        violations.append("pids_limit is missing")
+    if not any(str(entry).split(":")[0] == "/tmp" for entry in service.get("tmpfs") or []):
+        violations.append("tmpfs for /tmp is missing")
+    violations.extend(_jellyfin_volume_violations(service.get("volumes") or []))
+    if _networks(service) != {"jellyfin"}:
+        violations.append(f"networks is {sorted(_networks(service))!r}, expected only jellyfin")
+    healthcheck = service.get("healthcheck") or {}
+    test = healthcheck.get("test")
+    text = test if isinstance(test, str) else " ".join(test or [])
+    if "/jellyfin/health" not in text:
+        violations.append("healthcheck does not probe /jellyfin/health")
+    if service.get("logging") != {
+        "driver": "json-file",
+        "options": {"max-size": "10m", "max-file": "5"},
+    }:
+        violations.append("logging is not the rotated json-file")
+    return violations
+
+
+# target -> (host source, must be read-only). Phase 4 owns any media mount (D-97).
+_JELLYFIN_BINDS = {
+    "/config": ("./jellyfin/config", False),
+    "/cache": ("./jellyfin/cache", False),
+    "/scratch": ("./jellyfin/scratch", True),
+}
+
+
+def _jellyfin_volume_violations(volumes: list) -> list[str]:
+    violations = []
+    long_syntax = [volume for volume in volumes if isinstance(volume, dict)]
+    if len(volumes) != len(_JELLYFIN_BINDS) or len(long_syntax) != len(volumes):
+        violations.append(f"expected exactly three long-syntax volumes, got {volumes!r}")
+    seen = set()
+    for volume in long_syntax:
+        source, target = str(volume.get("source")), str(volume.get("target"))
+        seen.add(target)
+        if "DATA_ROOT" in source:
+            violations.append(f"volume source {source!r} mounts DATA_ROOT")
+        if target in ("/data", "/media") or target.startswith(("/data/", "/media/")):
+            violations.append(f"volume target {target!r} is a media or data path")
+        if volume.get("type") != "bind":
+            violations.append(f"volume {target} is not a bind")
+        if (volume.get("bind") or {}).get("create_host_path") is not False:
+            violations.append(f"volume {target}: create_host_path is not false")
+        expected = _JELLYFIN_BINDS.get(target)
+        if expected is None:
+            violations.append(f"unexpected volume target {target!r}")
+            continue
+        if source != expected[0]:
+            violations.append(f"volume {target} source is {source!r}, expected {expected[0]!r}")
+        if bool(volume.get("read_only")) is not expected[1]:
+            violations.append(f"volume {target}: read_only must be {expected[1]}")
+    for target in _JELLYFIN_BINDS:
+        if target not in seen:
+            violations.append(f"volume {target} is missing")
+    return violations
 
 
 def _mutated_jellyfin(base: dict, change: dict) -> dict:
