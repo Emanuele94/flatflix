@@ -169,7 +169,27 @@ Plans:
   4. After a laptop or router restart the TV still reaches the same address, and Caddy, Jellyfin and the portal run on the documented port map with no collisions.
   5. The naming decision (who puts downloads into Jellyfin's layout) is recorded in PROJECT.md Key Decisions, backed by a scan test with raw torrent-style names.
 
-**Plans**: TBD
+**Plans**: 7 plans in 6 waves (plans 06 and 07 need the user: the real-TV session and the verdict decision)
+
+Plans:
+**Wave 1**
+- [ ] 03-01-PLAN.md — Tracer: pinned, hardened, unpublished Jellyfin at /jellyfin through Caddy with its own CSP while the portal's stays byte for byte; BaseURL seed; infra invariants; ports doc; env keys and TV-typable household password; UI-SPEC amended (wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 03-02-PLAN.md — Tracer: one idempotent setup script provisions Jellyfin through Caddy (wizard, hidden admin, household with English audio and Smart subtitles, Movies and TV Series, bitrate limit, check); Blender films and Pioneer One sample library with real metadata (wave 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [ ] 03-03-PLAN.md — Tracer: codec clip matrix in an admin-only Compat library, tv_gate helper (Sessions + ffmpeg logs -> Method) proven by a four-method self-test, docs/tv-compatibility.md skeleton with an enforced layout (wave 3)
+- [ ] 03-04-PLAN.md — Tracer: NAME-01 scan harness: raw names as hand-off-shaped clips, Jellyfin scan, identified / unidentified / wrong title, D-92 bar; capture and label tools; docs/naming-scan.md without real names (wave 3)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+- [ ] 03-05-PLAN.md — Tracer: admin guide "Jellyfin and the TV" (first start, household account, bitrate, DHCP reservation, .local ladder with avahi, TV test, naming scan, reset) with a docs contract test; Phase 3 decisions recorded in PROJECT.md (wave 4)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+- [ ] 03-06-PLAN.md — Tracer + real-TV session: preflight on the rebuilt stack and name capture, then the human session (address, household browsing, console, bitrate, every codec clip, labels, restart test), then the measured matrix and facts in docs/tv-compatibility.md (wave 5)
+
+**Wave 6** *(blocked on Wave 5 completion)*
+- [ ] 03-07-PLAN.md — Tracer + decision: real naming scan and NAME-01 decision in PROJECT.md, then the user's go/no-go verdict and mitigation written into docs/tv-compatibility.md and PROJECT.md; phase-end contract tests (wave 6)
 
 ### Phase 4: Library Hand-off
 
@@ -223,7 +243,7 @@ Phases execute in numeric order: 1 → 2 → 2.1 → 3 → 4 → 5 → 6 (Phases
 | 1. Portal Search & Start Download | 16/16 | Complete    | 2026-10-22 |
 | 2. Portal Download Management & Hardening | 11/11 | Complete    | 2026-10-23 |
 | 2.1 Download Quarantine & Firecracker Validation | 9/9 | In Progress | - |
-| 3. Jellyfin Server & TV Playback Gate | 0/TBD | Not started | - |
+| 3. Jellyfin Server & TV Playback Gate | 0/7 | Planned | - |
 | 4. Library Hand-off | 0/TBD | Not started | - |
 | 5. TV App Browse & Play | 0/TBD | Not started | - |
 | 6. TV Icon & End-to-End Acceptance | 0/TBD | Not started | - |
