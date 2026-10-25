@@ -339,3 +339,120 @@ def test_the_address_scan_catches_a_real_looking_address():
     sample = "open http://" + ".".join(["198", "51", "100", "7"]) + "/jellyfin"
     assert bad_addresses(sample) != []
     assert bad_addresses("open http://<laptop-ip>/jellyfin and http://127.0.0.1/") == []
+
+
+# --- PROJECT.md (D-80..D-100) ----------------------------------------------------------
+
+PROJECT = ROOT / ".planning" / "PROJECT.md"
+_DEVICE_ID = re.compile(
+    r"\b(?:serial(?:[ _-]?(?:number|no))?|esn|device[ _-]?id)\b[ \t]*[:=|][ \t]*\S", re.IGNORECASE
+)
+
+
+def key_decisions(text: str) -> list[list[str]]:
+    """The rows of the Key Decisions table as [decision, rationale, outcome] cells."""
+    rows = []
+    for line in section(text, "## Key Decisions").splitlines():
+        if not line.startswith("|"):
+            continue
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if cells[0] in ("Decision",) or set(cells[0]) <= {"-"}:
+            continue
+        rows.append(cells)
+    return rows
+
+
+def find_device_ids(text: str) -> list[str]:
+    """Lines where a serial number, ESN or device id is followed by a value."""
+    return [line for line in text.splitlines() if _DEVICE_ID.search(line)]
+
+
+def project_rows() -> list[list[str]]:
+    return key_decisions(PROJECT.read_text(encoding="utf-8"))
+
+
+def row_starting(prefix: str) -> list[str]:
+    matches = [row for row in project_rows() if row[0].startswith(prefix)]
+    assert len(matches) == 1, f"expected one row starting {prefix!r}, found {len(matches)}"
+    return matches[0]
+
+
+def test_key_decisions_parses_the_table_into_three_cells():
+    rows = project_rows()
+    assert len(rows) >= 20
+    assert all(len(row) == 3 for row in rows)
+    assert row_starting("Build the qBittorrent portal first")[2].startswith("Decided")
+
+
+def test_no_decision_is_still_pending_for_phase_3_and_the_naming_row_waits_for_03_09():
+    rows = project_rows()
+    assert not [row for row in rows if "Pending (Phase 3)" in row[2]]
+    assert "Pending (Phase 3 decides, Phase 4 implements)" in row_starting("Who puts downloads")[2]
+
+
+def test_the_shared_user_row_names_household_the_hidden_admin_and_prof_01():
+    row = row_starting("One shared Jellyfin user")
+    outcome = row[2]
+    for needle in ("household", "hidden", "admin", "PROF-01", "Decided", "D-94"):
+        assert needle in outcome, needle
+
+
+def test_the_language_row_names_english_audio_and_smart_english_subtitles():
+    outcome = row_starting("Default audio and subtitle language")[2]
+    for needle in ("English", "Smart", "forced", "Decided", "D-95"):
+        assert needle in outcome, needle
+
+
+def test_the_port_map_row_records_jellyfin_behind_caddy():
+    outcome = row_starting("Laptop port map")[2]
+    for needle in ("/jellyfin", "D-80", "8096", "D-82", "/tv", "Phase 5"):
+        assert needle in outcome, needle
+
+
+def test_the_single_origin_row_says_it_was_built_in_phase_3():
+    assert "Built in Phase 3" in row_starting("Jellyfin + Caddy single origin")[2]
+
+
+def test_the_new_rows_record_tmdb_the_admin_password_and_the_compatibility_doc():
+    tmdb = row_starting("TheMovieDb lookup by the portal backend")
+    assert "TMDB_API_KEY" in tmdb[1] and "D-93" in tmdb[2] and "Phase 4" in tmdb[2]
+    exposure = row_starting("Jellyfin admin password visible in the backend container")
+    assert "D-100" in exposure[2] and "Phase 5" in exposure[2]
+    matrix = row_starting("TV compatibility matrix and go/no-go verdict")
+    assert "[docs/tv-compatibility.md](../docs/tv-compatibility.md)" in matrix[2]
+    assert "Pending (Phase 3 TV session)" in matrix[2]
+
+
+def test_the_compatibility_link_points_at_a_file_that_exists():
+    link = re.search(r"\]\((\.\./docs/tv-compatibility\.md)\)", PROJECT.read_text(encoding="utf-8"))
+    assert link and (PROJECT.parent / link.group(1)).resolve().is_file()
+
+
+def test_the_footer_says_after_phase_3_planning_decisions():
+    last = PROJECT.read_text(encoding="utf-8").strip().splitlines()[-1]
+    assert "Phase 3" in last and "2026-10-25" in last
+
+
+def test_the_new_rows_hold_no_secret_or_address():
+    text = PROJECT.read_text(encoding="utf-8")
+    assert find_macs(text) == [] and find_device_ids(text) == []
+
+
+def test_the_compatibility_docs_hold_no_mac_address_and_no_device_id_value():
+    for name in ("tv-compatibility.md", "naming-scan.md"):
+        text = (ROOT / "docs" / name).read_text(encoding="utf-8")
+        assert find_macs(text) == [], name
+        assert find_device_ids(text) == [], name
+
+
+def test_the_device_id_scan_catches_each_separator_and_ignores_prose():
+    for sample in (
+        "Serial: ABC123",
+        "serial number = 99X",
+        "| Device ID | 7f3a |",
+        "ESN: NFANDROID",
+        "device_id=0123",
+    ):
+        assert find_device_ids(sample) == [sample], sample
+    assert find_device_ids("Forbidden: serial number, device ID, ESN, MAC address.") == []
+    assert find_device_ids("The serial is never recorded") == []

@@ -80,16 +80,16 @@ No locked decisions. No ADRs were ingested (both source docs are unlocked SPECs)
 | Public MIT repo, no secrets / LAN IPs / real credentials | User constraint; protects the household | Decided (user, 2026-10-21) |
 | Planning files in English; user communicates in Italian | User instruction | Decided (user, 2026-10-21) |
 | Portal UI text and all repo docs/planning in English | User instruction (2026-10-22: changed from Italian to English at user request — household includes an English speaker; repo is public) | Decided (user, 2026-10-22) |
-| Jellyfin + Caddy single origin as the home-theater backend/proxy | SPEC architecture (not ADR-locked); avoids CORS and server code | Baseline (SPEC, revisitable) |
+| Jellyfin + Caddy single origin as the home-theater backend/proxy | SPEC architecture (not ADR-locked); avoids CORS and server code | Baseline (SPEC, revisitable). Built in Phase 3 (jellyfin/jellyfin 12.3, own CSP on /jellyfin) |
 | Validate downloads with ffprobe inside Firecracker microVMs (not a hardened container) | User choice; strongest isolation for parsing untrusted files; KVM available on dev and required on production | Decided (user, 2026-10-21) |
 | Production host: dedicated box with Ubuntu Server, KVM-capable | User decision; the laptop is only for development | Decided (user, 2026-10-21); exact model pending |
 | Who puts downloads into Jellyfin naming layout (W1) | Options: portal post-download step, external library manager, relaxed Jellyfin requirement; decide on scan-test evidence | — Pending (Phase 3 decides, Phase 4 implements) |
 | Shared media wiring contract (W2): host paths, PUID/PGID, incomplete folder, read-only mounts, libraries, rescan trigger | Neither doc specified it | Phase 1 part defined in docs/ports-and-media.md; Phase 4 rest pending |
-| Laptop port map and whether Caddy also fronts the portal (W3) | Port 8080 ambiguity; Caddy port undefined | Port map defined in docs/ports-and-media.md; Caddy on port 80 fronts the portal since Phase 1 (D-03, D-04); Phase 3 adds Jellyfin and TV routes |
+| Laptop port map and whether Caddy also fronts the portal (W3) | Port 8080 ambiguity; Caddy port undefined | Port map defined in docs/ports-and-media.md; Caddy on port 80 fronts the portal since Phase 1 (D-03, D-04); Phase 3: Jellyfin at /jellyfin through Caddy (D-80), port 8096 never published and the dashboard only through /jellyfin (D-82), one compose project, network `jellyfin` = web + jellyfin; /tv stays reserved for Phase 5 |
 | Portal backend stack: FastAPI or Node | Spec says "FastAPI/Node" | FastAPI (D-01) — Decided (user, 2026-10-21) |
 | TV frontend framework: Preact + Vite (proposed) or SolidJS | Decide after a grid prototype on the real TV | — Pending (Phase 5) |
-| One shared Jellyfin user or separate profiles | Separate profiles are out of scope for now | — Pending (Phase 3) |
-| Default audio and subtitle language | Open decision in home-theater.md | — Pending (Phase 3) |
+| One shared Jellyfin user or separate profiles | Separate profiles are out of scope for now | One shared household account `household` with a password from .env, separate from the hidden `admin`; separate profiles stay out of scope (PROF-01) — Decided (user, D-94, Phase 3) |
+| Default audio and subtitle language | Open decision in home-theater.md | Audio English, else the file's default track; subtitles Smart mode in English, forced subtitles always shown — Decided (user, D-95, Phase 3) |
 | TV distribution: plan A (VIDAA icon tool) or plan B (HDMI stick + APK) | Plan A is unofficial and may break on firmware updates | — Pending (Phase 6) |
 | Exact production box model | Must be x86_64 with VT-x + KVM for Firecracker; N100/N150 class also covers Jellyfin transcoding if Phase 3 needs it | — Pending (before Phase 6; informed by Phase 3 gate) |
 | If and when to open access from outside home (Tailscale / WireGuard) | Out of scope for v1 | — Pending (v2) |
@@ -100,6 +100,9 @@ No locked decisions. No ADRs were ingested (both source docs are unlocked SPECs)
 | Cancel deletes files only for a torrent that never finished (in-progress state, progress < 1, `completion_on <= 0`, live re-read before delete) | Protects finished films (D-33); code review WR-01/WR-02/WR-05, pinned against qBittorrent 5.2.4 | Decided (Phase 2) |
 | Rate limits per client address only: 10 searches and 20 downloads per minute, no global ceiling | Household on one LAN; shared budget accepted where the host hides addresses (AR-04) | Decided (Phase 2) |
 | Audit trail on stdout with json-file rotation (10m x 5), secrets redacted; qBittorrent password should be at least 8 characters | Admin reads `docker compose logs backend`; no log volume (D-40) | Decided (Phase 2) |
+| TheMovieDb lookup by the portal backend | Opt-in TMDB_API_KEY in .env, empty means offline parsing; needs backend Internet egress | Allowed (user, D-93); Phase 4 decides whether to use it from the NAME-01 result |
+| Jellyfin admin password visible in the backend container (env_file) | Backend receives the whole .env | Accepted dev risk (user, D-100); env allowlist for the backend deferred to Phase 5 |
+| TV compatibility matrix and go/no-go verdict | Measured on the real TV through the stock Jellyfin web client; Phase 5 builds its device profile from it | [docs/tv-compatibility.md](../docs/tv-compatibility.md) — Pending (Phase 3 TV session) |
 
 ## Evolution
 
@@ -119,4 +122,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-23 after Phase 2*
+*Last updated: 2026-10-25 after Phase 3 planning decisions*
