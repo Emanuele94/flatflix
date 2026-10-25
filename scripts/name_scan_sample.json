@@ -1,0 +1,63 @@
+[
+  {
+    "name": "Big.Buck.Bunny.2008.1080p.BluRay.x264-OPEN",
+    "kind": "film",
+    "truth": {"title": "Big Buck Bunny", "year": 2008},
+    "confirmed": true
+  },
+  {
+    "name": "Sintel.2010.720p.WEB-DL.AAC.H264.mkv",
+    "kind": "film",
+    "truth": {"title": "Sintel", "year": 2010},
+    "confirmed": true
+  },
+  {
+    "name": "[OpenGroup] Tears of Steel (2012) [1080p].mkv",
+    "kind": "film",
+    "truth": {"title": "Tears of Steel", "year": 2012},
+    "confirmed": true
+  },
+  {
+    "name": "Elephants.Dream.2006.DVDRip.XviD-OPEN",
+    "kind": "film",
+    "truth": {"title": "Elephants Dream", "year": 2006},
+    "confirmed": true
+  },
+  {
+    "name": "Agent.327.Operation.Barbershop.2017.1080p.WEB-DL",
+    "kind": "film",
+    "truth": {"title": "Agent 327: Operation Barbershop", "year": 2017},
+    "confirmed": true
+  },
+  {
+    "name": "Cosmos.Laundromat.2015.1080p.mkv",
+    "kind": "film",
+    "truth": {"title": "Cosmos Laundromat", "year": 2015},
+    "confirmed": true
+  },
+  {
+    "name": "Spring.2019.2160p.HDR.HEVC-BLENDER.mkv",
+    "kind": "film",
+    "truth": {"title": "Spring", "year": 2019},
+    "confirmed": true
+  },
+  {
+    "name": "Pioneer.One.S01E02.720p.WEB.x264-VODO.mkv",
+    "kind": "episode",
+    "truth": {"series": "Pioneer One", "season": 1, "episode": 2},
+    "confirmed": true
+  },
+  {
+    "name": "Pioneer.One.S01.COMPLETE.720p.WEB.x264-VODO",
+    "kind": "episode",
+    "inner": "Pioneer.One.S01E01.720p.WEB.x264-VODO.mkv",
+    "truth": {"series": "Pioneer One", "season": 1, "episode": 1},
+    "confirmed": true
+  },
+  {
+    "name": "Pioneer One - 03 (720p) [VODO].mkv",
+    "kind": "episode",
+    "truth": {"series": "Pioneer One", "season": 1, "episode": 3},
+    "confirmed": true
+  }
+]
