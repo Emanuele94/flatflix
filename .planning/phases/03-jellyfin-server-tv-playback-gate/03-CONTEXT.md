@@ -43,6 +43,12 @@ Not in this phase: the portal → Jellyfin hand-off and any rename code (Phase 4
 ### Sample library
 - **D-97:** The scratch library has the **Blender open movies as films** and a **real Creative Commons series that exists on TMDB** (e.g. Pioneer One) as the series, so posters, seasons and episode plots are real. The scratch folder lives apart from `DATA_ROOT/media` and is never part of the portal's folders.
 
+### Post-research decisions (2026-10-25)
+- **D-98:** Codec test clips go into a **third, admin-only `Compat` library** (type `homevideos`), so they never appear in the household Movies/Shows libraries. The UI-SPEC gets a one-line amendment for it.
+- **D-99:** The **PGS subtitle row is recorded as `not tested`** (non-gating): ffmpeg has no PGS encoder and no extra tooling is added.
+- **D-100:** The Jellyfin admin password being visible inside the backend container (backend uses `env_file: .env`) is an **accepted dev risk**, recorded in the threat model; an env allowlist for the backend is deferred to Phase 5.
+- **D-101:** The real captured torrent names for the NAME-01 scan test are **gitignored**; only the corpus/scan script and a synthetic sample corpus are committed.
+
 ### Claude's Discretion
 - **Jellyfin image**: linuxserver/jellyfin (PUID/PGID convention like qBittorrent) or official jellyfin/jellyfin. Either way pinned to an exact version, never `latest` (D-22 spirit), running as `PUID:PGID`.
 - Exact mDNS name and the advertising mechanism per host.
