@@ -5,6 +5,8 @@ Usage:
     python3 scripts/make_compat_clips.py sources [--only NAME ...]
     python3 scripts/make_compat_clips.py library [--only NAME ...]
 
+NAME is one of bbb, sintel, tos and pioneer (pioneer needs the sintel source).
+
 `sources` downloads the Blender open movies into jellyfin/sources (gitignored): bbb (Big Buck Bunny
 1080p, CC BY, a zip), sintel (Sintel 1080p MKV, CC BY) and tos (Tears of Steel 720p, CC BY). Each
 download goes to a `.part` file, is checked against the sha256 pinned in SOURCES (a mismatch is
@@ -22,6 +24,12 @@ half-written film; run `library` again to rebuild one.
 Sources come only from download.blender.org (CC-licensed open movies); no copyrighted content is
 fetched or generated here. Files are 0644 and folders 0755. ffmpeg runs through argument lists,
 never a shell. Output names and sizes only. Exit 3 when ffmpeg is missing.
+
+`pioneer` (D-97) builds the series stand-ins: `TV/Pioneer One/Season 01/Pioneer One S01E01.mkv` to
+S01E03, each a 60 s clip cut from the Sintel source at 120, 300 and 480 s (H.264 720p, AAC stereo
+tagged language=eng, RESEARCH Pitfall 8). The files are stand-ins on purpose: the series poster,
+the season and the episode plots come from TheMovieDb by name, which is what D-97 asks for. Real
+episodes (CC BY-NC-SA) may replace them by hand under the same names.
 """
 
 from __future__ import annotations
@@ -103,14 +111,14 @@ SOURCES: dict[str, Source] = {
         url="https://download.blender.org/durian/movies/Sintel.2010.1080p.mkv",
         file="Sintel.2010.1080p.mkv",
         unzip_member=None,
-        sha256=None,
+        sha256="97f1dbc66231df42ad49bd8c29aa174b8f48933058e47e7157d4ba63d93a8efa",
     ),
     "tos": Source(
         name="tos",
         url="https://download.blender.org/demo/movies/ToS/tears_of_steel_720p.mov",
         file="tears_of_steel_720p.mov",
         unzip_member=None,
-        sha256=None,
+        sha256="efa9062d9cdb7a338e40ad530dfdf234806743f29ae6a1a136b97ece4e588e8f",
     ),
 }
 
@@ -119,6 +127,9 @@ MOVIES: dict[str, tuple[str, str]] = {
     "sintel": ("Sintel (2010)", ".mkv"),
     "tos": ("Tears of Steel (2012)", ".mkv"),
 }
+
+
+NAMES = [*MOVIES, "pioneer"]
 
 
 def sha256_of(path: Path) -> str:
@@ -191,7 +202,7 @@ def build_movie(name: str) -> Path:
     dest = movie_path(name)
     _prepare_folder(dest.parent.parent)
     _prepare_folder(dest.parent)
-    if dest.exists() and name != "tos" and os.path.samefile(source, dest):
+    if dest.exists() and (name == "tos" or os.path.samefile(source, dest)):
         return dest
     part = dest.with_name(dest.name + ".part")
     part.unlink(missing_ok=True)
@@ -214,12 +225,77 @@ def build_movie(name: str) -> Path:
     return dest
 
 
+SERIES = "Pioneer One"
+EPISODE_OFFSETS = {1: 120, 2: 300, 3: 480}
+EPISODE_SECONDS = 60
+
+
+def episode_path(n: int) -> Path:
+    return SCRATCH / "TV" / SERIES / "Season 01" / f"{SERIES} S01E{n:02d}.mkv"
+
+
+def episode_command(n: int, source: Path, out: Path) -> list[str]:
+    """The ffmpeg arguments that cut episode n from the Sintel source."""
+    if n not in EPISODE_OFFSETS:
+        raise ValueError(f"no episode {n}: use 1 to {len(EPISODE_OFFSETS)}")
+    return [
+        "-ss",
+        str(EPISODE_OFFSETS[n]),
+        "-i",
+        str(source),
+        "-t",
+        str(EPISODE_SECONDS),
+        "-map",
+        "0:v:0",
+        "-map",
+        "0:a:0",
+        "-vf",
+        "scale=1280:720",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-pix_fmt",
+        "yuv420p",
+        "-c:a",
+        "aac",
+        "-ac",
+        "2",
+        "-metadata:s:a:0",
+        "language=eng",
+        "-f",
+        "matroska",
+        str(out),
+    ]
+
+
+def build_episode(n: int) -> Path:
+    """Cut one stand-in episode; an existing episode is kept."""
+    source = SOURCES_DIR / SOURCES["sintel"].file
+    if not source.exists():
+        raise FileNotFoundError("source for sintel missing: run the sources subcommand first")
+    dest = episode_path(n)
+    _prepare_folder(dest.parent.parent)
+    _prepare_folder(dest.parent)
+    if dest.exists():
+        return dest
+    if not has_encoder("libx264"):
+        raise RuntimeError("the host ffmpeg has no libx264 encoder")
+    part = dest.with_name(dest.name + ".part")
+    part.unlink(missing_ok=True)
+    ffmpeg(*episode_command(n, source, part))
+    part.chmod(0o644)
+    part.replace(dest)
+    return dest
+
+
 def _size_mb(path: Path) -> str:
     return f"{path.stat().st_size / 1_000_000:.1f} MB"
 
 
 def cmd_sources(names: list[str]) -> int:
-    for name in names:
+    wanted = ["sintel" if name == "pioneer" else name for name in names]
+    for name in dict.fromkeys(wanted):
         path = fetch_source(name)
         print(f"source {name} {path.name} {_size_mb(path)}")
     return 0
@@ -227,7 +303,11 @@ def cmd_sources(names: list[str]) -> int:
 
 def cmd_library(names: list[str]) -> int:
     for name in names:
-        if name in MOVIES:
+        if name == "pioneer":
+            for number in EPISODE_OFFSETS:
+                path = build_episode(number)
+                print(f"library pioneer {path.name} {_size_mb(path)}")
+        else:
             path = build_movie(name)
             print(f"library {name} {path.name} {_size_mb(path)}")
     return 0
@@ -238,9 +318,9 @@ def main(argv: list[str]) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     for command in ("sources", "library"):
         one = sub.add_parser(command)
-        one.add_argument("--only", nargs="+", choices=sorted(MOVIES), metavar="NAME")
+        one.add_argument("--only", nargs="+", choices=NAMES, metavar="NAME")
     args = parser.parse_args(argv[1:])
-    names = args.only or sorted(MOVIES)
+    names = args.only or NAMES
     try:
         if args.command == "sources":
             return cmd_sources(names)

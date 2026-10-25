@@ -4,16 +4,26 @@
 Usage:
     python3 scripts/jellyfin_setup.py setup [--base URL] [--no-scan]
     python3 scripts/jellyfin_setup.py check [--base URL]
+    python3 scripts/jellyfin_setup.py measure [--base URL] [--runs 3] [--size-mb 50]
+    python3 scripts/jellyfin_setup.py cap --mbps N
 
 `setup` is idempotent: every step reads the current state and posts only what differs, and prints
 `OK <step> (created|changed|unchanged)`. A second run prints only `unchanged` lines. It runs the
 first-run wizard (server name Flatflix, English UI and metadata, the admin account), makes the
-shared household account, creates the Movies library over /scratch/Movies and scans. Start Jellyfin
+shared household account (English audio, Smart English subtitles, two libraries only, no admin
+powers), the hidden admin, the Movies and TV Series libraries over /scratch/Movies and
+/scratch/TV, the bitrate limit and a library scan. Start Jellyfin
 and run `setup --no-scan` on the same command line: until the wizard is complete anyone on the LAN
 can open it (RESEARCH Pitfall 9). Running two setups at once is unsupported.
 
-`check` writes nothing. It prints one `OK <step>` or `FAIL <step>: <reason>` line per step, collects
-every failure and exits 1 when there is any.
+`check` writes nothing. It prints one `OK <step>` or `FAIL <step>: <reason>` line per step in the
+fixed CHECK_STEPS order, collects every failure and exits 1 when there is any.
+
+`measure` signs in as household and downloads the server's bitrate test file a few times; run it
+from another wired computer on the LAN against http://<laptop-ip>/jellyfin (this file is
+self-contained). It prints each run, the median and the cap that follows (floor of 70 percent of
+the median, clamped to 20-80 Mbps, D-96). `cap --mbps N` prints the same cap for a link speed read
+from the TV's network screen, with no network.
 
 Rules (D-82): every request goes through Caddy at DEFAULT_BASE, never to Jellyfin's own port.
 Jellyfin 12.3 accepts only `Authorization: MediaBrowser ... Token="..."`. The env file is read by
@@ -28,7 +38,10 @@ JELLYFIN_MAX_BITRATE_MBPS.
 from __future__ import annotations
 
 import argparse
+import getpass
 import json
+import math
+import statistics
 import sys
 import time
 import urllib.error
@@ -54,7 +67,19 @@ BITRATE_KEY = "JELLYFIN_MAX_BITRATE_MBPS"
 
 MOVIES_LIBRARY = "Movies"
 MOVIES_PATH = "/scratch/Movies"
+TV_LIBRARY = "TV Series"
+TV_PATH = "/scratch/TV"
+LIBRARIES = (
+    (MOVIES_LIBRARY, "movies", MOVIES_PATH),
+    (TV_LIBRARY, "tvshows", TV_PATH),
+)
 MOVIE_TITLES = (("Big Buck Bunny", 2008), ("Sintel", 2010), ("Tears of Steel", 2012))
+SERIES_TITLE = "Pioneer One"
+SERIES_EPISODES = (1, 2, 3)
+
+MIN_MBPS = 20
+MAX_MBPS = 80
+MAX_TEST_MB = 60  # the server refuses very large bitrate-test sizes
 
 
 class Fail(Exception):
@@ -174,6 +199,30 @@ def passwords() -> tuple[str, str]:
 
 def step_ok(step: str, outcome: str | None = None) -> None:
     print(f"OK {step}" if outcome is None else f"OK {step} ({outcome})")
+
+
+# --- bitrate (JFIN-03, D-96) ----------------------------------------------------------
+
+
+def bitrate_cap(measured_mbps: float) -> int:
+    """Floor of 70 percent of a measured speed in whole Mbps, clamped to 20-80 (RESEARCH Pitfall 6)."""
+    if measured_mbps <= 0:
+        raise ValueError("a measured speed must be above zero")
+    return max(MIN_MBPS, min(MAX_MBPS, math.floor(measured_mbps * 7 / 10)))
+
+
+def bitrate_bps(raw: str) -> int:
+    """JELLYFIN_MAX_BITRATE_MBPS (a whole number, 20-80) as bits per second, the API's unit (A3)."""
+    text = raw.strip()
+    if not (text.isascii() and text.isdigit()) or not MIN_MBPS <= int(text) <= MAX_MBPS:
+        raise Fail(
+            "config", f"{BITRATE_KEY} must be a whole number from {MIN_MBPS} to {MAX_MBPS}"
+        )
+    return int(text) * 1_000_000
+
+
+def configured_bps() -> int:
+    return bitrate_bps(_lookup_env(BITRATE_KEY) or "")
 
 
 # --- wizard and sign-in ---------------------------------------------------------------
@@ -304,13 +353,85 @@ def get_user(api: Api, user_id: str) -> dict:
     return user
 
 
+def _guid(value: object) -> str:
+    return str(value).replace("-", "").lower()
+
+
+def same_value(have: object, want: object) -> bool:
+    """Equality that ignores list order and the dashes of an id (Jellyfin writes ids both ways)."""
+    if isinstance(have, list) and isinstance(want, list):
+        return sorted(map(_guid, have)) == sorted(map(_guid, want))
+    return have == want
+
+
 def apply_policy(api: Api, user_id: str, changes: dict) -> bool:
     """Read-modify-write of the full Policy; posts only when a key differs."""
     policy = dict(get_user(api, user_id).get("Policy") or {})
-    if all(policy.get(key) == value for key, value in changes.items()):
+    if all(same_value(policy.get(key), value) for key, value in changes.items()):
         return False
     policy.update(changes)
     api.call("policy", "POST", f"/Users/{user_id}/Policy", body=policy)
+    return True
+
+
+def household_changes(folder_ids: list[str], bps: int) -> dict:
+    """What the household policy must say (D-94, D-98); transcoding stays on during the gate."""
+    return {
+        "IsAdministrator": False,
+        "IsHidden": False,
+        "IsDisabled": False,
+        "EnableContentDeletion": False,
+        "EnableContentDeletionFromFolders": [],
+        "EnableRemoteControlOfOtherUsers": False,
+        "EnableCollectionManagement": False,
+        "EnableVideoPlaybackTranscoding": True,
+        "EnableAllFolders": False,
+        "EnabledFolders": list(folder_ids),
+        "RemoteClientBitrateLimit": bps,
+    }
+
+
+def household_policy(policy: dict, folder_ids: list[str], bps: int) -> dict:
+    """A new policy with the household rules applied; every other key is kept."""
+    return {**policy, **household_changes(folder_ids, bps)}
+
+
+def policy_gaps(policy: dict, folder_ids: list[str], bps: int) -> list[str]:
+    """Names of the policy keys that differ from the household rules."""
+    return [
+        key
+        for key, want in household_changes(folder_ids, bps).items()
+        if not same_value(policy.get(key), want)
+    ]
+
+
+def user_prefs(config: dict) -> dict:
+    """English audio when the file has it, else its default track; Smart English subtitles (D-95)."""
+    return {
+        **config,
+        "AudioLanguagePreference": "eng",
+        "PlayDefaultAudioTrack": False,
+        "SubtitleLanguagePreference": "eng",
+        "SubtitleMode": "Smart",
+    }
+
+
+def prefs_gaps(config: dict) -> list[str]:
+    wanted = user_prefs({})
+    return [key for key, want in wanted.items() if config.get(key) != want]
+
+
+def apply_prefs(api: Api, user_id: str) -> bool:
+    config = dict(get_user(api, user_id).get("Configuration") or {})
+    if not prefs_gaps(config):
+        return False
+    api.call(
+        "household-prefs",
+        "POST",
+        "/Users/Configuration",
+        query={"userId": user_id},
+        body=user_prefs(config),
+    )
     return True
 
 
@@ -342,6 +463,27 @@ def virtual_folders(api: Api) -> list[dict]:
 
 def find_library(api: Api, name: str) -> dict | None:
     return next((f for f in virtual_folders(api) if f.get("Name") == name), None)
+
+
+def library_gaps(folders: list[dict]) -> list[str]:
+    """What is wrong with the two household libraries; Jellyfin's list order never matters."""
+    by_name = {str(f.get("Name")): f for f in folders}
+    gaps: list[str] = []
+    for name, kind, path in LIBRARIES:
+        found = by_name.get(name)
+        if found is None:
+            gaps.append(f"{name} library is missing")
+            continue
+        options = found.get("LibraryOptions") or {}
+        if found.get("CollectionType") != kind:
+            gaps.append(f"{name} has the wrong type")
+        elif list(found.get("Locations") or []) != [path]:
+            gaps.append(f"{name} has the wrong folder")
+        elif options.get("SaveLocalMetadata") is not False or not options.get(
+            "EnableRealtimeMonitor"
+        ):
+            gaps.append(f"{name} options differ")
+    return gaps
 
 
 def ensure_library(
@@ -441,24 +583,55 @@ def wait_for_scan(api: Api, user_id: str, *, timeout: float = 1800, poll: float 
     raise Fail("scan", f"not settled after {int(timeout)} s")
 
 
+
+
 # --- setup ----------------------------------------------------------------------------
+
+
+def apply_server_config(api: Api, bps: int) -> bool:
+    config = api.call("server-config", "GET", "/System/Configuration")
+    if not isinstance(config, dict):
+        raise Fail("server-config", "unexpected answer from /System/Configuration")
+    wanted = {
+        "ServerName": SERVER_NAME,
+        "UICulture": "en-US",
+        "PreferredMetadataLanguage": "en",
+        "MetadataCountryCode": "US",
+        "RemoteClientBitrateLimit": bps,
+    }
+    if all(config.get(key) == value for key, value in wanted.items()):
+        return False
+    api.call("server-config", "POST", "/System/Configuration", body={**config, **wanted})
+    return True
+
+
+def changed_or_not(changed: bool) -> str:
+    return "changed" if changed else "unchanged"
 
 
 def cmd_setup(args: argparse.Namespace) -> int:
     _, household_password = passwords()
+    bps = configured_bps()  # every config problem stops here, before the first request
     was_open = not wizard_completed(Api(args.base))
     api, admin_id = admin_api(args.base)
     step_ok("wizard", "created" if was_open else "unchanged")
     step_ok("admin-login")
 
+    step_ok("server-config", changed_or_not(apply_server_config(api, bps)))
+
     household_id, outcome = ensure_user(api, HOUSEHOLD_USER, household_password)
     step_ok("household", outcome)
-    changed = apply_policy(api, household_id, {"IsHidden": False, "IsDisabled": False})
-    step_ok("household-visible", "changed" if changed else "unchanged")
 
-    before = find_library(api, MOVIES_LIBRARY)
-    ensure_library(api, MOVIES_LIBRARY, "movies", MOVIES_PATH, internet=True)
-    step_ok("libraries", "unchanged" if before else "created")
+    folder_ids: list[str] = []
+    for name, kind, path in LIBRARIES:
+        existed = find_library(api, name) is not None
+        folder_ids.append(ensure_library(api, name, kind, path, internet=True))
+        step_ok(f"library {name}", "unchanged" if existed else "created")
+
+    changes = household_changes(folder_ids, bps)
+    step_ok("household-policy", changed_or_not(apply_policy(api, household_id, changes)))
+    step_ok("household-prefs", changed_or_not(apply_prefs(api, household_id)))
+    step_ok("admin-hidden", changed_or_not(apply_policy(api, admin_id, {"IsHidden": True})))
 
     if not args.no_scan:
         wait_for_scan(api, admin_id)
@@ -479,6 +652,18 @@ class CheckState:
         if self.api is None:
             raise Fail("admin-login", "skipped: the admin sign-in did not work")
         return self.api
+
+    def library_id(self, name: str, step: str) -> str:
+        found = find_library(self.admin(), name)
+        if found is None:
+            raise Fail(step, f"library {name} is missing")
+        return str(found["ItemId"])
+
+    def user(self, name: str, step: str) -> dict:
+        found = find_user(self.admin(), name)
+        if found is None:
+            raise Fail(step, f"user {name} is missing")
+        return get_user(self.admin(), str(found["Id"]))
 
 
 def check_wizard_complete(state: CheckState) -> None:
@@ -503,43 +688,141 @@ def check_public_users(state: CheckState) -> None:
         raise Fail("public-users", f"the login screen must show only {HOUSEHOLD_USER}")
 
 
-def _movie_items(state: CheckState) -> list[dict]:
-    api = state.admin()
-    movies = find_library(api, MOVIES_LIBRARY)
-    if movies is None:
-        raise Fail("movies-metadata", f"library {MOVIES_LIBRARY} is missing")
-    return library_items(
-        api, state.admin_id, str(movies["ItemId"]), "Movie", "ProviderIds,Overview,People"
-    )
+def check_admin_hidden(state: CheckState) -> None:
+    admin = state.user(ADMIN_USER, "admin-hidden")
+    if not (admin.get("Policy") or {}).get("IsHidden"):
+        raise Fail("admin-hidden", "the admin is shown on the login screen")
+
+
+def check_household_policy(state: CheckState) -> None:
+    household = state.user(HOUSEHOLD_USER, "household-policy")
+    ids = [state.library_id(name, "household-policy") for name, _, _ in LIBRARIES]
+    gaps = policy_gaps(household.get("Policy") or {}, ids, configured_bps())
+    if gaps:
+        raise Fail("household-policy", "differs: " + ", ".join(gaps))
+
+
+def check_household_prefs(state: CheckState) -> None:
+    household = state.user(HOUSEHOLD_USER, "household-prefs")
+    gaps = prefs_gaps(household.get("Configuration") or {})
+    if gaps:
+        raise Fail("household-prefs", "differs: " + ", ".join(gaps))
+
+
+def check_libraries(state: CheckState) -> None:
+    gaps = library_gaps(virtual_folders(state.admin()))
+    if gaps:
+        raise Fail("libraries", "; ".join(gaps))
+
+
+def check_bitrate(state: CheckState) -> None:
+    bps = configured_bps()
+    config = state.admin().call("bitrate", "GET", "/System/Configuration")
+    household = state.user(HOUSEHOLD_USER, "bitrate")
+    wrong = []
+    if not isinstance(config, dict) or config.get("RemoteClientBitrateLimit") != bps:
+        wrong.append("server")
+    if (household.get("Policy") or {}).get("RemoteClientBitrateLimit") != bps:
+        wrong.append("household")
+    if wrong:
+        raise Fail("bitrate", f"the limit differs from {BITRATE_KEY} for the " + " and ".join(wrong))
+
+
+def _gaps(checks: tuple[tuple[str, object], ...]) -> str:
+    return ", ".join(field for field, ok in checks if not ok)
 
 
 def check_movies_metadata(state: CheckState) -> None:
-    """Tracer scope: every film in Movies has a plot and a poster (the three titles come later)."""
-    items = _movie_items(state)
-    if not items:
-        raise Fail("movies-metadata", "the Movies library holds no film")
-    missing: list[str] = []
-    for item in items:
-        gaps = [
-            field
-            for field, ok in (
-                ("plot", (item.get("Overview") or "").strip()),
-                ("poster", (item.get("ImageTags") or {}).get("Primary")),
-            )
-            if not ok
-        ]
+    movies = state.library_id(MOVIES_LIBRARY, "movies-metadata")
+    items = library_items(
+        state.admin(), state.admin_id, movies, "Movie", "ProviderIds,Overview,People"
+    )
+    problems: list[str] = []
+    for title, year in MOVIE_TITLES:
+        found = next(
+            (i for i in items if i.get("Name") == title and i.get("ProductionYear") == year),
+            None,
+        )
+        if found is None:
+            problems.append(f"{title} ({year}) not in the library")
+            continue
+        gaps = _gaps(
+            (
+                ("TheMovieDb id", (found.get("ProviderIds") or {}).get("Tmdb")),
+                ("plot", (found.get("Overview") or "").strip()),
+                ("poster", (found.get("ImageTags") or {}).get("Primary")),
+                ("cast", found.get("People")),
+            ),
+        )
         if gaps:
-            missing.append(f"{item.get('Name')} lacks {', '.join(gaps)}")
-    if missing:
-        raise Fail("movies-metadata", "; ".join(missing))
+            problems.append(f"{title} ({year}) lacks {gaps}")
+    if problems:
+        raise Fail("movies-metadata", "; ".join(problems))
 
 
-CHECKS: tuple[tuple[str, Callable[[CheckState], None]], ...] = (
-    ("wizard-complete", check_wizard_complete),
-    ("admin-login", check_admin_login),
-    ("public-users", check_public_users),
-    ("movies-metadata", check_movies_metadata),
-)
+def check_series_metadata(state: CheckState) -> None:
+    api, tv = state.admin(), state.library_id(TV_LIBRARY, "series-metadata")
+    series = next(
+        (
+            i
+            for i in library_items(api, state.admin_id, tv, "Series", "ProviderIds,Overview")
+            if i.get("Name") == SERIES_TITLE
+        ),
+        None,
+    )
+    if series is None:
+        raise Fail("series-metadata", f"{SERIES_TITLE} not in the library")
+    problems: list[str] = []
+    gaps = _gaps(
+        (
+            ("TheMovieDb id", (series.get("ProviderIds") or {}).get("Tmdb")),
+            ("poster", (series.get("ImageTags") or {}).get("Primary")),
+        ),
+    )
+    if gaps:
+        problems.append(f"{SERIES_TITLE} lacks {gaps}")
+    series_id = str(series["Id"])
+    if not library_items(api, state.admin_id, series_id, "Season", ""):
+        problems.append(f"{SERIES_TITLE} has no season")
+    episodes = library_items(api, state.admin_id, series_id, "Episode", "Overview")
+    for number in SERIES_EPISODES:
+        found = next(
+            (
+                e
+                for e in episodes
+                if e.get("ParentIndexNumber") == 1 and e.get("IndexNumber") == number
+            ),
+            None,
+        )
+        if found is None:
+            problems.append(f"S01E{number:02d} not in the library")
+        elif not (found.get("Overview") or "").strip():
+            problems.append(f"S01E{number:02d} lacks plot")
+    if problems:
+        raise Fail("series-metadata", "; ".join(problems))
+
+
+def check_metadata_local(state: CheckState) -> None:
+    folder = JELLYFIN_DIR / "config" / "metadata"
+    if not folder.is_dir() or not any(p.is_file() for p in folder.rglob("*")):
+        raise Fail("metadata-local", "no image or metadata file below jellyfin/config/metadata")
+
+
+_CHECK_FUNCTIONS: dict[str, Callable[[CheckState], None]] = {
+    "wizard-complete": check_wizard_complete,
+    "admin-login": check_admin_login,
+    "public-users": check_public_users,
+    "admin-hidden": check_admin_hidden,
+    "household-policy": check_household_policy,
+    "household-prefs": check_household_prefs,
+    "libraries": check_libraries,
+    "bitrate": check_bitrate,
+    "movies-metadata": check_movies_metadata,
+    "series-metadata": check_series_metadata,
+    "metadata-local": check_metadata_local,
+}
+CHECK_STEPS = tuple(_CHECK_FUNCTIONS)
+CHECKS = tuple(_CHECK_FUNCTIONS.items())
 
 
 def cmd_check(args: argparse.Namespace) -> int:
@@ -556,6 +839,44 @@ def cmd_check(args: argparse.Namespace) -> int:
     return 1 if failures else 0
 
 
+# --- measure and cap (JFIN-03, D-96) ----------------------------------------------------
+
+
+def cmd_measure(args: argparse.Namespace) -> int:
+    if not 1 <= args.size_mb <= MAX_TEST_MB:
+        raise Fail("config", f"--size-mb must be from 1 to {MAX_TEST_MB}")
+    if args.runs < 1:
+        raise Fail("config", "--runs must be at least 1")
+    password = _lookup_env(HOUSEHOLD_KEY)
+    if not password or password.startswith("change-me"):
+        password = getpass.getpass("Household password: ")
+    token, _ = login(Api(args.base), HOUSEHOLD_USER, password, step="household-login")
+    api = Api(args.base, token)
+    speeds: list[float] = []
+    for number in range(1, args.runs + 1):
+        started = time.monotonic()
+        status, payload = api.request(
+            "GET", "/Playback/BitrateTest", query={"Size": args.size_mb * 1_000_000}
+        )
+        elapsed = time.monotonic() - started
+        if status != 200 or not isinstance(payload, bytes) or not payload:
+            raise Fail("measure", f"expected HTTP 200 with data, got {status}")
+        speeds.append(len(payload) * 8 / 1_000_000 / max(elapsed, 1e-6))
+        print(f"run {number}: {speeds[-1]:.0f} Mbps")
+    median = statistics.median(speeds)
+    print(f"median {median:.0f} Mbps")
+    print(f"cap {bitrate_cap(median)} Mbps")
+    return 0
+
+
+def cmd_cap(args: argparse.Namespace) -> int:
+    try:
+        print(f"cap {bitrate_cap(args.mbps)} Mbps")
+    except ValueError as exc:
+        raise Fail("config", str(exc)) from None
+    return 0
+
+
 # --- command line ---------------------------------------------------------------------
 
 
@@ -569,6 +890,13 @@ def main(argv: list[str]) -> int:
     setup.set_defaults(func=cmd_setup)
     check = sub.add_parser("check", parents=[common])
     check.set_defaults(func=cmd_check)
+    measure = sub.add_parser("measure", parents=[common])
+    measure.add_argument("--runs", type=int, default=3)
+    measure.add_argument("--size-mb", type=int, default=50)
+    measure.set_defaults(func=cmd_measure)
+    cap = sub.add_parser("cap")
+    cap.add_argument("--mbps", type=float, required=True, help="a measured or link speed")
+    cap.set_defaults(func=cmd_cap)
     args = parser.parse_args(argv[1:])
     try:
         return args.func(args)
