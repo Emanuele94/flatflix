@@ -2,14 +2,30 @@
 """The measuring half of the TV gate: turn each play of a Compat clip into a matrix row.
 
 Usage:
-    python3 scripts/tv_gate.py selftest --row ID --profile remux [--base URL] [--out PATH]
-    python3 scripts/tv_gate.py render [--results PATH] [--out PATH]
+    python3 scripts/tv_gate.py watch [--no-prompt] [--base URL] [--results PATH]
+    python3 scripts/tv_gate.py selftest --row ID (--profile remux|audio|video|direct | --all)
+                                        [--base URL] [--out PATH]
+    python3 scripts/tv_gate.py render [--results PATH] [--out PATH | --doc PATH]
+    python3 scripts/tv_gate.py verdict [--results PATH]
+    python3 scripts/tv_gate.py forget ID [--results PATH]
 
-`selftest` drives one real playback of a Compat clip through Jellyfin's own streaming engine
-(a stand-in client that signs in as the device "flatflix-tv-gate-selftest"), reads the evidence the
-same way the TV session will, and prints `OK selftest <ID> <profile> -> <Method>` or a FAIL line
-when the Method differs from the one the profile must give. Its results go to
-jellyfin/tv-gate/selftest.json (replaced on every run) and never to results.json.
+`watch` is the TV session (D-88): sign in as the device "flatflix-tv-gate", poll Jellyfin's Sessions
+API every second and, each time a Compat clip stops playing, print `<ID> <Method> (<reasons>)`, ask
+once whether picture and sound were fine and save at once to jellyfin/tv-gate/results.json. Clips
+played by our own clients (Client starts with "flatflix-") and items with no row id are ignored.
+Ctrl-C saves and exits 0. A row keeps all its plays: its Method is the worst of them and its answer
+is the last one given; `forget ID` drops a row for a re-test.
+
+`verdict` prints the candidate headline from the results: CANDIDATE GO, CANDIDATE NO-GO or GO with
+conditions (with the failing rows), or INCOMPLETE (exit 1) while a gating row is not tested, then
+the 1080p transcoding line. The human chooses the final headline (D-87).
+
+`selftest` drives real playbacks of a Compat clip through Jellyfin's own streaming engine (a
+stand-in client that signs in as the device "flatflix-tv-gate-selftest") and prints
+`OK selftest <ID> <profile> -> <Method>` or a FAIL line when the Method differs from the one the
+profile must give: remux -> Remux, audio -> Audio transcode, video -> Video transcode, direct ->
+Direct play (`--all` runs the four in turn). Its results go to jellyfin/tv-gate/selftest.json
+(replaced on every run) and never to results.json.
 
 The Method comes from server evidence (RESEARCH Pattern 5): the ffmpeg log type of that item
 (Transcode -> Video transcode, DirectStream -> Audio transcode, Remux -> Remux), then the last
@@ -76,7 +92,12 @@ SELFTEST_DEVICE = "flatflix-tv-gate-selftest"
 INTERNAL_PREFIX = "flatflix-"
 
 LOG_METHOD = {"Remux": "Remux", "DirectStream": "Audio transcode", "Transcode": "Video transcode"}
-EXPECTED_METHOD = {"remux": "Remux"}
+EXPECTED_METHOD = {
+    "remux": "Remux",
+    "audio": "Audio transcode",
+    "video": "Video transcode",
+    "direct": "Direct play",
+}
 SAFE_TRANSCODING_KEYS = (
     "IsVideoDirect",
     "IsAudioDirect",
@@ -106,6 +127,8 @@ ENTRY_KEYS = (
 )
 SUBTITLE_GROUPS = ("subs", "pgs")  # rows whose clip is only a test with its subtitles switched on
 POLL_SECONDS = 1.0
+PRE_PLAY_SLACK = 30.0  # ffmpeg starts before the session lists the item
+MAX_POLL_ERRORS = 10
 SELFTEST_SECONDS = 10
 READ_LIMIT = 2_000_000
 SELFTEST_BITRATE = 120_000_000
@@ -170,6 +193,16 @@ def disagreement_note(log_types: list[str], info: dict | None) -> str:
     kind = max((t for t in log_types if t in LOG_METHOD), key=lambda t: METHODS.index(LOG_METHOD[t]))
     direct = (info or {}).get("IsVideoDirect")
     return f"[signals disagree: log {kind}, session IsVideoDirect={direct}]"
+
+
+def finalize(entry: dict, log_types: list[str]) -> dict:
+    """Add the server evidence to a finished play: log types, Method, and the disagreement flag."""
+    info = entry.get("transcoding")
+    entry["log_types"] = list(log_types)
+    entry["method"] = classify(entry.get("play_method"), info, log_types)
+    entry["flag"] = disagreement_note(log_types, info) if signals_disagree(log_types, info) else ""
+    entry.setdefault("ok", None)
+    return entry
 
 
 def clean_entry(entry: dict) -> dict:
@@ -345,6 +378,53 @@ def render_matrix(results: dict, manifest: dict) -> str:
     return "\n\n".join(sections)
 
 
+def verdict_of(results: dict, manifest: dict) -> tuple[str, list[str]]:
+    """The candidate outcome from the two gating groups only (D-85, D-86, D-99).
+
+    ("GO", []) when every gating row is Direct play, Remux or Audio transcode answered `yes`;
+    ("INCOMPLETE", ids) while a gating row is not tested or has no answer;
+    ("NO-GO-OR-CONDITIONS", ids) when a row ended in Video transcode or was answered `no`.
+    A gating row marked n/a and every information row never change the outcome."""
+    missing: list[str] = []
+    failing: list[str] = []
+    for r in mc.CATALOGUE:
+        if not r.gating:
+            continue
+        method, _, ok = summarise(r, results.get(r.id) or [], manifest.get(r.id))
+        if method.startswith("n/a"):
+            continue
+        if method == "Video transcode" or ok == "no":
+            failing.append(r.id)
+        elif method == NOT_TESTED or ok == NOT_TESTED:
+            missing.append(r.id)
+    if missing:
+        return "INCOMPLETE", missing
+    if failing:
+        return "NO-GO-OR-CONDITIONS", failing
+    return "GO", []
+
+
+def transcoding_line(results: dict) -> str:
+    """The roadmap's 1080p line: which 1080p rows needed video transcoding."""
+    rows = [
+        r.id
+        for r in mc.CATALOGUE
+        if r.resolution == "1080p" and summarise(r, results.get(r.id) or [], None)[0] == "Video transcode"
+    ]
+    return "1080p content needed video transcoding: " + ("for rows " + ", ".join(rows) if rows else "never")
+
+
+def verdict_lines(results: dict, manifest: dict) -> list[str]:
+    headline, ids = verdict_of(results, manifest)
+    if headline == "GO":
+        first = "CANDIDATE GO"
+    elif headline == "INCOMPLETE":
+        first = "INCOMPLETE rows not tested: " + ", ".join(ids)
+    else:
+        first = "CANDIDATE NO-GO or GO with conditions; failing rows: " + ", ".join(ids)
+    return [first, transcoding_line(results)]
+
+
 def replace_matrix(doc_text: str, matrix: str) -> str:
     """Put the matrix between the markers; exactly one begin and one end marker, else ValueError."""
     if doc_text.count(MATRIX_BEGIN) != 1 or doc_text.count(MATRIX_END) != 1:
@@ -427,8 +507,14 @@ def _first_uri(playlist: bytes) -> str:
     raise Fail("selftest", "the playlist lists nothing")
 
 
+DIRECT_PLAY_PROFILE = {"Container": "mkv", "Type": "Video", "VideoCodec": "h264", "AudioCodec": "aac"}
+
+
 def profile_body(profile: str) -> dict:
-    """The PlaybackInfo body for a selftest profile: no direct play, one HLS transcoding profile."""
+    """The PlaybackInfo body for a selftest profile.
+
+    remux, audio and video offer no direct play and one HLS transcoding profile; they differ in what
+    may be copied. direct offers one direct-play profile (MKV, H.264, AAC)."""
     transcoding = {
         "Container": "ts",
         "Type": "Video",
@@ -440,21 +526,42 @@ def profile_body(profile: str) -> dict:
         "MinSegments": 1,
         "BreakOnNonKeyFrames": True,
     }
+    direct = profile == "direct"
     return {
         "DeviceProfile": {
             "Name": f"flatflix-selftest-{profile}",
             "MaxStreamingBitrate": SELFTEST_BITRATE,
-            "DirectPlayProfiles": [],
+            "DirectPlayProfiles": [dict(DIRECT_PLAY_PROFILE)] if direct else [],
             "TranscodingProfiles": [transcoding],
             "CodecProfiles": [],
             "SubtitleProfiles": [],
         },
         "MaxStreamingBitrate": SELFTEST_BITRATE,
-        "EnableDirectPlay": False,
+        "EnableDirectPlay": direct,
         "EnableDirectStream": False,
-        "AllowVideoStreamCopy": True,
-        "AllowAudioStreamCopy": True,
+        "AllowVideoStreamCopy": profile != "video",
+        "AllowAudioStreamCopy": profile != "audio",
     }
+
+
+def _start_stream(api, item_id: str, source: dict, play_session: str, profile: str) -> str:
+    """Make the server start its job (or serve the file) and return the PlayMethod to report."""
+    if profile == "direct":
+        if not source.get("SupportsDirectPlay"):
+            raise Fail("selftest", "Jellyfin did not offer direct play for this clip")
+        query = urllib.parse.urlencode(
+            {"static": "true", "mediaSourceId": source["Id"], "playSessionId": play_session}
+        )
+        fetch(api, f"/Videos/{item_id}/stream?{query}")
+        return "DirectPlay"
+    master = source.get("TranscodingUrl")
+    if not master:
+        raise Fail("selftest", "Jellyfin offered no transcoding URL")
+    folder = master.split("?", 1)[0].rsplit("/", 1)[0] + "/"
+    variant = _first_uri(fetch(api, master))
+    segment = _first_uri(fetch(api, folder + variant))
+    fetch(api, folder + segment)
+    return "Transcode"
 
 
 def play_once(api, user_id: str, item: dict, profile: str, tracker: Tracker) -> dict:
@@ -469,14 +576,10 @@ def play_once(api, user_id: str, item: dict, profile: str, tracker: Tracker) -> 
         body=profile_body(profile),
     )
     sources = info.get("MediaSources") if isinstance(info, dict) else None
-    if not sources or not sources[0].get("TranscodingUrl"):
-        raise Fail("selftest", "Jellyfin offered no transcoding URL")
+    if not sources:
+        raise Fail("selftest", "Jellyfin returned no media source")
     source, play_session = sources[0], str(info.get("PlaySessionId"))
-    master = source["TranscodingUrl"]
-    folder = master.split("?", 1)[0].rsplit("/", 1)[0] + "/"
-    variant = _first_uri(fetch(api, master))
-    segment = _first_uri(fetch(api, folder + variant))
-    fetch(api, folder + segment)
+    play_method = _start_stream(api, item_id, source, play_session, profile)
     api.call(
         "selftest",
         "POST",
@@ -485,7 +588,7 @@ def play_once(api, user_id: str, item: dict, profile: str, tracker: Tracker) -> 
             "ItemId": item_id,
             "MediaSourceId": source["Id"],
             "PlaySessionId": play_session,
-            "PlayMethod": "Transcode",
+            "PlayMethod": play_method,
         },
     )
     seen: list[dict] = []
@@ -495,11 +598,8 @@ def play_once(api, user_id: str, item: dict, profile: str, tracker: Tracker) -> 
             seen += tracker.observe(ours, time.time())
             time.sleep(POLL_SECONDS)
     finally:
-        api.request(
-            "POST",
-            "/Sessions/Playing/Stopped",
-            body={"ItemId": item_id, "MediaSourceId": source["Id"], "PlaySessionId": play_session},
-        )
+        stopped = {"ItemId": item_id, "MediaSourceId": source["Id"], "PlaySessionId": play_session}
+        api.request("POST", "/Sessions/Playing/Stopped", body=stopped)
         api.request(
             "DELETE",
             "/Videos/ActiveEncodings",
@@ -508,18 +608,13 @@ def play_once(api, user_id: str, item: dict, profile: str, tracker: Tracker) -> 
     seen += tracker.finish_all()
     if not seen:
         raise Fail("selftest", "Jellyfin never listed the playback in its sessions")
-    entry = seen[0]
-    logs = log_types_for(entry["item_id"], started)
-    entry["log_types"] = logs
-    entry["method"] = classify(entry["play_method"], entry["transcoding"], logs)
-    entry["flag"] = disagreement_note(logs, entry["transcoding"]) if signals_disagree(logs, entry["transcoding"]) else ""
-    entry["ok"] = None
+    entry = finalize(seen[0], log_types_for(seen[0]["item_id"], started))
     entry["profile"] = profile
     return entry
 
 
 def cmd_selftest(args: argparse.Namespace) -> int:
-    profiles = [args.profile]
+    profiles = list(EXPECTED_METHOD) if args.all else [args.profile]
     api, user_id = sign_in(args.base, SELFTEST_DEVICE)
     item = find_clip(api, user_id, args.row)
     store = ResultStore(SELFTEST_RESULTS)
@@ -540,6 +635,86 @@ def cmd_selftest(args: argparse.Namespace) -> int:
     return 1 if failures else 0
 
 
+def ask_ok() -> str | None:
+    """`yes` or `no` from the person at the TV; Enter, anything else or no terminal skips."""
+    try:
+        answer = input("Picture and sound OK? [y/n, Enter to skip] ").strip().lower()
+    except EOFError:
+        return None
+    return {"y": "yes", "yes": "yes", "n": "no", "no": "no"}.get(answer)
+
+
+def record_play(entry: dict, store: ResultStore, last_end: dict[str, float], *, prompt: bool) -> None:
+    """Finalize a finished play with the server's evidence, show it, ask, and save at once."""
+    since = max(entry["start"] - PRE_PLAY_SLACK, last_end.get(entry["item_id"], 0.0))
+    finalize(entry, log_types_for(entry["item_id"], since))
+    last_end[entry["item_id"]] = entry["end"]
+    row = next(r for r in mc.CATALOGUE if r.id == entry["row"])
+    reasons = ", ".join(entry["reasons"]) or "-"
+    print(f"{entry['row']} {entry['method']} ({reasons})")
+    if row.group in SUBTITLE_GROUPS and not entry["subtitles_on"]:
+        print(f"{entry['row']} subtitles were off: play it again with subtitles on")
+    if entry["flag"]:
+        print(f"{entry['row']} {entry['flag']}")
+    if prompt:
+        entry["ok"] = ask_ok()
+    store.add(entry["row"], entry)
+    store.save()
+
+
+def cmd_watch(args: argparse.Namespace) -> int:
+    sys.stdout.reconfigure(line_buffering=True)  # type: ignore[attr-defined]
+    api, _ = sign_in(args.base, DEVICE)
+    store = ResultStore(args.results)
+    tracker = Tracker()
+    last_end: dict[str, float] = {}
+    errors = 0
+    print("Watching Jellyfin. Press play on a Compat clip on the TV. Ctrl-C to stop.")
+    try:
+        while True:
+            try:
+                sessions = current_sessions(api)
+                errors = 0
+            except (urllib.error.URLError, OSError, Fail) as exc:
+                errors += 1
+                print(f"WARN sessions: {type(exc).__name__}")
+                if errors >= MAX_POLL_ERRORS:
+                    print("FAIL sessions: Jellyfin does not answer")
+                    return 1
+                time.sleep(POLL_SECONDS)
+                continue
+            known = set(tracker.active)
+            finished = tracker.observe(sessions, time.time())
+            for key in tracker.active:
+                if key not in known:
+                    print(f"PLAYING {tracker.active[key]['row']}")
+            for entry in finished:
+                record_play(entry, store, last_end, prompt=not args.no_prompt)
+            time.sleep(POLL_SECONDS)
+    except KeyboardInterrupt:
+        for entry in tracker.finish_all():
+            record_play(entry, store, last_end, prompt=False)
+        print("\nOK saved")
+        return 0
+
+
+def cmd_verdict(args: argparse.Namespace) -> int:
+    results = ResultStore(args.results).rows()
+    lines = verdict_lines(results, load_manifest())
+    print("\n".join(lines))
+    return 1 if lines[0].startswith("INCOMPLETE") else 0
+
+
+def cmd_forget(args: argparse.Namespace) -> int:
+    store = ResultStore(args.results)
+    if store.forget(args.row):
+        store.save()
+        print(f"OK forget {args.row}")
+    else:
+        print(f"OK forget {args.row} (nothing recorded)")
+    return 0
+
+
 def cmd_render(args: argparse.Namespace) -> int:
     text = render_matrix(ResultStore(args.results).rows(), load_manifest())
     if args.out:
@@ -552,17 +727,35 @@ def cmd_render(args: argparse.Namespace) -> int:
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="The TV gate helper")
     sub = parser.add_subparsers(dest="command", required=True)
+    watch = sub.add_parser("watch", help="record the plays of the TV session")
+    watch.add_argument("--no-prompt", action="store_true", help="do not ask for the answer")
+    watch.add_argument("--base", default=js.DEFAULT_BASE)
+    watch.add_argument("--results", default=str(RESULTS), metavar="PATH")
     selftest = sub.add_parser("selftest", help="prove the helper on real playbacks, without the TV")
     selftest.add_argument("--row", required=True, choices=mc.ROW_IDS, metavar="ID")
-    selftest.add_argument("--profile", required=True, choices=sorted(EXPECTED_METHOD))
+    which = selftest.add_mutually_exclusive_group(required=True)
+    which.add_argument("--profile", choices=sorted(EXPECTED_METHOD))
+    which.add_argument("--all", action="store_true", help="run the four profiles in turn")
     selftest.add_argument("--base", default=js.DEFAULT_BASE)
     selftest.add_argument("--out", metavar="PATH")
     render = sub.add_parser("render", help="render the matrix of the results")
     render.add_argument("--results", default=str(RESULTS), metavar="PATH")
     render.add_argument("--out", metavar="PATH")
+    verdict = sub.add_parser("verdict", help="print the candidate headline")
+    verdict.add_argument("--results", default=str(RESULTS), metavar="PATH")
+    forget = sub.add_parser("forget", help="drop a row's plays for a re-test")
+    forget.add_argument("--results", default=str(RESULTS), metavar="PATH")
+    forget.add_argument("row", choices=mc.ROW_IDS, metavar="ID")
     args = parser.parse_args(argv[1:])
+    handlers = {
+        "watch": cmd_watch,
+        "selftest": cmd_selftest,
+        "render": cmd_render,
+        "verdict": cmd_verdict,
+        "forget": cmd_forget,
+    }
     try:
-        return {"selftest": cmd_selftest, "render": cmd_render}[args.command](args)
+        return handlers[args.command](args)
     except Fail as exc:
         print(f"FAIL {exc.step}: {exc.reason}")
         return 1
