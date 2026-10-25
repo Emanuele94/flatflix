@@ -122,6 +122,49 @@ services:
     restart: unless-stopped
     logging: *default-logging
 
+  # Stock Jellyfin (JFIN-01, D-80, D-82, D-97). No published port and no admin override: it is
+  # reached only through Caddy at /jellyfin (BaseURL /jellyfin, seeded by
+  # scripts/init-host-dirs.sh). Scratch library only: no DATA_ROOT mount until Phase 4 adds a
+  # read-only media mount. It has no env_file, so none of the portal's secrets reach it.
+  jellyfin:
+    image: jellyfin/jellyfin:12.3.20261023-013714
+    user: "${PUID:-1000}:${PGID:-1000}"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 512
+    tmpfs: ["/tmp:size=64m"]
+    environment:
+      TZ: ${TZ:-Etc/UTC}
+      # The image's own healthcheck reads this; its default has no /jellyfin prefix.
+      HEALTHCHECK_URL: http://localhost:8096/jellyfin/health
+    volumes:
+      - type: bind
+        source: ./jellyfin/config
+        target: /config
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./jellyfin/cache
+        target: /cache
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./jellyfin/scratch
+        target: /scratch
+        read_only: true
+        bind:
+          create_host_path: false
+    networks: [jellyfin]
+    healthcheck:
+      test: ["CMD-SHELL", "curl --noproxy localhost -fsS http://localhost:8096/jellyfin/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 60s
+    restart: unless-stopped
+    logging: *default-logging
+
   web:
     build:
       context: .
@@ -129,7 +172,7 @@ services:
     # The ONLY published port of the stack (D-04).
     ports:
       - "${WEB_PORT:-80}:80"
-    networks: [edge]
+    networks: [edge, jellyfin]
     depends_on:
       backend:
         condition: service_healthy
@@ -151,3 +194,6 @@ networks:
   # the runner through `docker compose exec backend`.
   sandbox:
     internal: true
+  # Caddy and Jellyfin only; not internal because Jellyfin fetches posters and plots from
+  # TheMovieDb.
+  jellyfin: {}

@@ -2,6 +2,8 @@
 # Create the host folders compose bind-mounts, owned by PUID:PGID, before the
 # first `docker compose up` (Docker would otherwise create them as root), and
 # check that KVM_GID matches the group of /dev/kvm (the sandbox microVM needs it).
+# It also creates the Jellyfin folders and seeds Jellyfin's BaseUrl (/jellyfin) before its
+# first start, only when that file is absent.
 # Idempotent. Reads only DATA_ROOT, PUID, PGID and KVM_GID from the local env file;
 # never sources it and never writes it.
 set -euo pipefail
@@ -33,6 +35,14 @@ dirs=(
   "$DATA_ROOT/incomplete"
   "$DATA_ROOT/rejected"
   "qbittorrent/config"
+  "jellyfin/config"
+  "jellyfin/config/config"
+  "jellyfin/cache"
+  "jellyfin/scratch"
+  "jellyfin/scratch/Movies"
+  "jellyfin/scratch/TV"
+  "jellyfin/scratch/Compat"
+  "jellyfin/scratch/Raw"
 )
 
 SUDO=""
@@ -54,6 +64,25 @@ for d in "${dirs[@]}"; do
   fi
   printf '%s %s\n' "$d" "$(stat -c '%u:%g' "$d")"
 done
+
+# Jellyfin reads BaseUrl at its first start; seed it only when the file is absent. Jellyfin
+# rewrites the file with all defaults on first start and keeps BaseUrl, so an existing file is
+# never touched (D-80).
+NETWORK_XML="jellyfin/config/config/network.xml"
+if [ ! -e "$NETWORK_XML" ]; then
+  tmp=$(mktemp)
+  cat > "$tmp" <<'XML'
+<?xml version="1.0" encoding="utf-8"?>
+<NetworkConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+  <BaseUrl>/jellyfin</BaseUrl>
+</NetworkConfiguration>
+XML
+  $SUDO install -m 0644 -o "$PUID" -g "$PGID" "$tmp" "$NETWORK_XML"
+  rm -f "$tmp"
+  echo "$NETWORK_XML seeded"
+else
+  echo "$NETWORK_XML kept"
+fi
 
 if [ ! -e /dev/kvm ]; then
   echo "FAIL /dev/kvm not found: enable CPU virtualization (see docs/setup.md)"

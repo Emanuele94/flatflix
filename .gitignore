@@ -3,6 +3,9 @@
 !.env.example
 .dev-portal-password
 qbittorrent/config/
+# Jellyfin config (database, tokens), cache, scratch media, downloaded sources and test results
+# are never committed (D-89, D-101).
+/jellyfin/
 data/
 node_modules/
 dist/
