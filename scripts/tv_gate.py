@@ -6,6 +6,7 @@ Usage:
     python3 scripts/tv_gate.py selftest --row ID (--profile remux|audio|video|direct | --all)
                                         [--base URL] [--out PATH]
     python3 scripts/tv_gate.py render [--results PATH] [--out PATH | --doc PATH]
+    python3 scripts/tv_gate.py validate [--doc PATH]
     python3 scripts/tv_gate.py verdict [--results PATH]
     python3 scripts/tv_gate.py forget ID [--results PATH]
 
@@ -15,6 +16,13 @@ once whether picture and sound were fine and save at once to jellyfin/tv-gate/re
 played by our own clients (Client starts with "flatflix-") and items with no row id are ignored.
 Ctrl-C saves and exits 0. A row keeps all its plays: its Method is the worst of them and its answer
 is the last one given; `forget ID` drops a row for a re-test.
+
+`render --doc PATH` puts the matrix of the results between the markers of docs/tv-compatibility.md
+(the rest of the document is written by hand; with no results every row reads `not tested`, and
+rendering twice gives the same bytes). `validate` checks that document: the five group headings and
+the three sections in order, one table of the nine UI-SPEC columns per group with one row per
+catalogue clip, only the allowed Method and answer values, no dotted IPv4 address, MAC address or
+serial/ESN/device-id value, and the verdict block rules; it prints OK or each violation (exit 1).
 
 `verdict` prints the candidate headline from the results: CANDIDATE GO, CANDIDATE NO-GO or GO with
 conditions (with the failing rows), or INCOMPLETE (exit 1) while a gating row is not tested, then
@@ -44,6 +52,7 @@ import argparse
 import importlib.util
 import json
 import os
+import re
 import sys
 import tempfile
 import time
@@ -125,6 +134,20 @@ ENTRY_KEYS = (
     "ok",
     "profile",
 )
+PENDING_LINE = "**Pending**: the real-TV session has not run yet."
+PHASE5_LINE = "Phase 5 builds its device profile from the rows marked Direct play or Remux above."
+TRANSCODING_PREFIX = "1080p content needed video transcoding: "
+VERSION_PREFIX = "Jellyfin version tested: "
+MITIGATIONS = ("re-encode", "plan b stick", "stronger hardware")
+SECTION_HEADINGS = ("Address check", "Streaming bitrate", "Verdict")
+FIRMWARE = "V0003.09.60A.Q0707"
+IPV4 = re.compile(r"(?<![\w.])\d{1,3}(?:\.\d{1,3}){3}(?!\w|\.\d)")
+MAC = re.compile(r"(?<![0-9A-Fa-f])[0-9A-Fa-f]{2}([:-])[0-9A-Fa-f]{2}(?:\1[0-9A-Fa-f]{2}){4}(?![0-9A-Fa-f])")
+DEVICE_VALUE = re.compile(
+    r"\b(serial(?:\s+number)?|esn|device[\s_-]*id|mac(?:\s+address)?)\b\s*[:=|]\s*\S", re.IGNORECASE
+)
+HEADLINE = re.compile(r"^\*\*(Pending|GO with conditions|GO|NO-GO)\*\*")
+SEPARATOR_ROW = re.compile(r"^\|(\s*:?-+:?\s*\|){9}$")
 SUBTITLE_GROUPS = ("subs", "pgs")  # rows whose clip is only a test with its subtitles switched on
 POLL_SECONDS = 1.0
 PRE_PLAY_SLACK = 30.0  # ffmpeg starts before the session lists the item
@@ -436,6 +459,157 @@ def replace_matrix(doc_text: str, matrix: str) -> str:
     return doc_text[: begin + len(MATRIX_BEGIN)] + "\n\n" + matrix + "\n\n" + doc_text[end:]
 
 
+# --- the committed document --------------------------------------------------------------
+
+CLIP_COLUMNS = (("ID", "id"), ("Container", "container"), ("Video", "video"), ("Audio", "audio"),
+                ("Subtitles", "subtitles"), ("Resolution", "resolution"))
+
+
+def _split_cells(line: str) -> list[str]:
+    return [c.strip() for c in line.strip().strip("|").split("|")]
+
+
+def _method_ok(value: str) -> bool:
+    return value in METHODS or value == NOT_TESTED or value.startswith("n/a \u2014 ")
+
+
+def _check_group(lines: list[str], key: str, heading: str, manifest: dict, parsed: dict) -> list[str]:
+    """Problems of one group's section: exactly one table of the right shape and rows."""
+    problems: list[str] = []
+    blocks: list[list[str]] = []
+    previous_was_table = False
+    for line in lines:
+        is_table = line.startswith("|")
+        if is_table and not previous_was_table:
+            blocks.append([])
+        if is_table:
+            blocks[-1].append(line)
+        previous_was_table = is_table
+    if len(blocks) != 1:
+        return [f"{heading}: expected one table, found {len(blocks)}"]
+    block = blocks[0]
+    if block[0] != HEADER:
+        problems.append(f"{heading}: the header row is not the nine UI-SPEC columns")
+    if len(block) < 2 or not SEPARATOR_ROW.match(block[1]):
+        problems.append(f"{heading}: the header is not followed by a separator row")
+    rows = block[2:]
+    wanted = [r for r in mc.CATALOGUE if r.group == key]
+    got_ids = [_split_cells(line)[0] for line in rows]
+    for r in wanted:
+        if r.id not in got_ids:
+            problems.append(f"{heading}: row {r.id} is missing")
+    for rid in got_ids:
+        if rid not in [r.id for r in wanted]:
+            problems.append(f"{heading}: unexpected row {rid}")
+    if sorted(got_ids) == sorted(r.id for r in wanted) and got_ids != [r.id for r in wanted]:
+        problems.append(f"{heading}: the rows are not in catalogue order")
+    by_id = {r.id: r for r in wanted}
+    for line in rows:
+        cells = _split_cells(line)
+        rid = cells[0]
+        if len(cells) != 9:
+            problems.append(f"row {rid}: {len(cells)} cells instead of 9")
+            continue
+        for index, name in enumerate(HEADER.strip("|").split("|")):
+            if not cells[index]:
+                problems.append(f"row {rid}: the {name.strip()} cell is empty")
+        row = by_id.get(rid)
+        if row is not None:
+            for index, (name, attr) in enumerate(CLIP_COLUMNS):
+                if cells[index] != getattr(row, attr):
+                    problems.append(f"row {rid}: the {name} cell differs from the catalogue")
+        if cells[6] and not _method_ok(cells[6]):
+            problems.append(f"row {rid}: Method {cells[6]!r} is not one of the four values, not tested or n/a")
+        if cells[8] and cells[8] not in ("yes", "no", NOT_TESTED):
+            problems.append(f"row {rid}: Picture and sound OK must be yes, no or not tested")
+        expected_na = (manifest.get(rid) or {}).get("na")
+        if expected_na and cells[6] != expected_na:
+            problems.append(f"row {rid}: the manifest says {expected_na!r} but Method differs")
+        parsed[rid] = cells
+    return problems
+
+
+def _check_verdict(verdict_lines_: list[str], parsed: dict) -> list[str]:
+    problems: list[str] = []
+    first = next((ln.strip() for ln in verdict_lines_ if ln.strip()), "")
+    match = HEADLINE.match(first)
+    if not match:
+        return ["Verdict: the first line must be **Pending**, **GO**, **GO with conditions** or **NO-GO**"]
+    headline = match.group(1)
+    if headline == "Pending":
+        return [] if first == PENDING_LINE else [f"Verdict: the pending line must read: {PENDING_LINE}"]
+    gating = [r for r in mc.CATALOGUE if r.gating and r.id in parsed and not parsed[r.id][6].startswith("n/a")]
+    for r in gating:
+        if NOT_TESTED in (parsed[r.id][6], parsed[r.id][8]):
+            problems.append(f"Verdict: gating row {r.id} reads not tested but a headline is set")
+    body = [ln.strip() for ln in verdict_lines_]
+    video = [r.id for r in mc.CATALOGUE if r.id in parsed and r.resolution == "1080p" and parsed[r.id][6] == "Video transcode"]
+    expected = TRANSCODING_PREFIX + ("for rows " + ", ".join(video) if video else "never")
+    if expected not in body:
+        problems.append(f"Verdict: the line must read: {expected}")
+    if not any(ln.startswith(VERSION_PREFIX) and len(ln) > len(VERSION_PREFIX) for ln in body):
+        problems.append(f"Verdict: a line starting {VERSION_PREFIX!r} and naming the version is missing")
+    if headline == "GO":
+        if PHASE5_LINE not in body:
+            problems.append(f"Verdict: GO needs the line: {PHASE5_LINE}")
+        for r in gating:
+            if parsed[r.id][6] == "Video transcode" or parsed[r.id][8] == "no":
+                problems.append(f"Verdict: GO but gating row {r.id} failed")
+    elif headline == "NO-GO":
+        lines = [ln for ln in body if ln.startswith("Mitigation chosen:")]
+        if not any(any(m in ln.lower() for m in MITIGATIONS) for ln in lines):
+            problems.append("Verdict: NO-GO needs 'Mitigation chosen:' naming re-encode, plan B stick or stronger hardware")
+    else:
+        bullets = [ln for ln in body if ln.startswith(("- ", "* "))]
+        if not any(any(re.search(rf"\b{rid}\b", ln) for rid in mc.ROW_IDS) for ln in bullets):
+            problems.append("Verdict: GO with conditions needs a bullet naming a row id")
+        lines = [ln for ln in body if ln.startswith("Mitigation for the rest:")]
+        if not any(any(m in ln.lower() for m in MITIGATIONS) for ln in lines):
+            problems.append("Verdict: GO with conditions needs 'Mitigation for the rest:' naming re-encode, plan B stick or stronger hardware")
+    return problems
+
+
+def validate_doc(text: str, manifest: dict | None = None) -> list[str]:
+    """Every way `text` breaks the layout, vocabulary or privacy rule of docs/tv-compatibility.md."""
+    manifest = manifest or {}
+    lines = text.splitlines()
+    problems: list[str] = []
+    if [ln for ln in lines if ln.startswith("# ")] != ["# TV compatibility"]:
+        problems.append("the document must have exactly one H1: '# TV compatibility'")
+    headings = [(n, ln[3:]) for n, ln in enumerate(lines) if ln.startswith("## ")]
+    wanted = [h for _, h, _ in mc.GROUPS] + list(SECTION_HEADINGS)
+    if [h for _, h in headings] != wanted:
+        problems.append("the H2 headings must be, in order: " + "; ".join(wanted))
+    if text.count(MATRIX_BEGIN) != 1 or text.count(MATRIX_END) != 1:
+        problems.append("the matrix needs exactly one begin marker and one end marker")
+    elif not text.index(MATRIX_BEGIN) < text.index(MATRIX_END):
+        problems.append("the matrix end marker comes before the begin marker")
+    else:
+        inside = text[text.index(MATRIX_BEGIN) : text.index(MATRIX_END)]
+        for _, heading in headings[: len(mc.GROUPS)]:
+            if f"## {heading}\n" not in inside:
+                problems.append(f"the group {heading!r} is outside the matrix markers")
+    parsed: dict[str, list[str]] = {}
+    if [h for _, h in headings] == wanted:
+        bounds = [n for n, _ in headings] + [len(lines)]
+        for index, (key, heading, _) in enumerate(mc.GROUPS):
+            section = lines[bounds[index] + 1 : bounds[index + 1]]
+            problems += _check_group(section, key, heading, manifest, parsed)
+        verdict_section = lines[bounds[len(mc.GROUPS) + 2] + 1 :]
+        problems += _check_verdict(verdict_section, parsed)
+        opening = "\n".join(lines[: bounds[0]])
+        if FIRMWARE not in opening:
+            problems.append(f"the opening paragraph must name the firmware {FIRMWARE}")
+    for number, line in enumerate(lines, start=1):
+        if IPV4.search(line):
+            problems.append(f"line {number}: a dotted IPv4 address (use <laptop-ip>)")
+        if MAC.search(line):
+            problems.append(f"line {number}: a MAC address")
+        if DEVICE_VALUE.search(line):
+            problems.append(f"line {number}: a serial number, ESN, device id or MAC with a value")
+    return problems
+
+
 # --- evidence from the server -----------------------------------------------------------
 
 
@@ -717,11 +891,20 @@ def cmd_forget(args: argparse.Namespace) -> int:
 
 def cmd_render(args: argparse.Namespace) -> int:
     text = render_matrix(ResultStore(args.results).rows(), load_manifest())
-    if args.out:
+    if args.doc:
+        path = Path(args.doc)
+        path.write_text(replace_matrix(path.read_text(encoding="utf-8"), text), encoding="utf-8")
+    elif args.out:
         Path(args.out).write_text(text + "\n", encoding="utf-8")
     else:
         print(text)
     return 0
+
+
+def cmd_validate(args: argparse.Namespace) -> int:
+    problems = validate_doc(Path(args.doc).read_text(encoding="utf-8"), load_manifest())
+    print("\n".join(problems) if problems else "OK")
+    return 1 if problems else 0
 
 
 def main(argv: list[str]) -> int:
@@ -740,7 +923,11 @@ def main(argv: list[str]) -> int:
     selftest.add_argument("--out", metavar="PATH")
     render = sub.add_parser("render", help="render the matrix of the results")
     render.add_argument("--results", default=str(RESULTS), metavar="PATH")
-    render.add_argument("--out", metavar="PATH")
+    target = render.add_mutually_exclusive_group()
+    target.add_argument("--out", metavar="PATH")
+    target.add_argument("--doc", metavar="PATH", help="replace the matrix inside this document")
+    validate = sub.add_parser("validate", help="check the layout, vocabulary and privacy of the doc")
+    validate.add_argument("--doc", default=str(DOC), metavar="PATH")
     verdict = sub.add_parser("verdict", help="print the candidate headline")
     verdict.add_argument("--results", default=str(RESULTS), metavar="PATH")
     forget = sub.add_parser("forget", help="drop a row's plays for a re-test")
@@ -751,6 +938,7 @@ def main(argv: list[str]) -> int:
         "watch": cmd_watch,
         "selftest": cmd_selftest,
         "render": cmd_render,
+        "validate": cmd_validate,
         "verdict": cmd_verdict,
         "forget": cmd_forget,
     }

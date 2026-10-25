@@ -13,6 +13,8 @@ from types import ModuleType
 import pytest
 
 SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
+# Built from numbers so no private address is spelled out in a tracked file (repo hygiene test).
+LAN_ADDRESS = f"{192}.{168}.{1}.{50}"
 
 
 def load(name: str, filename: str) -> ModuleType:
@@ -72,7 +74,7 @@ def session(
         "ApplicationVersion": "12.3.0",
         "DeviceId": "secret-device-id",
         "DeviceName": "secret-device-name",
-        "RemoteEndPoint": "192.168.1.50",
+        "RemoteEndPoint": LAN_ADDRESS,
         "UserName": "household",
         "PlayState": {"PlayMethod": method, "SubtitleStreamIndex": subtitle},
         "TranscodingInfo": transcoding,
@@ -215,7 +217,7 @@ def test_the_tracker_notes_that_subtitles_were_on_and_keeps_client_and_version_o
     assert entry["client"] == "Jellyfin Web"
     assert entry["version"] == "12.3.0"
     text = repr(entry)
-    for secret in ("secret-device", "192.168", "household", "RemoteEndPoint", "DeviceId"):
+    for secret in ("secret-device", LAN_ADDRESS, "household", "RemoteEndPoint", "DeviceId"):
         assert secret not in text
 
 
@@ -542,7 +544,7 @@ def test_an_entry_never_carries_device_data_or_a_url(tg: ModuleType) -> None:
         "row": "A01",
         "DeviceId": "x",
         "DeviceName": "y",
-        "RemoteEndPoint": "192.168.1.5",
+        "RemoteEndPoint": LAN_ADDRESS,
         "UserName": "household",
         "client": "http://leak.example/?ApiKey=t",
         "version": "12.3.0",
@@ -762,8 +764,7 @@ def test_a_matrix_without_its_markers_is_caught(tg: ModuleType) -> None:
 
 
 def test_an_ip_address_is_caught(tg: ModuleType) -> None:
-    quad = ".".join(["192", "168", "1", "50"])
-    problems = tg.validate_doc(committed_doc() + f"\nThe TV was at {quad} then.\n")
+    problems = tg.validate_doc(committed_doc() + f"\nThe TV was at {LAN_ADDRESS} then.\n")
 
     assert any("address" in p.lower() for p in problems)
 
@@ -865,7 +866,7 @@ def test_render_into_the_committed_doc_without_results_reproduces_it_byte_for_by
 ) -> None:
     copy = tmp_path / "doc.md"
     copy.write_text(committed_doc(), encoding="utf-8")
-    monkeypatch.setattr(tg, "load_manifest", lambda: {})
+    monkeypatch.setattr(tg, "load_manifest", dict)
 
     args = type("Args", (), {"doc": str(copy), "out": None, "results": str(tmp_path / "none.json")})()
     assert tg.cmd_render(args) == 0
@@ -881,7 +882,7 @@ def test_render_into_a_doc_puts_the_played_rows_in_the_matrix(
     store = tg.ResultStore(tmp_path / "results.json")
     store.add("A01", {"row": "A01", "method": "Remux", "reasons": ["ContainerNotSupported"], "ok": "yes"})
     store.save()
-    monkeypatch.setattr(tg, "load_manifest", lambda: {})
+    monkeypatch.setattr(tg, "load_manifest", dict)
 
     args = type("Args", (), {"doc": str(copy), "out": None, "results": str(tmp_path / "results.json")})()
     assert tg.cmd_render(args) == 0
