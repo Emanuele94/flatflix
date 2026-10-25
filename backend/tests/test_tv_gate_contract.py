@@ -615,3 +615,290 @@ def test_save_refuses_data_it_cannot_serialise_and_keeps_the_old_file(tg: Module
 
     assert path.read_text() == before
     assert [p.name for p in tmp_path.iterdir()] == ["results.json"]
+
+
+# --- Task 3: the committed document and its validator --------------------------------------------
+
+DOC_PATH = Path(__file__).resolve().parents[2] / "docs" / "tv-compatibility.md"
+PENDING = "**Pending**: the real-TV session has not run yet."
+PHASE5_LINE = "Phase 5 builds its device profile from the rows marked Direct play or Remux above."
+
+
+def committed_doc() -> str:
+    return DOC_PATH.read_text(encoding="utf-8")
+
+
+def verdict_doc(tg: ModuleType, mc: ModuleType, headline: str, *, results: dict | None = None) -> str:
+    """The committed document with a fully tested matrix and a verdict block for the headline."""
+    text = committed_doc()
+    results = results if results is not None else all_gating_ok(mc)
+    text = tg.replace_matrix(text, tg.render_matrix(results, {}))
+    head, _, _ = text.partition("## Verdict")
+    transcoding = tg.transcoding_line(results)
+    common = [transcoding, "Jellyfin version tested: 12.3.0 (image tag 12.3.20261023-013714)"]
+    if headline == "GO":
+        body = ["**GO**", "", PHASE5_LINE, ""] + common
+    elif headline == "NO-GO":
+        body = [
+            "**NO-GO**",
+            "",
+            "Mitigation chosen: re-encode. Rows A04 and A16 ended in Video transcode.",
+            "",
+            *common,
+        ]
+    else:
+        body = [
+            "**GO with conditions**",
+            "",
+            "- No DTS: rows A04, A08 and A12 do not pass.",
+            "",
+            "Mitigation for the rest: re-encode",
+            "",
+            *common,
+        ]
+    return head + "## Verdict\n\n" + "\n".join(body) + "\n"
+
+
+def test_the_committed_doc_is_valid(tg: ModuleType) -> None:
+    assert tg.validate_doc(committed_doc()) == []
+
+
+def test_the_committed_doc_has_the_ui_spec_skeleton(tg: ModuleType, mc: ModuleType) -> None:
+    text = committed_doc()
+    headings = [ln for ln in text.splitlines() if ln.startswith("## ")]
+
+    assert text.startswith("# TV compatibility\n")
+    assert headings == [
+        *("## " + h for _, h, _ in mc.GROUPS),
+        "## Address check",
+        "## Streaming bitrate",
+        "## Verdict",
+    ]
+    assert "V0003.09.60A.Q0707" in text
+    assert PENDING in text.splitlines()
+    assert text.count(tg.MATRIX_BEGIN) == 1 and text.count(tg.MATRIX_END) == 1
+
+
+def test_the_committed_doc_is_the_untested_matrix(tg: ModuleType) -> None:
+    text = committed_doc()
+    matrix = text[text.index(tg.MATRIX_BEGIN) : text.index(tg.MATRIX_END)]
+
+    assert tg.render_matrix({}, {}) in matrix
+
+
+def mutate_cell(text: str, row_id: str, column: int, value: str) -> str:
+    out = []
+    for line in text.splitlines():
+        if line.startswith(f"| {row_id} |"):
+            cells = line.strip().strip("|").split("|")
+            cells[column] = f" {value} "
+            line = "|" + "|".join(cells) + "|"
+        out.append(line)
+    return "\n".join(out) + "\n"
+
+
+def swap_rows(text: str, first: str, second: str) -> str:
+    lines = text.splitlines()
+    i = next(n for n, ln in enumerate(lines) if ln.startswith(f"| {first} |"))
+    j = next(n for n, ln in enumerate(lines) if ln.startswith(f"| {second} |"))
+    lines[i], lines[j] = lines[j], lines[i]
+    return "\n".join(lines) + "\n"
+
+
+def drop_row(text: str, row_id: str) -> str:
+    return "\n".join(ln for ln in text.splitlines() if not ln.startswith(f"| {row_id} |")) + "\n"
+
+
+def test_a_blank_cell_is_caught(tg: ModuleType) -> None:
+    problems = tg.validate_doc(mutate_cell(committed_doc(), "A05", 7, ""))
+
+    assert any("A05" in p and "empty" in p for p in problems)
+
+
+def test_an_unknown_method_is_caught(tg: ModuleType) -> None:
+    problems = tg.validate_doc(mutate_cell(committed_doc(), "A05", 6, "Transcode"))
+
+    assert any("A05" in p and "Method" in p for p in problems)
+
+
+def test_an_unknown_answer_is_caught(tg: ModuleType) -> None:
+    problems = tg.validate_doc(mutate_cell(committed_doc(), "A05", 8, "maybe"))
+
+    assert any("A05" in p and "Picture and sound OK" in p for p in problems)
+
+
+def test_two_swapped_rows_are_caught(tg: ModuleType) -> None:
+    problems = tg.validate_doc(swap_rows(committed_doc(), "A03", "A04"))
+
+    assert any("order" in p for p in problems)
+
+
+def test_a_missing_catalogue_row_is_caught(tg: ModuleType) -> None:
+    problems = tg.validate_doc(drop_row(committed_doc(), "A10"))
+
+    assert any("A10" in p for p in problems)
+
+
+def test_a_changed_clip_cell_is_caught(tg: ModuleType) -> None:
+    problems = tg.validate_doc(mutate_cell(committed_doc(), "A02", 3, "AAC"))
+
+    assert any("A02" in p and "Audio" in p for p in problems)
+
+
+def test_a_second_table_in_a_group_is_caught(tg: ModuleType) -> None:
+    text = committed_doc().replace("## Subtitles\n", "## Subtitles\n\n" + tg.HEADER + "\n", 1)
+
+    assert tg.validate_doc(text)
+
+
+def test_an_extra_heading_or_a_missing_one_is_caught(tg: ModuleType) -> None:
+    assert tg.validate_doc(committed_doc().replace("## Address check\n", "## Addresses\n"))
+    assert tg.validate_doc(committed_doc() + "\n## Notes\n")
+    assert tg.validate_doc(committed_doc().replace("# TV compatibility", "# TV notes", 1))
+
+
+def test_a_matrix_without_its_markers_is_caught(tg: ModuleType) -> None:
+    assert tg.validate_doc(committed_doc().replace(tg.MATRIX_END, ""))
+
+
+def test_an_ip_address_is_caught(tg: ModuleType) -> None:
+    quad = ".".join(["192", "168", "1", "50"])
+    problems = tg.validate_doc(committed_doc() + f"\nThe TV was at {quad} then.\n")
+
+    assert any("address" in p.lower() for p in problems)
+
+
+def test_a_mac_address_is_caught(tg: ModuleType) -> None:
+    problems = tg.validate_doc(committed_doc() + "\nSeen as aa:bb:cc:dd:ee:ff once.\n")
+
+    assert any("MAC" in p for p in problems)
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "Serial number: 123",
+        "serial = ABC123",
+        "| Device ID | 99887766 |",
+        "Netflix ESN: NFANDROID1-x",
+        "MAC address: unknown-but-a-value",
+    ],
+)
+def test_a_serial_esn_or_device_id_with_a_value_is_caught(tg: ModuleType, line: str) -> None:
+    problems = tg.validate_doc(committed_doc() + "\n" + line + "\n")
+
+    assert any("device" in p.lower() or "serial" in p.lower() for p in problems)
+
+
+def test_the_words_alone_are_allowed(tg: ModuleType) -> None:
+    sentence = "No serial number, device ID, Netflix ESN or MAC address is recorded."
+    text = committed_doc().replace("\n## Verdict", f"\n{sentence}\n\n## Verdict")
+
+    assert tg.validate_doc(text) == []
+
+
+def test_a_verdict_must_open_with_a_known_headline(tg: ModuleType) -> None:
+    text = committed_doc().replace(PENDING, "**Maybe**")
+
+    assert tg.validate_doc(text)
+
+
+def test_a_valid_go_doc_passes(tg: ModuleType, mc: ModuleType) -> None:
+    assert tg.validate_doc(verdict_doc(tg, mc, "GO")) == []
+
+
+def test_a_valid_no_go_doc_passes(tg: ModuleType, mc: ModuleType) -> None:
+    results = all_gating_ok(mc)
+    results["A04"] = [played("Video transcode", "no")]
+
+    assert tg.validate_doc(verdict_doc(tg, mc, "NO-GO", results=results)) == []
+
+
+def test_a_valid_conditions_doc_passes(tg: ModuleType, mc: ModuleType) -> None:
+    assert tg.validate_doc(verdict_doc(tg, mc, "GO with conditions")) == []
+
+
+def test_go_while_a_gating_row_is_not_tested_is_caught(tg: ModuleType, mc: ModuleType) -> None:
+    results = all_gating_ok(mc)
+    del results["A07"]
+
+    problems = tg.validate_doc(verdict_doc(tg, mc, "GO", results=results))
+
+    assert any("A07" in p and "not tested" in p for p in problems)
+
+
+def test_a_go_without_the_phase_5_line_is_caught(tg: ModuleType, mc: ModuleType) -> None:
+    assert tg.validate_doc(verdict_doc(tg, mc, "GO").replace(PHASE5_LINE, ""))
+
+
+def test_a_no_go_without_a_named_mitigation_is_caught(tg: ModuleType, mc: ModuleType) -> None:
+    text = verdict_doc(tg, mc, "NO-GO")
+
+    assert tg.validate_doc(text.replace("Mitigation chosen: re-encode.", "Mitigation chosen: none."))
+    assert tg.validate_doc(text.replace("Mitigation chosen:", "Plan:"))
+    assert tg.validate_doc(text.replace("re-encode", "plan B stick")) == []
+    assert tg.validate_doc(text.replace("re-encode", "stronger hardware")) == []
+
+
+def test_conditions_need_a_bullet_naming_a_row_and_a_mitigation_for_the_rest(tg: ModuleType, mc: ModuleType) -> None:
+    text = verdict_doc(tg, mc, "GO with conditions")
+
+    assert tg.validate_doc(text.replace("rows A04, A08 and A12", "all DTS rows"))
+    assert tg.validate_doc(text.replace("- No DTS", "No DTS"))
+    assert tg.validate_doc(text.replace("Mitigation for the rest:", "Rest:"))
+
+
+@pytest.mark.parametrize("headline", ["GO", "NO-GO", "GO with conditions"])
+def test_a_headline_needs_the_transcoding_line_and_the_version_line(tg: ModuleType, mc: ModuleType, headline: str) -> None:
+    text = verdict_doc(tg, mc, headline)
+    lines = text.splitlines()
+
+    without_transcoding = "\n".join(ln for ln in lines if not ln.startswith("1080p content needed"))
+    without_version = "\n".join(ln for ln in lines if not ln.startswith("Jellyfin version tested: "))
+
+    assert tg.validate_doc(without_transcoding)
+    assert tg.validate_doc(without_version)
+
+
+def test_render_into_the_committed_doc_without_results_reproduces_it_byte_for_byte(
+    tg: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    copy = tmp_path / "doc.md"
+    copy.write_text(committed_doc(), encoding="utf-8")
+    monkeypatch.setattr(tg, "load_manifest", lambda: {})
+
+    args = type("Args", (), {"doc": str(copy), "out": None, "results": str(tmp_path / "none.json")})()
+    assert tg.cmd_render(args) == 0
+
+    assert copy.read_text(encoding="utf-8") == committed_doc()
+
+
+def test_render_into_a_doc_puts_the_played_rows_in_the_matrix(
+    tg: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    copy = tmp_path / "doc.md"
+    copy.write_text(committed_doc(), encoding="utf-8")
+    store = tg.ResultStore(tmp_path / "results.json")
+    store.add("A01", {"row": "A01", "method": "Remux", "reasons": ["ContainerNotSupported"], "ok": "yes"})
+    store.save()
+    monkeypatch.setattr(tg, "load_manifest", lambda: {})
+
+    args = type("Args", (), {"doc": str(copy), "out": None, "results": str(tmp_path / "results.json")})()
+    assert tg.cmd_render(args) == 0
+
+    assert "| A01 | MKV | H.264 | AAC | none | 1080p | Remux | ContainerNotSupported | yes |" in copy.read_text()
+    assert tg.validate_doc(copy.read_text()) == []
+
+
+def test_validate_prints_ok_or_the_violations_and_exits_accordingly(
+    tg: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    good = tmp_path / "good.md"
+    good.write_text(committed_doc(), encoding="utf-8")
+    bad = tmp_path / "bad.md"
+    bad.write_text(committed_doc() + "\nSerial number: 123\n", encoding="utf-8")
+
+    assert tg.cmd_validate(type("Args", (), {"doc": str(good)})()) == 0
+    assert capsys.readouterr().out.strip() == "OK"
+    assert tg.cmd_validate(type("Args", (), {"doc": str(bad)})()) == 1
+    assert "serial" in capsys.readouterr().out.lower()
