@@ -216,6 +216,8 @@ COMPOSE_LEVEL_KEYS = {
     "VM_MEMORY_MIB",
     "VM_TIMEOUT_SECONDS",
 }
+# Read by scripts/jellyfin_setup.py; plan 03-03 adds the test that proves it.
+SCRIPT_KEYS = {"JELLYFIN_HOUSEHOLD_PASSWORD"}
 
 
 def test_env_example_keys_match_the_settings_fields_exactly() -> None:
@@ -224,7 +226,7 @@ def test_env_example_keys_match_the_settings_fields_exactly() -> None:
         for line in ENV_EXAMPLE.read_text(encoding="utf-8").splitlines()
         if line.strip() and not line.lstrip().startswith("#") and "=" in line
     }
-    expected = {name.upper() for name in Settings.model_fields} | COMPOSE_LEVEL_KEYS
+    expected = {name.upper() for name in Settings.model_fields} | COMPOSE_LEVEL_KEYS | SCRIPT_KEYS
 
     missing_in_example = sorted(expected - documented)
     orphan_in_example = sorted(documented - expected)
@@ -373,3 +375,57 @@ def test_dev_env_never_rewrites_an_existing_kvm_gid(
 
     assert (tmp_path / ".env").read_text(encoding="utf-8").count("KVM_GID=") == 1
     assert "KVM_GID=4242" in (tmp_path / ".env").read_text(encoding="utf-8")
+
+
+# --- dev_env.py makes the Jellyfin household password typeable with a TV remote (D-94) ------
+
+HOUSEHOLD_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"
+
+
+def read_env_value(tmp_path: Path, key: str) -> str:
+    for line in (tmp_path / ".env").read_text(encoding="utf-8").splitlines():
+        if line.startswith(key + "="):
+            return line.partition("=")[2]
+    raise AssertionError(f"{key} not in the local env file")
+
+
+def test_dev_env_makes_the_household_password_short_and_readable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = load_dev_env(
+        tmp_path, monkeypatch, "JELLYFIN_HOUSEHOLD_PASSWORD=change-me-jellyfin-household-password\n"
+    )
+
+    assert module.main([]) == 0
+
+    value = read_env_value(tmp_path, "JELLYFIN_HOUSEHOLD_PASSWORD")
+    assert len(value) == 10
+    assert set(value) <= set(HOUSEHOLD_ALPHABET)
+
+
+def test_dev_env_never_rewrites_an_existing_household_password(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = load_dev_env(
+        tmp_path, monkeypatch, "JELLYFIN_HOUSEHOLD_PASSWORD=change-me-jellyfin-household-password\n"
+    )
+    (tmp_path / ".env").write_text("JELLYFIN_HOUSEHOLD_PASSWORD=kept-by-hand\n", encoding="utf-8")
+
+    assert module.main([]) == 0
+
+    assert read_env_value(tmp_path, "JELLYFIN_HOUSEHOLD_PASSWORD") == "kept-by-hand"
+    assert (tmp_path / ".env").read_text(encoding="utf-8").count("JELLYFIN_HOUSEHOLD_PASSWORD=") == 1
+
+
+def test_dev_env_output_names_keys_only_never_the_household_password(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    module = load_dev_env(
+        tmp_path, monkeypatch, "JELLYFIN_HOUSEHOLD_PASSWORD=change-me-jellyfin-household-password\n"
+    )
+
+    assert module.main([]) == 0
+
+    out = capsys.readouterr().out
+    assert "JELLYFIN_HOUSEHOLD_PASSWORD" in out
+    assert read_env_value(tmp_path, "JELLYFIN_HOUSEHOLD_PASSWORD") not in out

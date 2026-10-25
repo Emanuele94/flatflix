@@ -14,6 +14,8 @@ Rules:
   so Compose takes the `$` signs literally.
 - A missing KVM_GID gets the group id of /dev/kvm (the sandbox microVM needs it); without the
   device it stays empty and one line says so.
+- A missing JELLYFIN_HOUSEHOLD_PASSWORD gets 10 characters from an alphabet without look-alikes
+  (no i, l, o, 0, 1), because the household types it with a TV remote.
 - Only key names are printed, never values.
 - --check writes nothing; exit 1 if a key is missing or still a placeholder.
 """
@@ -33,6 +35,9 @@ HASH_KEY = "APP_PASS_HASH"
 PLACEHOLDER_PREFIX = "change-me"
 KVM_KEY = "KVM_GID"
 KVM_DEVICE = Path("/dev/kvm")
+HOUSEHOLD_KEY = "JELLYFIN_HOUSEHOLD_PASSWORD"
+HOUSEHOLD_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"  # no i, l, o, 0 or 1
+HOUSEHOLD_LENGTH = 10
 
 
 def parse(path: Path) -> dict[str, str]:
@@ -61,6 +66,11 @@ def make_dev_login_hash() -> str:
     return "'" + PasswordHasher().hash(password) + "'"
 
 
+def make_household_password() -> str:
+    """A password short and readable enough to type with a TV remote (D-94)."""
+    return "".join(secrets.choice(HOUSEHOLD_ALPHABET) for _ in range(HOUSEHOLD_LENGTH))
+
+
 def main(argv: list[str]) -> int:
     check = "--check" in argv
     template = parse(TEMPLATE)
@@ -85,6 +95,8 @@ def main(argv: list[str]) -> int:
             continue
         if key == HASH_KEY and value.startswith(PLACEHOLDER_PREFIX):
             value = make_dev_login_hash()
+        elif key == HOUSEHOLD_KEY and value.startswith(PLACEHOLDER_PREFIX):
+            value = make_household_password()
         elif value.startswith(PLACEHOLDER_PREFIX):
             value = secrets.token_urlsafe(32)
         elif key == KVM_KEY:
