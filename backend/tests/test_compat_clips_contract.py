@@ -375,3 +375,189 @@ def test_the_libraries_check_reports_a_compat_gap(js: ModuleType) -> None:
     folders[-1]["LibraryOptions"]["EnableInternetProviders"] = False
 
     assert js.compat_gaps(folders) == []
+
+
+# --- Task 2: the whole matrix ---------------------------------------------------------
+
+
+def test_mux_args_of_an_mp4_dts_row_carries_strict_minus_two(mc: ModuleType) -> None:
+    mp4_dts = next(
+        r for r in mc.CATALOGUE if r.group == "av" and r.container == "MP4" and r.audio == "DTS"
+    )
+
+    args = mc.mux_args(mp4_dts, Path("v.mkv"), Path("a.mka"), Path("out.part"))
+
+    assert ("-strict", "-2") in pairs(args)
+
+
+def test_mux_args_of_an_mkv_dts_row_needs_no_strict_flag(mc: ModuleType) -> None:
+    mkv_dts = next(
+        r for r in mc.CATALOGUE if r.group == "av" and r.container == "MKV" and r.audio == "DTS"
+    )
+
+    assert "-strict" not in mc.mux_args(mkv_dts, Path("v.mkv"), Path("a.mka"), Path("out.part"))
+
+
+@pytest.mark.parametrize(
+    ("row_id", "codec"), [("S02", "srt"), ("S03", "ass"), ("S04", "mov_text")]
+)
+def test_mux_args_of_an_embedded_subtitle_row_maps_the_subtitle_input(
+    mc: ModuleType, row_id: str, codec: str
+) -> None:
+    args = mc.mux_args(
+        row(mc, row_id), Path("v.mkv"), Path("a.mka"), Path("out.part"), subtitle=Path("subs.x")
+    )
+
+    assert ("-i", "subs.x") in pairs(args)
+    assert ("-map", "2:0") in pairs(args)
+    assert ("-c:s", codec) in pairs(args)
+    assert ("-metadata:s:s:0", "language=eng") in pairs(args)
+    assert args[-1] == "out.part"
+
+
+def test_an_embedded_subtitle_row_without_a_subtitle_file_is_refused(mc: ModuleType) -> None:
+    with pytest.raises(ValueError, match="S02"):
+        mc.mux_args(row(mc, "S02"), Path("v.mkv"), Path("a.mka"), Path("out.part"))
+
+
+def test_mux_args_of_the_external_srt_row_has_no_subtitle_stream(mc: ModuleType) -> None:
+    args = mc.mux_args(row(mc, "S01"), Path("v.mkv"), Path("a.mka"), Path("out.part"))
+
+    assert "2:0" not in args
+    assert "-c:s" not in args
+
+
+def test_na_reason_is_the_first_non_empty_stderr_line(mc: ModuleType) -> None:
+    assert mc.na_reason("\n  \n  Could not write header\nsecond line\n") == (
+        "n/a — Could not write header"
+    )
+
+
+def test_na_reason_cuts_a_long_line_to_120_characters(mc: ModuleType) -> None:
+    assert mc.na_reason("x" * 300) == "n/a — " + "x" * 120
+
+
+def test_na_reason_never_returns_an_empty_reason(mc: ModuleType) -> None:
+    assert mc.na_reason("").startswith("n/a — ")
+    assert len(mc.na_reason("")) > len("n/a — ")
+
+
+def test_every_test_video_is_pinned_from_the_jellyfin_repository(mc: ModuleType) -> None:
+    from urllib.parse import urlparse
+
+    assert sorted(mc.TEST_VIDEOS) == ["K01", "K02", "K03", "R03"]
+    for row_id, video in mc.TEST_VIDEOS.items():
+        parsed = urlparse(video.url)
+        assert parsed.scheme == "https", row_id
+        assert parsed.hostname == "repo.jellyfin.org", row_id
+        assert len(video.sha256 or "") == 64 and set(video.sha256 or "") <= set("0123456789abcdef")
+        assert row_id in mc.ROW_IDS
+
+
+def test_the_test_videos_match_the_resolution_of_their_rows(mc: ModuleType) -> None:
+    for row_id, video in mc.TEST_VIDEOS.items():
+        wanted = "4K" if row(mc, row_id).resolution == "2160p" else "1080p"
+        assert wanted in video.file, row_id
+
+
+def test_sidecar_path_of_the_external_srt_row(mc: ModuleType) -> None:
+    assert mc.sidecar_path(row(mc, "S01")) == mc.clip_path(row(mc, "S01")).with_suffix(".en.srt")
+
+
+def test_the_subtitle_texts_carry_twelve_english_cues_each(mc: ModuleType) -> None:
+    srt, ass = mc.srt_text(), mc.ass_text()
+
+    assert srt.count(" --> ") == 12
+    assert ass.count("Dialogue:") == 12
+    assert ass.count("Style:") == 1
+    assert "Subtitle test line 12 of 12" in srt
+    assert "Subtitle test line 12 of 12" in ass
+
+
+def test_the_pgs_row_has_no_file_and_the_decided_note(mc: ModuleType) -> None:
+    assert mc.build_row(row(mc, "P01")) == {
+        "file": None,
+        "na": None,
+        "note": "no PGS encoder in ffmpeg (D-99)",
+        "probed": None,
+    }
+
+
+def test_a_row_the_muxer_refuses_is_recorded_as_na_never_skipped(
+    mc: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import subprocess
+
+    monkeypatch.setattr(mc, "SCRATCH", tmp_path)
+    monkeypatch.setattr(mc, "video_intermediate", lambda video: tmp_path / "v.mkv")
+    monkeypatch.setattr(mc, "audio_intermediate", lambda audio: tmp_path / "a.mka")
+    target = next(
+        r for r in mc.CATALOGUE if r.group == "av" and r.container == "MP4" and r.audio == "DTS"
+    )
+
+    def refuse(*args: str, **kwargs: object) -> None:
+        part = Path(args[-1])
+        part.write_bytes(b"half")
+        raise subprocess.CalledProcessError(1, ["ffmpeg"], stderr="\nmuxer says no\nmore\n")
+
+    monkeypatch.setattr(mc, "ffmpeg", refuse)
+
+    entry = mc.build_row(target)
+
+    assert entry == {"file": None, "na": "n/a — muxer says no", "note": None, "probed": None}
+    assert list((tmp_path / "Compat").iterdir()) == []  # no half file is left for a scan to find
+
+
+def test_the_manifest_merges_rows_in_catalogue_order(
+    mc: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(mc, "MANIFEST", tmp_path / "tv-gate" / "clips.json")
+    mc.update_manifest({"A02": {"file": "b"}})
+    mc.update_manifest({"A01": {"file": "a"}})
+    merged = mc.update_manifest({"A02": {"file": "b2"}})
+
+    assert list(merged) == ["A01", "A02"]
+    assert merged["A01"] == {"file": "a"}
+    assert mc.read_manifest() == merged
+
+
+def test_a_failed_manifest_write_leaves_the_previous_file_intact(
+    mc: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    manifest = tmp_path / "tv-gate" / "clips.json"
+    monkeypatch.setattr(mc, "MANIFEST", manifest)
+    mc.write_manifest({"A01": {"file": "old"}})
+    before = manifest.read_text(encoding="utf-8")
+
+    def break_midway(data: object, handle: object, **kwargs: object) -> None:
+        handle.write("{ half")  # type: ignore[attr-defined]
+        raise OSError("disk full")
+
+    monkeypatch.setattr(mc.json, "dump", break_midway)
+
+    with pytest.raises(OSError, match="disk full"):
+        mc.write_manifest({"A01": {"file": "new"}})
+
+    monkeypatch.undo()
+    assert manifest.read_text(encoding="utf-8") == before
+    assert [p.name for p in manifest.parent.iterdir()] == ["clips.json"]
+
+
+def test_the_catalogue_names_are_free_of_copyrighted_sources(mc: ModuleType) -> None:
+    from urllib.parse import urlparse
+
+    hosts = {urlparse(s.url).hostname for s in mc.SOURCES.values()}
+    hosts |= {urlparse(v.url).hostname for v in mc.TEST_VIDEOS.values()}
+
+    assert hosts == {"download.blender.org", "repo.jellyfin.org"}
+
+
+def test_nothing_the_script_writes_is_inside_the_repository_tree(mc: ModuleType) -> None:
+    import subprocess
+
+    root = Path(__file__).resolve().parents[2]
+    for path in (mc.SCRATCH / "Compat" / "x", mc.MANIFEST, mc.INTERMEDIATE_DIR / "x"):
+        ignored = subprocess.run(
+            ["git", "check-ignore", "-q", str(path)], cwd=root, check=False
+        ).returncode
+        assert ignored == 0, path
