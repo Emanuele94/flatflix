@@ -3,6 +3,7 @@ phase: "03"
 slug: jellyfin-server-tv-playback-gate
 status: approved
 reviewed_at: "2026-10-25"
+amended: "2026-10-25"
 shadcn_initialized: false
 preset: none
 created: "2026-10-25"
@@ -262,3 +263,34 @@ Applicable state considerations from the UI probe (30 raised): 9 covered, 20 dis
 Dimensions 2 to 7 are expected to be reported as not applicable (no custom UI, `Tool: none`).
 
 **Approval:** approved 2026-10-25
+
+---
+
+## Amendments (2026-10-25, after research)
+
+These amendments supersede the rows above where they differ. Sources: `03-RESEARCH.md` (pitfalls and patterns named below), decisions D-98 and D-99 in `03-CONTEXT.md`, and plan 03-01.
+
+**(a) Caddy contract.**
+
+| Row | Now reads |
+|-----|-----------|
+| Starting policy for `/jellyfin/*` | `default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' ws: wss:; font-src 'self' data:; worker-src 'self' blob:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`. Jellyfin 12.3 sends no policy of its own, so there is no "documented default" to start from. `'wasm-unsafe-eval'` is required because jellyfin-web 12.3 draws ASS (libass-wasm) and PGS (libbitsub) subtitles with WebAssembly; without it the client cannot render them and the server may burn subtitles in (a false NO-GO on the subtitle group). RESEARCH Pitfall 2. |
+| One policy only | Mechanism chosen: the portal policy is scoped with the matcher `@notjellyfin not path /jellyfin /jellyfin/*` (`header @notjellyfin Content-Security-Policy ...`) and `handle /jellyfin/*` sets its own policy. A route-level `header` cannot override a site-level one, so scoping is the only way to end with exactly one header. RESEARCH Pitfall 1. `infra/tests/test_caddyfile.py` pins both policies. |
+
+**(b) Acceptance check 3.** On the PC, `/jellyfin` loads the login page with no CSP violation in the browser console, except the blocked Chromecast loader `https://www.gstatic.com/cv/js/sender/v1/cast_sender.js` and one initial `/socket` 403 before sign-in (both expected and harmless). Playback of one clip starts. RESEARCH Pitfall 2.
+
+**(c) Metadata row.** Fetch online from TheMovieDb (OMDb optional, needs its own key). Stock Jellyfin 12.3 ships no TVmaze or TVDb provider; the TV library's series fetchers are TheMovieDb and The Open Movie Database. "Save artwork and metadata into media folders" stays off. RESEARCH Pitfall 4.
+
+**(d) Library rows.** A third, admin-only library `Compat` (content type "Home videos", internet metadata off) holds the codec test clips. The household user sees only `Movies` and `TV Series`, so the clips never appear in the household libraries. D-98, RESEARCH Open Question 1.
+
+**(e) Compatibility doc.**
+
+- Subtitles column values become `none`, `SRT (external file)`, `SRT (embedded)`, `ASS (embedded)`, `MP4 text (embedded)`, `PGS (embedded)`.
+- The PGS row is recorded as `not tested` with the reason `no PGS encoder in ffmpeg (D-99)`, and the line reads `burn-in forced: not tested`.
+- The Address check line reads `.local` name resolved on the TV: yes / no, with the tested name written as `<laptop-name>.local`.
+- A `## Streaming bitrate` section under `## Address check` records the measured throughput, its source and the chosen limit (JFIN-03). RESEARCH Pitfall 6.
+- Before the TV session, the Verdict section holds the line `**Pending**: the real-TV session has not run yet.`
+- The Method value comes from server evidence: the ffmpeg log type (Remux, DirectStream, Transcode) cross-checked with `TranscodingInfo`. The client-reported `PlayMethod` is used only for Direct play. RESEARCH Pattern 5.
+- The matrix measures the stock Jellyfin web client on this browser, and the doc says so. RESEARCH Pitfall 7.
+
+**(f) Household password.** A 10-character readable password from `dev_env.py` (a 43-character token cannot be typed with a TV remote), or Quick Connect. RESEARCH Pitfall 10.
