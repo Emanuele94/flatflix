@@ -71,7 +71,7 @@ Requirements for the initial release. Each maps to exactly one roadmap phase.
 
 ### Jellyfin Server & TV Compatibility
 
-- [ ] **JFIN-01**: Jellyfin runs in Docker on the laptop with persistent config, cache and media volumes and its admin UI on port 8096; a household user exists (one shared user vs separate profiles decided and recorded) with default audio and subtitle language set. (ht setup, open decisions)
+- [x] **JFIN-01**: Jellyfin runs in Docker on the laptop with persistent config, cache and media volumes and its admin UI on port 8096; a household user exists (one shared user vs separate profiles decided and recorded) with default audio and subtitle language set. (ht setup, open decisions)
 - [ ] **JFIN-02**: Scanning correctly named sample content (in a scratch folder separate from the portal's folders) produces posters, plots, cast, seasons and episodes stored locally. (ht backend)
 - [ ] **JFIN-03**: A maximum streaming bitrate suited to the home network is configured on Jellyfin. (ht network)
 - [ ] **COMPAT-01**: Tested on the real TV through Jellyfin's web UI: H.264 and HEVC video, including 10-bit, play and the playback method (direct play / remux / transcode) is recorded. (ht compatibility test)
@@ -178,7 +178,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | NAME-02 | Phase 4 | Pending |
 | NAME-03 | Phase 4 | Pending |
 | NAME-04 | Phase 4 | Pending |
-| JFIN-01 | Phase 3 | Pending |
+| JFIN-01 | Phase 3 | Complete |
 | JFIN-02 | Phase 3 | Pending |
 | JFIN-03 | Phase 3 | Pending |
 | COMPAT-01 | Phase 3 | Pending |

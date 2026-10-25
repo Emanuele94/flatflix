@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 03
 current_phase_name: Jellyfin Server & TV Playback Gate
 status: executing
-stopped_at: Completed 03-06-PLAN.md
-last_updated: "2026-10-25T22:09:59.831Z"
+stopped_at: Completed 03-07-PLAN.md
+last_updated: "2026-10-25T22:25:35.890Z"
 last_activity: 2026-10-25
 last_activity_desc: Phase 03 execution started
-state_head: 2a6cacbbd8c10d827aa1e7e21522b308a7e1823c
+state_head: 4f374efd929d9a9223a349ce6d0566dda9d24622
 progress:
   total_phases: 7
   completed_phases: 2
   total_plans: 45
-  completed_plans: 42
+  completed_plans: 43
   percent: 29
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-23)
 ## Current Position
 
 Phase: 03 (Jellyfin Server & TV Playback Gate) — EXECUTING
-Plan: 7 of 9
+Plan: 8 of 9
 Status: Ready to execute
 Last activity: 2026-10-25 — Phase 03 execution started
 
@@ -99,6 +99,7 @@ Progress: [███░░░░░░░] 29%
 | Phase 03 P04 | 17 min | 2 tasks | 3 files |
 | Phase 03 P05 | 15 min | 2 tasks | 4 files |
 | Phase 03 P06 | 19 min | 3 tasks | 4 files |
+| Phase 03 P07 | 4 min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -188,6 +189,8 @@ Recent decisions affecting current work:
 - [Phase 03]: 03-06: Reason cell of the compat matrix comes from the catalogue note and the manifest n/a, not the gitignored manifest note, so the committed doc renders byte-identical on any machine
 - [Phase 03]: 03-06: validate_doc also requires the transcoding line to equal the line recomputed from the matrix, and refuses GO over a failed gating row
 - [Phase 03]: 03-06: subtitle and PGS rows count only plays with a subtitle stream on; a play with subtitles off stays not tested
+- [Phase 03]: 03-07: measure command documented without the scripts/ prefix because it runs on another computer holding a copy of the file; docs contract regex accepts both forms
+- [Phase 03]: 03-07: household address line stays IP-only until plan 03-09 shows the TV resolves a .local name (D-81)
 
 ### Pending Todos
 
@@ -218,6 +221,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-25T22:09:59.472Z
-Stopped at: Completed 03-06-PLAN.md
+Last session: 2026-10-25T22:25:35.608Z
+Stopped at: Completed 03-07-PLAN.md
 Resume file: None
