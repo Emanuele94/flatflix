@@ -217,7 +217,13 @@ COMPOSE_LEVEL_KEYS = {
     "VM_TIMEOUT_SECONDS",
 }
 # Read by scripts/jellyfin_setup.py; plan 03-03 adds the test that proves it.
-SCRIPT_KEYS = {"JELLYFIN_HOUSEHOLD_PASSWORD"}
+SCRIPT_KEYS = {
+    "JELLYFIN_ADMIN_PASSWORD",
+    "JELLYFIN_HOUSEHOLD_PASSWORD",
+    "JELLYFIN_MAX_BITRATE_MBPS",
+}
+# D-93: read by the Phase 4 rename step, opt-in.
+RESERVED_KEYS = {"TMDB_API_KEY"}
 
 
 def test_env_example_keys_match_the_settings_fields_exactly() -> None:
@@ -226,7 +232,7 @@ def test_env_example_keys_match_the_settings_fields_exactly() -> None:
         for line in ENV_EXAMPLE.read_text(encoding="utf-8").splitlines()
         if line.strip() and not line.lstrip().startswith("#") and "=" in line
     }
-    expected = {name.upper() for name in Settings.model_fields} | COMPOSE_LEVEL_KEYS | SCRIPT_KEYS
+    expected = {name.upper() for name in Settings.model_fields} | COMPOSE_LEVEL_KEYS | SCRIPT_KEYS | RESERVED_KEYS
 
     missing_in_example = sorted(expected - documented)
     orphan_in_example = sorted(documented - expected)
@@ -429,3 +435,39 @@ def test_dev_env_output_names_keys_only_never_the_household_password(
     out = capsys.readouterr().out
     assert "JELLYFIN_HOUSEHOLD_PASSWORD" in out
     assert read_env_value(tmp_path, "JELLYFIN_HOUSEHOLD_PASSWORD") not in out
+
+
+JELLYFIN_TEMPLATE = (
+    "JELLYFIN_ADMIN_PASSWORD=change-me-jellyfin-admin-password\n"
+    "JELLYFIN_HOUSEHOLD_PASSWORD=change-me-jellyfin-household-password\n"
+    "JELLYFIN_MAX_BITRATE_MBPS=60\n"
+    "TMDB_API_KEY=\n"
+)
+
+
+def test_dev_env_gives_the_admin_a_long_secret_that_differs_from_the_household_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    module = load_dev_env(tmp_path, monkeypatch, JELLYFIN_TEMPLATE)
+
+    assert module.main([]) == 0
+
+    admin = read_env_value(tmp_path, "JELLYFIN_ADMIN_PASSWORD")
+    household = read_env_value(tmp_path, "JELLYFIN_HOUSEHOLD_PASSWORD")
+    assert len(admin) == 43
+    assert admin != household
+    out = capsys.readouterr().out
+    assert admin not in out
+    assert household not in out
+
+
+def test_dev_env_copies_an_empty_tmdb_key_and_the_bitrate_and_check_passes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = load_dev_env(tmp_path, monkeypatch, JELLYFIN_TEMPLATE)
+
+    assert module.main([]) == 0
+
+    assert read_env_value(tmp_path, "TMDB_API_KEY") == ""
+    assert read_env_value(tmp_path, "JELLYFIN_MAX_BITRATE_MBPS") == "60"
+    assert module.main(["--check"]) == 0

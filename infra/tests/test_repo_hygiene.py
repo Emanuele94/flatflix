@@ -198,6 +198,19 @@ def test_secret_like_example_values_are_placeholders():
     assert offenders == []
 
 
+@pytest.mark.parametrize(
+    ("line", "offends"),
+    [
+        ("TMDB_API_KEY=", False),
+        ("TMDB_API_KEY=abc123", True),
+        ("JELLYFIN_ADMIN_PASSWORD=change-me-x", False),
+        ("JELLYFIN_ADMIN_PASSWORD=hunter22", True),
+    ],
+)
+def test_secret_like_offenders_accepts_only_a_placeholder_or_an_empty_value(line, offends):
+    assert bool(secret_like_offenders([line])) is offends
+
+
 def test_no_tracked_file_contains_a_lan_address():
     offenders = _scan(find_lan_ips)
     assert offenders == [], "\n".join(offenders)
