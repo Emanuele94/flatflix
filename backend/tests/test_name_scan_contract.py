@@ -344,3 +344,292 @@ def test_build_raw_rebuilds_only_movies_and_tv(
         assert made.is_file() and made.stat().st_size > 0
         assert made.stat().st_mode & 0o777 == 0o644
         assert made.parent.stat().st_mode & 0o777 == 0o755
+
+
+# --- draft_label ---------------------------------------------------------------------
+
+
+def test_draft_label_of_a_film_takes_the_title_and_the_year(ns: ModuleType) -> None:
+    assert ns.draft_label("Some.Film.2019.1080p.WEB-DL.x264-GRP", "film") == {
+        "title": "Some Film",
+        "year": 2019,
+    }
+    assert ns.draft_label("[Grp] Some Film (2019) [1080p].mkv", "film") == {
+        "title": "Some Film",
+        "year": 2019,
+    }
+
+
+def test_draft_label_of_a_film_with_a_year_in_its_title_uses_the_release_year(
+    ns: ModuleType,
+) -> None:
+    label = ns.draft_label("Made.Up.Saga.2049.2017.IMAX.1080p.WEB-DL.mkv", "film")
+    assert label == {"title": "Made Up Saga 2049", "year": 2017}
+
+
+def test_draft_label_of_a_film_without_a_year_is_none(ns: ModuleType) -> None:
+    assert ns.draft_label("Some.Film.1080p.WEB-DL.x264-GRP", "film") is None
+    assert ns.draft_label("Some.Film.1850.1080p", "film") is None
+
+
+def test_draft_label_of_an_episode_reads_season_and_episode(ns: ModuleType) -> None:
+    assert ns.draft_label("Some.Show.S02E03.720p.HDTV.mkv", "episode") == {
+        "series": "Some Show",
+        "season": 2,
+        "episode": 3,
+    }
+
+
+def test_draft_label_of_an_absolute_numbered_episode_is_season_one(ns: ModuleType) -> None:
+    assert ns.draft_label("[Grp] Some Show - 05 (1080p) [ABCD1234].mkv", "episode") == {
+        "series": "Some Show",
+        "season": 1,
+        "episode": 5,
+    }
+
+
+def test_draft_label_of_a_season_pack_has_no_episode(ns: ModuleType) -> None:
+    assert ns.draft_label("Some.Show.S01.COMPLETE.720p.WEB.x264-GRP", "episode") == {
+        "series": "Some Show",
+        "season": 1,
+        "episode": None,
+    }
+
+
+def test_draft_label_of_an_episode_drops_a_trailing_year_from_the_series(ns: ModuleType) -> None:
+    label = ns.draft_label("Some.Show.2022.S01E01.1080p.mkv", "episode")
+    assert label is not None and label["series"] == "Some Show"
+
+
+def test_draft_label_of_an_unreadable_episode_is_none(ns: ModuleType) -> None:
+    assert ns.draft_label("Just.A.Name.720p.mkv", "episode") is None
+
+
+# --- truth_from_text and the label answers -------------------------------------------
+
+
+def test_truth_from_text_reads_the_two_shapes(ns: ModuleType) -> None:
+    assert ns.truth_from_text("film", "Some Film | 2019") == {"title": "Some Film", "year": 2019}
+    assert ns.truth_from_text("episode", "Some Show|2|3") == {
+        "series": "Some Show",
+        "season": 2,
+        "episode": 3,
+    }
+
+
+@pytest.mark.parametrize(
+    ("kind", "text"),
+    [("film", "only a title"), ("film", "T|year"), ("episode", "S|1"), ("episode", "|1|2")],
+)
+def test_truth_from_text_refuses_a_malformed_answer(ns: ModuleType, kind: str, text: str) -> None:
+    with pytest.raises(ValueError):
+        ns.truth_from_text(kind, text)
+
+
+def test_apply_answer_accepts_replaces_drops_and_quits(ns: ModuleType) -> None:
+    entry = {"name": "n", "kind": "film", "truth": None, "confirmed": False,
+             "draft": {"title": "T", "year": 2000}}
+    assert ns.apply_answer(entry, "") == "next"
+    assert entry["truth"] == {"title": "T", "year": 2000} and entry["confirmed"] is True
+
+    other = {"name": "n", "kind": "film", "truth": None, "confirmed": False, "draft": None}
+    assert ns.apply_answer(other, "") == "again"  # no draft to accept
+    assert ns.apply_answer(other, "U|1999") == "next"
+    assert other["truth"] == {"title": "U", "year": 1999} and other["confirmed"] is True
+
+    assert ns.apply_answer({"kind": "film"}, "x") == "drop"
+    assert ns.apply_answer({"kind": "film"}, "q") == "quit"
+    assert ns.apply_answer({"kind": "film"}, "nonsense") == "again"
+
+
+def test_apply_answer_refuses_an_incomplete_season_pack_draft(ns: ModuleType) -> None:
+    entry = {"name": "n", "kind": "episode", "truth": None, "confirmed": False,
+             "draft": {"series": "S", "season": 1, "episode": None}}
+    assert ns.apply_answer(entry, "") == "again"
+    assert entry["confirmed"] is False
+
+
+# --- pattern_of ----------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("entry", "expected"),
+    [
+        ({"name": "Some.Show.S02E03.720p.mkv", "kind": "episode"}, "flat episode file"),
+        ({"name": "Some.Show.S01.COMPLETE.720p", "kind": "episode"}, "season pack"),
+        (
+            {"name": "Some.Show.S01.720p", "kind": "episode", "inner": "Some.Show.S01E01.mkv"},
+            "season pack",
+        ),
+        (
+            {"name": "[Grp] Some Show - 05 (1080p) [ABCD1234].mkv", "kind": "episode"},
+            "absolute episode number",
+        ),
+        ({"name": "[Grp] Some Film (2019).mkv", "kind": "film"}, "bracket group tag"),
+        (
+            film("Made Up Saga 2049", 2017, "Made.Up.Saga.2049.2017.1080p.WEB-DL"),
+            "year in title",
+        ),
+        ({"name": "Some.Film.2019.1080p.WEB-DL.x264-GRP", "kind": "film"}, "plain"),
+    ],
+)
+def test_pattern_of_names_the_shape(ns: ModuleType, entry: dict, expected: str) -> None:
+    assert ns.pattern_of(entry) == expected
+    assert ns.pattern_of(entry) in ns.PATTERNS
+
+
+# --- parse_queries -------------------------------------------------------------------
+
+
+def test_parse_queries_reads_film_and_serie_lines(ns: ModuleType) -> None:
+    assert ns.parse_queries("film: A\nserie: B\n\n# note\n") == [("film", "A"), ("serie", "B")]
+    assert ns.parse_queries("  film:  Big Buck Bunny  \n") == [("film", "Big Buck Bunny")]
+
+
+@pytest.mark.parametrize("text", ["movie: A", "film A", "film:", "serie:   "])
+def test_parse_queries_refuses_an_unknown_prefix_or_an_empty_query(
+    ns: ModuleType, text: str
+) -> None:
+    with pytest.raises(ns.Fail) as caught:
+        ns.parse_queries(text)
+    assert caught.value.step == "queries"
+
+
+# --- capture is names only -----------------------------------------------------------
+
+
+def test_the_script_never_names_the_download_endpoint(ns: ModuleType) -> None:
+    source = (SCRIPTS / "name_scan.py").read_text(encoding="utf-8")
+    assert "/api/" + "download" not in source
+
+
+def test_searches_are_spaced_inside_the_portal_limit(ns: ModuleType) -> None:
+    assert 60 / ns.SEARCH_SPACING <= 10  # SEC-05: 10 searches per minute
+    assert "time.sleep" in (SCRIPTS / "name_scan.py").read_text(encoding="utf-8")
+
+
+# --- the report privacy contract (D-101) ---------------------------------------------
+
+FAKE_REAL = [
+    ("Zorblax.Quantum.Heist.2031.1080p.WEB-DL.x264-GRP", "film", "plain", "identified"),
+    ("[Frobnitz] Quibble Chronicles (2044) [1080p].mkv", "film", "bracket group tag", "wrong title"),
+    ("Mumblecore.Waterfall.S02E03.720p.HDTV.mkv", "episode", "flat episode file", "unidentified"),
+    ("[Wibble] Gnarlybeast Academy - 05 (1080p) [ABCD1234].mkv", "episode",
+     "absolute episode number", "unidentified"),
+]
+
+
+def fake_doc(source: str, rows: list[dict]) -> dict:
+    return {"source": source, "verdict": None, "rows": rows}
+
+
+def fake_real_results(ns: ModuleType) -> dict:
+    rows = [
+        {
+            "name": name,
+            "kind": kind,
+            "expected": "exp " + name[:12],
+            "matched": "got " + name[:12],
+            "result": result,
+            "pattern": pattern,
+        }
+        for name, kind, pattern, result in FAKE_REAL
+    ]
+    doc = fake_doc("real", rows)
+    doc["verdict"] = ns.verdict(rows)
+    return doc
+
+
+def sample_results(ns: ModuleType) -> dict:
+    entries = json.loads(ns.SAMPLE.read_text(encoding="utf-8"))
+    rows = [
+        {
+            "name": e["name"],
+            "kind": e["kind"],
+            "expected": ns.expected_text(e),
+            "matched": ns.expected_text(e),
+            "result": "identified",
+            "pattern": ns.pattern_of(e),
+        }
+        for e in entries
+    ]
+    doc = fake_doc("sample", rows)
+    doc["verdict"] = ns.verdict(rows)
+    return doc
+
+
+def fake_corpus() -> list[dict]:
+    return [{"name": n, "kind": k} for n, k, _, _ in FAKE_REAL]
+
+
+def test_render_report_carries_no_real_name_in_any_form(ns: ModuleType) -> None:
+    real = fake_real_results(ns)
+    text = ns.render_report(real, sample_results(ns))
+    folded = ns.normalise(text)
+
+    for name, kind, _, _ in FAKE_REAL:
+        assert name not in text
+        assert ns.normalise(name) not in folded
+        draft = ns.draft_label(name, kind)
+        title = (draft or {}).get("title") or (draft or {}).get("series") or ""
+        if len(title) >= 8:
+            assert ns.normalise(title) not in folded
+    assert ns.validate_report(text, fake_corpus()) == []
+
+
+def test_render_report_has_the_headings_the_synthetic_names_and_the_counts(ns: ModuleType) -> None:
+    real = fake_real_results(ns)
+    text = ns.render_report(real, sample_results(ns))
+
+    assert text.startswith("# Naming scan test (NAME-01)\n")
+    for heading in ("## Real corpus", "## Synthetic sample", "## Decision"):
+        assert f"\n{heading}\n" in text
+    assert "Pioneer.One.S01E02.720p.WEB.x264-VODO.mkv" in text
+    assert "Meets the D-92 bar: no" in text
+    assert "flat episode file" in text  # failure classes are counts only
+    assert "Pending: recorded in .planning/PROJECT.md after the real scan (plan 03-09)." in text
+
+
+def test_render_report_without_real_results_says_not_run_yet(ns: ModuleType) -> None:
+    text = ns.render_report(None, sample_results(ns))
+    assert "\nNot run yet.\n" in text
+    assert ns.validate_report(text, None) == []
+
+
+def test_render_report_prints_the_decision_when_given(ns: ModuleType) -> None:
+    text = ns.render_report(None, sample_results(ns), decision="The rename step wins.")
+    assert "The rename step wins." in text
+    assert "Pending:" not in text
+
+
+def test_validate_report_flags_a_missing_heading(ns: ModuleType) -> None:
+    text = ns.render_report(None, sample_results(ns)).replace("## Decision", "## Something else")
+    problems = ns.validate_report(text, None)
+    assert any("## Decision" in p for p in problems)
+
+
+def test_validate_report_flags_a_real_name_without_echoing_it(ns: ModuleType) -> None:
+    base = ns.render_report(None, sample_results(ns))
+    for leaked in (
+        FAKE_REAL[0][0],
+        "zorblax quantum heist",  # the name with its punctuation folded
+        "Zorblax-Quantum-Heist",
+    ):
+        problems = ns.validate_report(base + "\n" + leaked + "\n", fake_corpus())
+        assert problems, leaked
+        assert not any("Zorblax" in p for p in problems)
+
+
+def test_validate_report_ignores_a_corpus_name_that_is_a_published_sample_name(
+    ns: ModuleType,
+) -> None:
+    text = ns.render_report(None, sample_results(ns))
+    corpus = [{"name": "Sintel.2010.720p.WEB-DL.AAC.H264.mkv", "kind": "film"}]
+    assert ns.validate_report(text, corpus) == []
+
+
+def test_the_committed_report_is_valid(ns: ModuleType) -> None:
+    path = ns.REPORT
+    if not path.exists():
+        pytest.skip("docs/naming-scan.md is committed later in this plan")
+    assert ns.validate_report(path.read_text(encoding="utf-8"), None) == []
