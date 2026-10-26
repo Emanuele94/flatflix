@@ -681,11 +681,18 @@ def test_the_committed_doc_has_the_ui_spec_skeleton(tg: ModuleType, mc: ModuleTy
     assert text.count(tg.MATRIX_BEGIN) == 1 and text.count(tg.MATRIX_END) == 1
 
 
-def test_the_committed_doc_is_the_untested_matrix(tg: ModuleType) -> None:
+def test_the_committed_doc_has_no_untested_gating_cell(tg: ModuleType, mc: ModuleType) -> None:
+    """Plan 03-08 rendered the measured matrix: the two gating groups carry a result in every row."""
     text = committed_doc()
     matrix = text[text.index(tg.MATRIX_BEGIN) : text.index(tg.MATRIX_END)]
+    gating = [heading for _, heading, is_gating in mc.GROUPS if is_gating]
+    assert gating
 
-    assert tg.render_matrix({}, {}) in matrix
+    for heading in gating:
+        start = matrix.index(f"## {heading}\n")
+        end = matrix.find("\n## ", start + 1)
+        section = matrix[start : end if end != -1 else len(matrix)]
+        assert "| not tested |" not in section, heading
 
 
 def mutate_cell(text: str, row_id: str, column: int, value: str) -> str:
@@ -871,7 +878,13 @@ def test_render_into_the_committed_doc_without_results_reproduces_it_byte_for_by
     args = type("Args", (), {"doc": str(copy), "out": None, "results": str(tmp_path / "none.json")})()
     assert tg.cmd_render(args) == 0
 
-    assert copy.read_text(encoding="utf-8") == committed_doc()
+    # Without results the matrix goes back to the untested skeleton; everything outside the markers
+    # (opening facts, Address check, Streaming bitrate, Verdict) stays byte for byte.
+    original = committed_doc()
+    rendered = copy.read_text(encoding="utf-8")
+    keep = lambda s: (s[: s.index(tg.MATRIX_BEGIN)], s[s.index(tg.MATRIX_END) :])
+    assert keep(rendered) == keep(original)
+    assert tg.render_matrix({}, {}) in rendered
 
 
 def test_render_into_a_doc_puts_the_played_rows_in_the_matrix(
