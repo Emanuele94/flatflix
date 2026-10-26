@@ -55,8 +55,8 @@ Requirements for the initial release. Each maps to exactly one roadmap phase.
 
 - [x] **INFRA-01**: The portal stack (frontend, backend, qBittorrent) starts with a single `docker compose up` on the laptop and `GET /api/health` reports service status. (qbit section 7, 11)
 - [x] **INFRA-02**: One laptop-wide port map, documented in one place, assigns host ports for Caddy, the portal frontend, the qBittorrent WebUI (only if published) and Jellyfin 8096 without collisions; qBittorrent's WebUI port differs from the portal frontend's and `QBITTORRENT_URL` matches. (W3)
-- [ ] **INFRA-03**: Caddy and Jellyfin run according to the port map; the portal and Jellyfin/Caddy stacks share a Docker network or one compose project; whether Caddy also fronts the portal is decided and recorded; the TV reaches Jellyfin only through Caddy's single address. (W3, ht architecture)
-- [ ] **INFRA-04**: A DHCP reservation keeps the laptop on the same LAN IP, so the TV address does not change after reboots. (ht setup)
+- [x] **INFRA-03**: Caddy and Jellyfin run according to the port map; the portal and Jellyfin/Caddy stacks share a Docker network or one compose project; whether Caddy also fronts the portal is decided and recorded; the TV reaches Jellyfin only through Caddy's single address. (W3, ht architecture)
+- [x] **INFRA-04**: A DHCP reservation keeps the laptop on the same LAN IP, so the TV address does not change after reboots. (ht setup)
 - [ ] **INFRA-05**: The whole stack (portal, Firecracker validation runner, Jellyfin, Caddy) comes up on a fresh Ubuntu Server machine from the repo using documented steps and a `.env` built from `.env.example`; moving to another machine changes only the host address. (ht architecture, derived)
 
 ### Shared Media & Naming
@@ -72,11 +72,11 @@ Requirements for the initial release. Each maps to exactly one roadmap phase.
 ### Jellyfin Server & TV Compatibility
 
 - [x] **JFIN-01**: Jellyfin runs in Docker on the laptop with persistent config, cache and media volumes and its admin UI on port 8096; a household user exists (one shared user vs separate profiles decided and recorded) with default audio and subtitle language set. (ht setup, open decisions)
-- [ ] **JFIN-02**: Scanning correctly named sample content (in a scratch folder separate from the portal's folders) produces posters, plots, cast, seasons and episodes stored locally. (ht backend)
+- [x] **JFIN-02**: Scanning correctly named sample content (in a scratch folder separate from the portal's folders) produces posters, plots, cast, seasons and episodes stored locally. (ht backend)
 - [ ] **JFIN-03**: A maximum streaming bitrate suited to the home network is configured on Jellyfin. (ht network)
-- [ ] **COMPAT-01**: Tested on the real TV through Jellyfin's web UI: H.264 and HEVC video, including 10-bit, play and the playback method (direct play / remux / transcode) is recorded. (ht compatibility test)
-- [ ] **COMPAT-02**: Tested on the real TV: AAC, AC3, EAC3 and DTS audio, with the playback method recorded for each. (ht compatibility test)
-- [ ] **COMPAT-03**: Tested on the real TV: SRT and embedded subtitles, with the result recorded. (ht compatibility test)
+- [x] **COMPAT-01**: Tested on the real TV through Jellyfin's web UI: H.264 and HEVC video, including 10-bit, play and the playback method (direct play / remux / transcode) is recorded. (ht compatibility test)
+- [x] **COMPAT-02**: Tested on the real TV: AAC, AC3, EAC3 and DTS audio, with the playback method recorded for each. (ht compatibility test)
+- [x] **COMPAT-03**: Tested on the real TV: SRT and embedded subtitles, with the result recorded. (ht compatibility test)
 - [ ] **COMPAT-04**: Jellyfin's admin dashboard is checked to see which playbacks end in transcoding, and a go/no-go verdict on "no video transcoding" is recorded; if no-go, a mitigation is chosen (re-encode library, plan B stick, or stronger server hardware). (ht compatibility test, playback matrix)
 
 ### TV App
@@ -161,8 +161,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PUI-02 | Phase 1 | Complete |
 | INFRA-01 | Phase 1 | Complete |
 | INFRA-02 | Phase 1 | Complete |
-| INFRA-03 | Phase 3 | Pending |
-| INFRA-04 | Phase 3 | Pending |
+| INFRA-03 | Phase 3 | Complete |
+| INFRA-04 | Phase 3 | Complete |
 | INFRA-05 | Phase 6 | Pending |
 | MEDIA-01 | Phase 1 | Complete |
 | FILT-01 | Phase 1 | Complete |
@@ -179,11 +179,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | NAME-03 | Phase 4 | Pending |
 | NAME-04 | Phase 4 | Pending |
 | JFIN-01 | Phase 3 | Complete |
-| JFIN-02 | Phase 3 | Pending |
+| JFIN-02 | Phase 3 | Complete |
 | JFIN-03 | Phase 3 | Pending |
-| COMPAT-01 | Phase 3 | Pending |
-| COMPAT-02 | Phase 3 | Pending |
-| COMPAT-03 | Phase 3 | Pending |
+| COMPAT-01 | Phase 3 | Complete |
+| COMPAT-02 | Phase 3 | Complete |
+| COMPAT-03 | Phase 3 | Complete |
 | COMPAT-04 | Phase 3 | Pending |
 | TV-01 | Phase 5 | Pending |
 | TV-02 | Phase 5 | Pending |
