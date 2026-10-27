@@ -574,11 +574,21 @@ def test_the_store_saves_and_loads_rows_and_forgets(tg: ModuleType, tmp_path: Pa
     assert again.rows() == {}
 
 
-def test_a_missing_or_broken_results_file_reads_as_empty(tg: ModuleType, tmp_path: Path) -> None:
+def test_a_missing_results_file_reads_as_empty(tg: ModuleType, tmp_path: Path) -> None:
     assert tg.ResultStore(tmp_path / "none.json").rows() == {}
+
+
+def test_a_broken_results_file_is_refused_and_left_untouched(tg: ModuleType, tmp_path: Path) -> None:
     broken = tmp_path / "broken.json"
-    broken.write_text("{not json")
-    assert tg.ResultStore(broken).rows() == {}
+    broken.write_text('{"rows": {"A01": [],}}')
+
+    with pytest.raises(tg.Fail) as caught:
+        tg.ResultStore(broken)
+
+    assert caught.value.step == "results"
+    assert "broken.json" in caught.value.reason
+    assert broken.read_text() == '{"rows": {"A01": [],}}'
+    assert [p.name for p in tmp_path.iterdir()] == ["broken.json"]
 
 
 def test_save_leaves_the_previous_file_intact_when_the_replace_fails(

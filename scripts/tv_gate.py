@@ -313,8 +313,12 @@ class ResultStore:
         self.data: dict[str, list[dict]] = {}
         try:
             raw = json.loads(self.path.read_text(encoding="utf-8"))
-        except (FileNotFoundError, ValueError):
-            raw = {}
+        except FileNotFoundError:
+            raw = {}  # no file yet: a first session starts empty
+        except ValueError:
+            # A hand edit or a half-written file must not read as "no results": the next save would
+            # replace it and lose every play recorded on the real TV (WR-03).
+            raise Fail("results", f"{self.path.name} is not valid JSON: fix it or move it away") from None
         rows = raw.get("rows") if isinstance(raw, dict) else None
         if isinstance(rows, dict):
             self.data = {k: [e for e in v if isinstance(e, dict)] for k, v in rows.items() if isinstance(v, list)}
