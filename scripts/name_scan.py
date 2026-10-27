@@ -89,6 +89,7 @@ QUERIES = WORK / "queries.txt"
 RESULTS = WORK / "results.json"
 SAMPLE_RESULTS = WORK / "sample-results.json"
 TABLE = WORK / "table.md"
+SAMPLE_TABLE = WORK / "sample-table.md"
 RAW = SCRATCH / "Raw"
 SAMPLE = ROOT / "scripts" / "name_scan_sample.json"
 REPORT = ROOT / "docs" / "naming-scan.md"
@@ -778,10 +779,11 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     rows = build_rows(entries, items, series)
     document = results_document(source, rows)
-    write_atomic(RESULTS, json.dumps(document, indent=2, ensure_ascii=False) + "\n")
-    if source == "sample":
-        write_atomic(SAMPLE_RESULTS, json.dumps(document, indent=2, ensure_ascii=False) + "\n")
-    write_atomic(TABLE, render_table(rows))
+    # The real files hold real runs only: a run of the synthetic sample must never replace the
+    # evidence of the real corpus (WR-04).
+    text = json.dumps(document, indent=2, ensure_ascii=False) + "\n"
+    write_atomic(SAMPLE_RESULTS if source == "sample" else RESULTS, text)
+    write_atomic(SAMPLE_TABLE if source == "sample" else TABLE, render_table(rows))
     print("OK scan-settled")
     counts = document["verdict"]
     print(result_line(counts))
@@ -904,16 +906,42 @@ def _corpus_for_check(real: dict | None) -> list[dict]:
     return entries
 
 
+def _section(text: str, heading: str, next_heading: str | None) -> str | None:
+    """The body of one `## ` section of a report, or None when the heading is absent."""
+    start = text.find(f"\n{heading}\n")
+    if start < 0:
+        return None
+    start += len(heading) + 2
+    end = text.find(f"\n{next_heading}\n", start) if next_heading else -1
+    return text[start : end if end >= 0 else len(text)].strip()
+
+
+def _existing_report(path: Path) -> tuple[bool, str | None]:
+    """(the report already holds real counts, its Decision text unless it is the pending line)."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return False, None
+    real = _section(text, "## Real corpus", "## Synthetic sample")
+    decision = _section(text, "## Decision", None)
+    return bool(real) and real != "Not run yet.", (None if decision == PENDING_DECISION else decision) or None
+
+
 def cmd_report(args: argparse.Namespace) -> int:
     real = _read_results(Path(args.results))
     if real is not None and real.get("source") != "real":
-        real = None  # the last run was the synthetic sample
+        real = None  # an old results file written by a sample run
     sample = _read_results(Path(args.sample_results))
-    text = render_report(real, sample, args.decision)
+    out = Path(args.out)
+    had_real, kept_decision = _existing_report(out)
+    if real is None and had_real:
+        raise Fail("report", "not written: the report holds real counts but there are no real results to rebuild them")
+    # Rewriting the report must not wipe a recorded decision (WR-04).
+    text = render_report(real, sample, args.decision if args.decision is not None else kept_decision)
     problems = validate_report(text, _corpus_for_check(real))
     if problems:
         raise Fail("report", "not written: " + "; ".join(problems))
-    write_atomic(Path(args.out), text)
+    write_atomic(out, text)
     print(f"OK report written ({'real counts' if real else 'real corpus not run yet'})")
     return 0
 

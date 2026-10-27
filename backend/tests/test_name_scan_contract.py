@@ -653,3 +653,114 @@ def test_the_committed_report_is_valid(ns: ModuleType) -> None:
     if not path.exists():
         pytest.skip("docs/naming-scan.md is committed later in this plan")
     assert ns.validate_report(path.read_text(encoding="utf-8"), None) == []
+
+
+# --- a sample run and a report never clobber the real evidence (WR-04) -----------------
+
+
+@pytest.fixture
+def workdir(ns: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    for attr, name in (
+        ("RESULTS", "results.json"),
+        ("SAMPLE_RESULTS", "sample-results.json"),
+        ("TABLE", "table.md"),
+        ("SAMPLE_TABLE", "sample-table.md"),
+        ("CORPUS", "corpus.json"),
+    ):
+        monkeypatch.setattr(ns, attr, tmp_path / name)
+    monkeypatch.setattr(ns, "build_raw", lambda entries: len(entries))
+    monkeypatch.setattr(ns.js, "admin_api", lambda _base: (None, "user"))
+    monkeypatch.setattr(ns, "ensure_raw_libraries", lambda _api: {})
+    monkeypatch.setattr(ns.js, "wait_for_scan", lambda _api, _user: None)
+    monkeypatch.setattr(ns, "settled_collect", lambda _api, _user, _libs: ({}, {}))
+    return tmp_path
+
+
+def run_args(ns: ModuleType, corpus: Path) -> object:
+    return type("Args", (), {"corpus": str(corpus), "base": "http://x"})()
+
+
+def test_a_sample_run_leaves_the_real_results_and_table_alone(
+    ns: ModuleType, workdir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    real_rows = fake_real_results(ns)["rows"]
+    sample_rows = sample_results(ns)["rows"]
+    real_corpus = workdir / "real-corpus.json"
+    real_corpus.write_text(ns.SAMPLE.read_text(encoding="utf-8"), encoding="utf-8")
+
+    monkeypatch.setattr(ns, "build_rows", lambda *_a: real_rows)
+    assert ns.cmd_run(run_args(ns, real_corpus)) == 0
+    real_text, table_text = ns.RESULTS.read_text(), ns.TABLE.read_text()
+    assert json.loads(real_text)["source"] == "real"
+    assert not ns.SAMPLE_RESULTS.exists()
+
+    monkeypatch.setattr(ns, "build_rows", lambda *_a: sample_rows)
+    assert ns.cmd_run(run_args(ns, ns.SAMPLE)) == 0
+
+    assert ns.RESULTS.read_text() == real_text
+    assert ns.TABLE.read_text() == table_text
+    assert json.loads(ns.SAMPLE_RESULTS.read_text())["source"] == "sample"
+    assert ns.SAMPLE_TABLE.exists()
+
+
+def report_args(ns: ModuleType, out: Path, decision: str | None = None) -> object:
+    return type(
+        "Args",
+        (),
+        {
+            "results": str(ns.RESULTS),
+            "sample_results": str(ns.SAMPLE_RESULTS),
+            "out": str(out),
+            "decision": decision,
+        },
+    )()
+
+
+def seed_report(ns: ModuleType, workdir: Path, decision: str) -> Path:
+    ns.RESULTS.write_text(json.dumps(fake_real_results(ns)), encoding="utf-8")
+    ns.SAMPLE_RESULTS.write_text(json.dumps(sample_results(ns)), encoding="utf-8")
+    out = workdir / "naming-scan.md"
+    assert ns.cmd_report(report_args(ns, out, decision)) == 0
+    return out
+
+
+def test_report_without_a_decision_keeps_the_recorded_decision(ns: ModuleType, workdir: Path) -> None:
+    out = seed_report(ns, workdir, "The rename step wins, on the data above.")
+
+    assert ns.cmd_report(report_args(ns, out)) == 0
+
+    text = out.read_text()
+    assert "The rename step wins, on the data above." in text
+    assert "Pending:" not in text
+    assert "Meets the D-92 bar: no" in text
+
+
+def test_report_with_a_decision_replaces_the_recorded_one(ns: ModuleType, workdir: Path) -> None:
+    out = seed_report(ns, workdir, "Old decision.")
+
+    assert ns.cmd_report(report_args(ns, out, "New decision.")) == 0
+
+    text = out.read_text()
+    assert "New decision." in text and "Old decision." not in text
+
+
+def test_report_refuses_to_replace_real_counts_with_not_run_yet(ns: ModuleType, workdir: Path) -> None:
+    out = seed_report(ns, workdir, "Keep me.")
+    before = out.read_text()
+    ns.RESULTS.unlink()  # no real run on hand any more
+
+    with pytest.raises(ns.Fail) as caught:
+        ns.cmd_report(report_args(ns, out))
+
+    assert caught.value.step == "report"
+    assert out.read_text() == before
+
+
+def test_report_of_a_fresh_file_still_says_not_run_yet_and_pending(ns: ModuleType, workdir: Path) -> None:
+    ns.SAMPLE_RESULTS.write_text(json.dumps(sample_results(ns)), encoding="utf-8")
+    out = workdir / "fresh.md"
+
+    assert ns.cmd_report(report_args(ns, out)) == 0
+
+    text = out.read_text()
+    assert "\nNot run yet.\n" in text and "Pending:" in text
