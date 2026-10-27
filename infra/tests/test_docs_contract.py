@@ -12,6 +12,8 @@ import re
 import subprocess
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(
     subprocess.run(
         ["git", "rev-parse", "--show-toplevel"],
@@ -118,6 +120,35 @@ def bad_addresses(text: str) -> list[str]:
     """URLs that name anything but a placeholder, the loopback address or the household name."""
     allowed = ("<laptop-ip>", "<laptop-name>.local", "127.0.0.1", "flatflix.local", "localhost")
     return [url for url in _URL.findall(text) if not any(url.startswith(f"http://{a}") for a in allowed)]
+
+
+_COMPOSE_COMMAND = re.compile(r"docker compose ([^`\n|<]*)")
+_MANY_SERVICES = {"up", "build", "restart", "stop", "start", "logs", "ps", "pull", "kill", "down"}
+_ONE_SERVICE = {"exec", "run", "port"}
+
+
+def documented_services(text: str) -> list[str]:
+    """Every service name a printed `docker compose <subcommand> ...` command points at."""
+    found = []
+    for raw in _COMPOSE_COMMAND.findall(text):
+        tokens = re.split(r"\s*&&\s*", raw.strip())[0].split()
+        while tokens[:1] == ["-f"]:  # global option before the subcommand: -f FILE
+            tokens = tokens[2:]
+        if not tokens:
+            continue
+        subcommand, rest = tokens[0], [t for t in tokens[1:] if not t.startswith("-")]
+        if subcommand in _ONE_SERVICE:
+            found += rest[:1]
+        elif subcommand in _MANY_SERVICES:
+            found += [t for t in rest if not t.isdigit()]
+    return found
+
+
+def compose_services() -> set[str]:
+    names: set[str] = set()
+    for name in ("docker-compose.yml", "docker-compose.admin.yml"):
+        names |= set(yaml.safe_load((ROOT / name).read_text(encoding="utf-8")).get("services") or {})
+    return names
 
 
 def setup_text() -> str:
@@ -503,3 +534,20 @@ def test_the_device_id_scan_catches_each_separator_and_ignores_prose():
         assert find_device_ids(sample) == [sample], sample
     assert find_device_ids("Forbidden: serial number, device ID, ESN, MAC address.") == []
     assert find_device_ids("The serial is never recorded") == []
+
+
+def test_every_compose_service_the_docs_name_exists():
+    services = compose_services()
+    assert {"web", "jellyfin", "backend"} <= services
+    for doc in sorted((ROOT / "docs").glob("*.md")):
+        unknown = [n for n in documented_services(doc.read_text(encoding="utf-8")) if n not in services]
+        assert unknown == [], f"{doc.name} names a compose service that does not exist: {unknown}"
+
+
+def test_the_service_check_has_teeth():
+    assert documented_services("`docker compose up -d --wait caddy`") == ["caddy"]
+    assert documented_services("docker compose up -d --build --wait web") == ["web"]
+    assert documented_services("`docker compose exec -T backend python -m app.tools.doctor --wait 120`") == ["backend"]
+    assert documented_services("`docker compose -f a.yml -f b.yml up -d`") == []
+    assert documented_services("`docker compose port qbittorrent 8088`") == ["qbittorrent"]
+    assert documented_services("docker compose stop jellyfin && sudo rm -rf x") == ["jellyfin"]

@@ -694,7 +694,7 @@ sandbox suite below.
 | Doctor: `sandbox selftest failed (...)` | The VM could not boot. `docker compose logs sandbox` names the cause; a kernel or Firecracker change needs `docker compose build sandbox`. |
 | Downloads stay in "Checking..." | The sandbox is down or the folders are on two filesystems. Run the doctor: it names which. Rows wait and resume by themselves; after `CHECKING_PROBLEM_HOURS` they read "Problem". |
 | Doctor: `quarantine and media are on different filesystems` | `DATA_ROOT` spans two filesystems (a second mount inside it, or `/mnt/c` on WSL). Put the whole tree on one Linux filesystem; the backend never copies. |
-| Jellyfin page is blank or has no styles | The page's security header is wrong. Run `curl -sI http://127.0.0.1/jellyfin/web/index.html \| grep -ci '^content-security-policy'`: it must print 1, and that header must include `'wasm-unsafe-eval'`. Then `docker compose up -d --wait caddy`. |
+| Jellyfin page is blank or has no styles | The page's security header is wrong. Run `curl -sI http://127.0.0.1/jellyfin/web/index.html \| grep -ci '^content-security-policy'`: it must print 1, and that header must include `'wasm-unsafe-eval'`. Then `docker compose up -d --build --wait web`. |
 | The TV cannot open the .local name | Use the IP address, `http://<laptop-ip>/jellyfin` (see "A name instead of the address (.local)"). |
 | Jellyfin says it is starting | Wait one minute and reload. |
 | `/jellyfin` shows 'Jellyfin is not available right now' | Jellyfin is down or restarting. `docker compose ps jellyfin`, then `docker compose logs jellyfin`. |
