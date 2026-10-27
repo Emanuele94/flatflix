@@ -56,12 +56,21 @@ for d in "${dirs[@]}"; do
   if [ "$owner" != "$PUID:$PGID" ]; then
     $SUDO chown "$PUID:$PGID" "$d"
   fi
-  if [ "$d" = "$DATA_ROOT/rejected" ]; then
-    # Suspect files must not be readable by other host users (D-55).
-    $SUDO chmod 0700 "$d"
-  else
-    $SUDO chmod 0775 "$d"
-  fi
+  case "$d" in
+    "$DATA_ROOT/rejected")
+      # Suspect files must not be readable by other host users (D-55).
+      $SUDO chmod 0700 "$d"
+      ;;
+    jellyfin/config | jellyfin/config/config | jellyfin/cache)
+      # Jellyfin's database, password hashes and access tokens live here. It runs as PUID:PGID,
+      # the owner, so it needs nothing for group or others (WR-07). Applied on every run, so an
+      # existing install is tightened too.
+      $SUDO chmod 0700 "$d"
+      ;;
+    *)
+      $SUDO chmod 0775 "$d"
+      ;;
+  esac
   printf '%s %s\n' "$d" "$(stat -c '%u:%g' "$d")"
 done
 

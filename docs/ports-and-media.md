@@ -110,6 +110,11 @@ gitignored):
 `jellyfin/config/config/network.xml` with the BaseURL `/jellyfin` only when that
 file is absent. The media mount comes in Phase 4.
 
+`jellyfin/config` and `jellyfin/cache` are mode `0700` (the script sets it on every
+run): the database holds password hashes and access tokens, and Jellyfin runs as
+`PUID:PGID`, the owner. The helper scripts that read `jellyfin/config/log` and
+`jellyfin/config/metadata` must therefore run as the same user as `PUID`.
+
 ### Notes for later phases
 
 - When some files of a torrent are skipped, qBittorrent can leave a hidden
