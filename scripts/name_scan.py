@@ -177,15 +177,24 @@ def safe_component(name: str, reserve: int = 0) -> str:
     return cleaned or "unnamed"
 
 
+def file_component(name: str) -> str:
+    """safe_component for a file name: a video extension survives the byte cap, because ffmpeg picks
+    the output format from it and a cut `.mkv` would fail the whole scan (WR-06)."""
+    for ext in VIDEO_EXTS:
+        if name.lower().endswith(ext):
+            return safe_component(name[: -len(ext)], reserve=len(ext)) + name[-len(ext) :]
+    return safe_component(name)
+
+
 def layout(entry: dict) -> Path:
     """Where the Phase 2.1 hand-off would link this torrent, relative to the Raw folder."""
     root = "Movies" if entry["kind"] == "film" else "TV"
     name = str(entry["name"])
     if name.lower().endswith(VIDEO_EXTS):  # a single-file torrent: the file in the library root
-        return Path(root) / safe_component(name)
+        return Path(root) / file_component(name)
     inner = entry.get("inner")
     if inner:
-        file_name = safe_component(str(inner))
+        file_name = file_component(str(inner))
     else:
         file_name = safe_component(name, reserve=len(".mkv")) + ".mkv"
     return Path(root) / safe_component(name) / file_name

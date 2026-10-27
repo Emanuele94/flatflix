@@ -116,6 +116,26 @@ def test_layout_uses_the_inner_file_name_when_given(ns: ModuleType) -> None:
     assert ns.layout(entry) == Path("TV") / "Show.S01.COMPLETE" / "Show.S01E01.mkv"
 
 
+def test_layout_keeps_the_video_extension_of_a_name_over_the_byte_cap(ns: ModuleType) -> None:
+    for ext in (".mkv", ".MP4"):
+        name = "A" * 230 + ext  # a scene-style name between 201 and 255 bytes
+        file_name = ns.layout({"name": name, "kind": "film"}).name
+        assert file_name.endswith(ext)
+        assert len(file_name.encode("utf-8")) <= ns.MAX_COMPONENT_BYTES
+
+
+def test_layout_keeps_the_extension_of_a_long_inner_file_name(ns: ModuleType) -> None:
+    entry = {"name": "Show.S01.COMPLETE", "kind": "episode", "inner": "é" * 120 + ".mkv"}
+    file_name = ns.layout(entry).name
+    assert file_name.endswith(".mkv")
+    assert len(file_name.encode("utf-8")) <= ns.MAX_COMPONENT_BYTES
+    assert set(file_name[:-4]) == {"é"}  # cut on a character boundary
+
+
+def test_layout_of_a_bare_extension_name_still_yields_a_named_file(ns: ModuleType) -> None:
+    assert ns.layout({"name": ".mkv", "kind": "film"}) == Path("Movies") / "unnamed.mkv"
+
+
 def test_layout_puts_episodes_under_tv(ns: ModuleType) -> None:
     assert ns.layout({"name": "Show.S01E02.mkv", "kind": "episode"}).parts[0] == "TV"
 
