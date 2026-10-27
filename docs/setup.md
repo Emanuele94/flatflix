@@ -142,7 +142,7 @@ published and the admin dashboard is reachable only through `/jellyfin` (D-82). 
 holds a scratch library of open-licensed films and one Creative Commons series; the portal's
 media folders join in Phase 4.
 
-On the TV browser, open http://<laptop-ip>/jellyfin.
+On the TV browser, open http://<laptop-ip>/jellyfin. The TV did not resolve .local names on firmware V0003.09.60A.Q0707 (D-81), so the IP form stays the household address.
 
 ### First start
 

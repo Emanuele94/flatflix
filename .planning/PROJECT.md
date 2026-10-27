@@ -91,7 +91,7 @@ No locked decisions. No ADRs were ingested (both source docs are unlocked SPECs)
 | One shared Jellyfin user or separate profiles | Separate profiles are out of scope for now | One shared household account `household` with a password from .env, separate from the hidden `admin`; separate profiles stay out of scope (PROF-01) — Decided (user, D-94, Phase 3) |
 | Default audio and subtitle language | Open decision in home-theater.md | Audio English, else the file's default track; subtitles Smart mode in English, forced subtitles always shown — Decided (user, D-95, Phase 3) |
 | TV distribution: plan A (VIDAA icon tool) or plan B (HDMI stick + APK) | Plan A is unofficial and may break on firmware updates | — Pending (Phase 6) |
-| Exact production box model | Must be x86_64 with VT-x + KVM for Firecracker; N100/N150 class also covers Jellyfin transcoding if Phase 3 needs it | — Pending (before Phase 6; informed by Phase 3 gate) |
+| Exact production box model | Must be x86_64 with VT-x + KVM for Firecracker; N100/N150 class also covers Jellyfin transcoding if Phase 3 needs it | Phase 3 gate is GO with no 1080p video transcoding on the real TV, so no transcoding power is needed for 1080p; the box only has to be x86_64 with KVM for Firecracker — Pending (before Phase 6) |
 | If and when to open access from outside home (Tailscale / WireGuard) | Out of scope for v1 | — Pending (v2) |
 | Every torrent add carries `stopCondition=MetadataReceived`, never a stopped add (D-23 re-affirmed) | A fully stopped magnet never fetches metadata; qBittorrent 5.2.4 pauses metadata-complete adds itself | Decided (Phase 1, gap G-01-3) |
 | Keep the FILT-02 allowlist (.mkv .mp4 .avi .m4v); a torrent whose only videos are another format gets its own "unsupported" status and message | User choice (option B) over widening the allowlist | Decided (user, 2026-10-22) |
@@ -102,7 +102,7 @@ No locked decisions. No ADRs were ingested (both source docs are unlocked SPECs)
 | Audit trail on stdout with json-file rotation (10m x 5), secrets redacted; qBittorrent password should be at least 8 characters | Admin reads `docker compose logs backend`; no log volume (D-40) | Decided (Phase 2) |
 | TheMovieDb lookup by the portal backend | Opt-in TMDB_API_KEY in .env, empty means offline parsing; needs backend Internet egress | Allowed (user, D-93); Phase 4 decides whether to use it from the NAME-01 result |
 | Jellyfin admin password visible in the backend container (env_file) | Backend receives the whole .env | Accepted dev risk (user, D-100); env allowlist for the backend deferred to Phase 5 |
-| TV compatibility matrix and go/no-go verdict | Measured on the real TV through the stock Jellyfin web client; Phase 5 builds its device profile from it | [docs/tv-compatibility.md](../docs/tv-compatibility.md) — Pending (Phase 3 TV session) |
+| TV compatibility matrix and go/no-go verdict | Measured on the real TV through the stock Jellyfin web client; Phase 5 builds its device profile from it | [docs/tv-compatibility.md](../docs/tv-compatibility.md) — GO (Phase 3, 2026-10-27) — Decided (user, D-87) |
 
 ## Evolution
 
@@ -122,4 +122,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-27 after the Phase 3 naming decision*
+*Last updated: 2026-10-27 after the Phase 3 TV verdict (GO)*

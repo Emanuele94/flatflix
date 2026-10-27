@@ -77,7 +77,7 @@ burn-in forced: not tested
 - Tested name: `<laptop-name>.local`
 - Date: 2026-10-26
 - Household default address: `http://<laptop-ip>/jellyfin` (stays the default until a `.local` name passes on the TV, D-81)
-- Same address after laptop and router restart: yes (2026-10-26)
+- Same address after laptop and router restart: yes (2026-10-27)
 
 ## Streaming bitrate
 
@@ -89,4 +89,12 @@ burn-in forced: not tested
 
 ## Verdict
 
-**Pending**: the real-TV session has not run yet.
+**GO**
+
+Phase 5 builds its device profile from the rows marked Direct play or Remux above.
+
+1080p content needed video transcoding: never
+
+Jellyfin version tested: 12.3.0
+
+The matrix is the stock web client's floor: Phase 5's own device profile starts from it and can only do better.

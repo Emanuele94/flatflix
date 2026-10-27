@@ -445,7 +445,29 @@ def test_the_new_rows_record_tmdb_the_admin_password_and_the_compatibility_doc()
     assert "D-100" in exposure[2] and "Phase 5" in exposure[2]
     matrix = row_starting("TV compatibility matrix and go/no-go verdict")
     assert "[docs/tv-compatibility.md](../docs/tv-compatibility.md)" in matrix[2]
-    assert "Pending (Phase 3 TV session)" in matrix[2]
+    assert "Pending (Phase 3 TV session)" not in matrix[2]
+
+
+def test_the_tv_verdict_is_recorded():
+    text = (ROOT / "docs" / "tv-compatibility.md").read_text(encoding="utf-8")
+    first = next(ln.strip() for ln in section(text, "## Verdict").splitlines() if ln.strip())
+    assert first in ("**GO**", "**GO with conditions**", "**NO-GO**")
+    assert "**Pending**" not in text
+    matrix = row_starting("TV compatibility matrix and go/no-go verdict")
+    assert "Decided (user, D-87)" in matrix[2] and "Pending" not in matrix[2]
+    assert first.strip("*") in matrix[2]
+
+
+def test_the_household_address_matches_the_address_check():
+    check = section((ROOT / "docs" / "tv-compatibility.md").read_text(encoding="utf-8"), "## Address check")
+    resolved = re.search(r"`\.local` name resolved on the TV: (yes|no)", check)
+    assert resolved, "the Address check must say yes or no"
+    body = section(setup_text(), SECTION)
+    if resolved.group(1) == "no":
+        assert ADDRESS_IP_FORM in body and ADDRESS_BOTH_FORM not in body
+        assert "did not resolve .local names" in body
+    else:
+        assert ADDRESS_BOTH_FORM in body and ADDRESS_IP_FORM not in body
 
 
 def test_the_compatibility_link_points_at_a_file_that_exists():

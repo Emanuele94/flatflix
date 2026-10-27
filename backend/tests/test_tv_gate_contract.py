@@ -630,6 +630,12 @@ def committed_doc() -> str:
     return DOC_PATH.read_text(encoding="utf-8")
 
 
+def pending_doc() -> str:
+    """The committed document with its verdict block put back to the pre-session pending line."""
+    head, _, _ = committed_doc().partition("## Verdict")
+    return head + "## Verdict\n\n" + PENDING + "\n"
+
+
 def verdict_doc(tg: ModuleType, mc: ModuleType, headline: str, *, results: dict | None = None) -> str:
     """The committed document with a fully tested matrix and a verdict block for the headline."""
     text = committed_doc()
@@ -677,7 +683,9 @@ def test_the_committed_doc_has_the_ui_spec_skeleton(tg: ModuleType, mc: ModuleTy
         "## Verdict",
     ]
     assert "V0003.09.60A.Q0707" in text
-    assert PENDING in text.splitlines()
+    verdict = text[text.index("## Verdict") :].splitlines()
+    assert next(ln for ln in verdict[1:] if ln.strip()) in ("**GO**", "**GO with conditions**", "**NO-GO**")
+    assert PENDING not in text.splitlines()
     assert text.count(tg.MATRIX_BEGIN) == 1 and text.count(tg.MATRIX_END) == 1
 
 
@@ -806,7 +814,7 @@ def test_the_words_alone_are_allowed(tg: ModuleType) -> None:
 
 
 def test_a_verdict_must_open_with_a_known_headline(tg: ModuleType) -> None:
-    text = committed_doc().replace(PENDING, "**Maybe**")
+    text = pending_doc().replace(PENDING, "**Maybe**")
 
     assert tg.validate_doc(text)
 
@@ -891,7 +899,7 @@ def test_render_into_a_doc_puts_the_played_rows_in_the_matrix(
     tg: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     copy = tmp_path / "doc.md"
-    copy.write_text(committed_doc(), encoding="utf-8")
+    copy.write_text(pending_doc(), encoding="utf-8")
     store = tg.ResultStore(tmp_path / "results.json")
     store.add("A01", {"row": "A01", "method": "Remux", "reasons": ["ContainerNotSupported"], "ok": "yes"})
     store.save()
