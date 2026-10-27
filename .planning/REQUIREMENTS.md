@@ -64,7 +64,7 @@ Requirements for the initial release. Each maps to exactly one roadmap phase.
 - [x] **MEDIA-01**: Host media folders for Film and SerieTV are defined once (host paths, owner UID/GID), writable by qBittorrent, and qBittorrent keeps incomplete downloads in a separate folder so the final folders contain only completed files. (W2, qbit sections 6, 11)
 - [ ] **MEDIA-02**: Jellyfin mounts both media folders read-only with matching permissions and has two libraries, Film and SerieTV, pointing at them. (W2, ht setup)
 - [ ] **MEDIA-03**: When a download completes, the Jellyfin library is refreshed automatically (rescan trigger or schedule) so the item appears without admin action; partially downloaded files are never scanned. (W2)
-- [ ] **NAME-01**: The owner of the Jellyfin naming layout is decided and recorded in PROJECT.md Key Decisions (portal post-download step, external library manager, or relaxed requirement), backed by a Jellyfin scan test using raw torrent-style names; this is resolved before the two parts are integrated. (W1)
+- [x] **NAME-01**: The owner of the Jellyfin naming layout is decided and recorded in PROJECT.md Key Decisions (portal post-download step, external library manager, or relaxed requirement), backed by a Jellyfin scan test using raw torrent-style names; this is resolved before the two parts are integrated. (W1)
 - [ ] **NAME-02**: A completed film download ends up as `Title (Year)/Title (Year).<ext>` in the film media folder. (W1, ht naming)
 - [ ] **NAME-03**: A completed series episode download ends up as `Series/Season 01/Series S01E01.<ext>` in the series media folder. (W1, ht naming)
 - [ ] **NAME-04**: A download that cannot be identified is neither silently dropped nor mis-filed: it stays in an unsorted location and is flagged in the logs for the admin. (W1, derived)
@@ -73,11 +73,11 @@ Requirements for the initial release. Each maps to exactly one roadmap phase.
 
 - [x] **JFIN-01**: Jellyfin runs in Docker on the laptop with persistent config, cache and media volumes and its admin UI on port 8096; a household user exists (one shared user vs separate profiles decided and recorded) with default audio and subtitle language set. (ht setup, open decisions)
 - [x] **JFIN-02**: Scanning correctly named sample content (in a scratch folder separate from the portal's folders) produces posters, plots, cast, seasons and episodes stored locally. (ht backend)
-- [ ] **JFIN-03**: A maximum streaming bitrate suited to the home network is configured on Jellyfin. (ht network)
+- [x] **JFIN-03**: A maximum streaming bitrate suited to the home network is configured on Jellyfin. (ht network)
 - [x] **COMPAT-01**: Tested on the real TV through Jellyfin's web UI: H.264 and HEVC video, including 10-bit, play and the playback method (direct play / remux / transcode) is recorded. (ht compatibility test)
 - [x] **COMPAT-02**: Tested on the real TV: AAC, AC3, EAC3 and DTS audio, with the playback method recorded for each. (ht compatibility test)
 - [x] **COMPAT-03**: Tested on the real TV: SRT and embedded subtitles, with the result recorded. (ht compatibility test)
-- [ ] **COMPAT-04**: Jellyfin's admin dashboard is checked to see which playbacks end in transcoding, and a go/no-go verdict on "no video transcoding" is recorded; if no-go, a mitigation is chosen (re-encode library, plan B stick, or stronger server hardware). (ht compatibility test, playback matrix)
+- [x] **COMPAT-04**: Jellyfin's admin dashboard is checked to see which playbacks end in transcoding, and a go/no-go verdict on "no video transcoding" is recorded; if no-go, a mitigation is chosen (re-encode library, plan B stick, or stronger server hardware). (ht compatibility test, playback matrix)
 
 ### TV App
 
@@ -174,17 +174,17 @@ Which phases cover which requirements. Updated during roadmap creation.
 | QUAR-05 | Phase 2.1 | Complete |
 | MEDIA-02 | Phase 4 | Pending |
 | MEDIA-03 | Phase 4 | Pending |
-| NAME-01 | Phase 3 | Pending |
+| NAME-01 | Phase 3 | Complete |
 | NAME-02 | Phase 4 | Pending |
 | NAME-03 | Phase 4 | Pending |
 | NAME-04 | Phase 4 | Pending |
 | JFIN-01 | Phase 3 | Complete |
 | JFIN-02 | Phase 3 | Complete |
-| JFIN-03 | Phase 3 | Pending |
+| JFIN-03 | Phase 3 | Complete |
 | COMPAT-01 | Phase 3 | Complete |
 | COMPAT-02 | Phase 3 | Complete |
 | COMPAT-03 | Phase 3 | Complete |
-| COMPAT-04 | Phase 3 | Pending |
+| COMPAT-04 | Phase 3 | Complete |
 | TV-01 | Phase 5 | Pending |
 | TV-02 | Phase 5 | Pending |
 | TV-03 | Phase 5 | Pending |

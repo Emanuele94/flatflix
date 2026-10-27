@@ -169,7 +169,7 @@ Plans:
   4. After a laptop or router restart the TV still reaches the same address, and Caddy, Jellyfin and the portal run on the documented port map with no collisions.
   5. The naming decision (who puts downloads into Jellyfin's layout) is recorded in PROJECT.md Key Decisions, backed by a scan test with raw torrent-style names.
 
-**Plans**: 8/9 plans executed in 7 waves (plans 08 and 09 need the user: the real-TV session and the verdict decision)
+**Plans**: 9/9 plans executed in 7 waves (plans 08 and 09 need the user: the real-TV session and the verdict decision)
 
 Plans:
 **Wave 1**
@@ -193,7 +193,7 @@ Plans:
 - [x] 03-08-PLAN.md — Tracer + real-TV session: preflight on the rebuilt stack and name capture, then the human session (address, household browsing, console, bitrate, every codec clip, labels, restart test), then the measured matrix and facts in docs/tv-compatibility.md (wave 6)
 
 **Wave 7** *(blocked on Wave 6 completion)*
-- [ ] 03-09-PLAN.md — Tracer + decision: real naming scan and NAME-01 decision in PROJECT.md, then the user's go/no-go verdict and mitigation written into docs/tv-compatibility.md and PROJECT.md; phase-end contract tests (wave 7)
+- [x] 03-09-PLAN.md — Tracer + decision: real naming scan and NAME-01 decision in PROJECT.md, then the user's go/no-go verdict and mitigation written into docs/tv-compatibility.md and PROJECT.md; phase-end contract tests (wave 7)
 
 ### Phase 4: Library Hand-off
 
@@ -247,7 +247,7 @@ Phases execute in numeric order: 1 → 2 → 2.1 → 3 → 4 → 5 → 6 (Phases
 | 1. Portal Search & Start Download | 16/16 | Complete    | 2026-10-22 |
 | 2. Portal Download Management & Hardening | 11/11 | Complete    | 2026-10-23 |
 | 2.1 Download Quarantine & Firecracker Validation | 9/9 | In Progress | - |
-| 3. Jellyfin Server & TV Playback Gate | 8/9 | In Progress | - |
+| 3. Jellyfin Server & TV Playback Gate | 9/9 | In Progress | - |
 | 4. Library Hand-off | 0/TBD | Not started | - |
 | 5. TV App Browse & Play | 0/TBD | Not started | - |
 | 6. TV Icon & End-to-End Acceptance | 0/TBD | Not started | - |

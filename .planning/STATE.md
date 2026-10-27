@@ -2,17 +2,17 @@
 gsd_state_version: "1.0"
 current_phase: 03
 current_phase_name: Jellyfin Server & TV Playback Gate
-status: executing
-stopped_at: Completed 03-08-PLAN.md
-last_updated: "2026-10-26T23:11:44.049Z"
+status: verifying
+stopped_at: Completed 03-09-PLAN.md
+last_updated: "2026-10-27T11:04:15.709Z"
 last_activity: 2026-10-25
 last_activity_desc: Phase 03 execution started
-state_head: 8d36652b32d20617d5705910d7436b87ef7c37a0
+state_head: 9ddaa2eedb0af66556779ecbc87f23f2b98b8daa
 progress:
   total_phases: 7
   completed_phases: 2
   total_plans: 45
-  completed_plans: 44
+  completed_plans: 45
   percent: 29
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-10-23)
 
 Phase: 03 (Jellyfin Server & TV Playback Gate) — EXECUTING
 Plan: 9 of 9
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-10-25 — Phase 03 execution started
 
 Progress: [███░░░░░░░] 29%
@@ -101,6 +101,7 @@ Progress: [███░░░░░░░] 29%
 | Phase 03 P06 | 19 min | 3 tasks | 4 files |
 | Phase 03 P07 | 4 min | 2 tasks | 3 files |
 | Phase 03 P08 | ~30min | 3 tasks | 2 files |
+| Phase 03 P09 | 30min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -193,6 +194,8 @@ Recent decisions affecting current work:
 - [Phase 03]: 03-07: measure command documented without the scripts/ prefix because it runs on another computer holding a copy of the file; docs contract regex accepts both forms
 - [Phase 03]: 03-07: household address line stays IP-only until plan 03-09 shows the TV resolves a .local name (D-81)
 - [Phase 03]: 03-08: household address stays the IP form (TV cannot resolve .local); streaming limit 35 Mbps from a 50 Mbps speedtest (conservative lower bound)
+- [Phase 03]: NAME-01: portal rename step after the safety check owns Jellyfin naming (scan 20/26 identified, 0 wrong title, D-92 bar not met)
+- [Phase 03]: TV verdict GO (user, D-87): no 1080p video transcoding; Phase 5 device profile built from Direct play and Remux rows; household address stays the IP form
 
 ### Pending Todos
 
@@ -223,6 +226,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-26T23:11:43.546Z
-Stopped at: Completed 03-08-PLAN.md
+Last session: 2026-10-27T11:04:15.238Z
+Stopped at: Completed 03-09-PLAN.md
 Resume file: None
