@@ -989,3 +989,86 @@ def test_drain_stdin_is_a_no_op_without_a_terminal(tg: ModuleType, monkeypatch: 
     monkeypatch.setattr(tg.sys, "stdin", NotATty())
 
     tg._drain_stdin()  # must not touch termios or raise
+
+
+# --- the watch loop keeps what it has seen (WR-02) ----------------------------------------
+
+
+def run_watch(
+    tg: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    results: Path,
+    polls: list,
+    *,
+    answers: list,
+) -> int:
+    """Run cmd_watch against scripted polls. A poll that is an exception class is raised; an answer
+    that is an exception class is raised from the prompt. Once the polls run out, Ctrl-C arrives."""
+    queue = list(polls)
+
+    def fake_sessions(_api):
+        if not queue:
+            raise KeyboardInterrupt
+        item = queue.pop(0)
+        if isinstance(item, type) and issubclass(item, BaseException):
+            raise item("down")
+        return item
+
+    def fake_ask() -> str | None:
+        item = answers.pop(0)
+        if isinstance(item, type) and issubclass(item, BaseException):
+            raise item
+        return item
+
+    monkeypatch.setattr(tg, "sign_in", lambda _base, _device: (None, "user"))
+    monkeypatch.setattr(tg, "current_sessions", fake_sessions)
+    monkeypatch.setattr(tg, "ask_ok", fake_ask)
+    monkeypatch.setattr(tg, "log_types_for", lambda _item, _since: ["Remux"])
+    monkeypatch.setattr(tg.time, "sleep", lambda _s: None)
+    args = type("Args", (), {"base": "http://x", "results": str(results), "no_prompt": False})()
+    return tg.cmd_watch(args)
+
+
+def test_a_finished_play_is_stored_with_its_answer(tg: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    path = tmp_path / "results.json"
+
+    code = run_watch(tg, monkeypatch, path, [[session()], []], answers=["yes"])
+
+    assert code == 0
+    assert [e["ok"] for e in tg.ResultStore(path).rows()["A01"]] == ["yes"]
+
+
+def test_ctrl_c_at_the_prompt_keeps_the_play_being_answered(
+    tg: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    path = tmp_path / "results.json"
+
+    code = run_watch(tg, monkeypatch, path, [[session()], []], answers=[KeyboardInterrupt])
+
+    assert code == 0
+    plays = tg.ResultStore(path).rows()["A01"]
+    assert len(plays) == 1 and plays[0]["ok"] is None and plays[0]["method"] == "Remux"
+
+
+def test_ctrl_c_at_the_prompt_also_keeps_the_other_plays_that_finished_in_the_same_poll(
+    tg: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    path = tmp_path / "results.json"
+    both = [session("A01 MKV H264 AAC", sid="s1"), session("A02 MKV H264 AAC", sid="s2", item="f" * 32)]
+
+    code = run_watch(tg, monkeypatch, path, [both, []], answers=[KeyboardInterrupt])
+
+    assert code == 0
+    assert set(tg.ResultStore(path).rows()) == {"A01", "A02"}
+
+
+def test_giving_up_on_a_silent_jellyfin_still_saves_the_plays_in_progress(
+    tg: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    path = tmp_path / "results.json"
+    polls = [[session()]] + [OSError] * tg.MAX_POLL_ERRORS
+
+    code = run_watch(tg, monkeypatch, path, polls, answers=[])
+
+    assert code == 1
+    assert [e["method"] for e in tg.ResultStore(path).rows()["A01"]] == ["Remux"]

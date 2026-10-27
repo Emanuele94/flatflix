@@ -14,7 +14,7 @@ Usage:
 API every second and, each time a Compat clip stops playing, print `<ID> <Method> (<reasons>)`, ask
 once whether picture and sound were fine and save at once to jellyfin/tv-gate/results.json. Clips
 played by our own clients (Client starts with "flatflix-") and items with no row id are ignored.
-Ctrl-C saves and exits 0. A row keeps all its plays: its Method is the worst of them and its answer
+Each play is saved before the question is asked, so Ctrl-C (exit 0) or a silent Jellyfin loses none. A row keeps all its plays: its Method is the worst of them and its answer
 is the last one given; `forget ID` drops a row for a re-test.
 
 `render --doc PATH` puts the matrix of the results between the markers of docs/tv-compatibility.md
@@ -323,8 +323,12 @@ class ResultStore:
         if isinstance(rows, dict):
             self.data = {k: [e for e in v if isinstance(e, dict)] for k, v in rows.items() if isinstance(v, list)}
 
-    def add(self, row_id: str, entry: dict) -> None:
-        self.data.setdefault(row_id, []).append(clean_entry(entry))
+    def add(self, row_id: str, entry: dict) -> dict:
+        """Store a cleaned copy of the entry and return that stored dict, so a later answer can
+        be written into it."""
+        stored = clean_entry(entry)
+        self.data.setdefault(row_id, []).append(stored)
+        return stored
 
     def forget(self, row_id: str) -> bool:
         return self.data.pop(row_id, None) is not None
@@ -856,11 +860,14 @@ def record_play(entry: dict, store: ResultStore, last_end: dict[str, float], *, 
         print(f"{entry['row']} subtitles were off: play it again with subtitles on")
     if entry["flag"]:
         print(f"{entry['row']} {entry['flag']}")
-    if prompt:
-        entry["ok"] = ask_ok()
-        print(f"{entry['row']} recorded: {entry['ok'] or 'no answer'}")
-    store.add(entry["row"], entry)
+    # Save before asking: Ctrl-C at the prompt must not lose the play being answered (WR-02).
+    stored = store.add(entry["row"], entry)
     store.save()
+    if prompt:
+        answer = ask_ok()
+        stored["ok"] = answer
+        print(f"{entry['row']} recorded: {answer or 'no answer'}")
+        store.save()
 
 
 def cmd_watch(args: argparse.Namespace) -> int:
@@ -869,7 +876,14 @@ def cmd_watch(args: argparse.Namespace) -> int:
     store = ResultStore(args.results)
     tracker = Tracker()
     last_end: dict[str, float] = {}
+    pending: list[dict] = []  # finished plays not yet recorded, so Ctrl-C cannot drop them
     errors = 0
+
+    def flush_unrecorded() -> None:
+        pending.extend(tracker.finish_all())
+        while pending:
+            record_play(pending.pop(0), store, last_end, prompt=False)
+
     print("Watching Jellyfin. Press play on a Compat clip on the TV. Ctrl-C to stop.")
     try:
         while True:
@@ -880,21 +894,21 @@ def cmd_watch(args: argparse.Namespace) -> int:
                 errors += 1
                 print(f"WARN sessions: {type(exc).__name__}")
                 if errors >= MAX_POLL_ERRORS:
+                    flush_unrecorded()  # keep the plays still in progress before giving up
                     print("FAIL sessions: Jellyfin does not answer")
                     return 1
                 time.sleep(POLL_SECONDS)
                 continue
             known = set(tracker.active)
-            finished = tracker.observe(sessions, time.time())
+            pending.extend(tracker.observe(sessions, time.time()))
             for key in tracker.active:
                 if key not in known:
                     print(f"PLAYING {tracker.active[key]['row']}")
-            for entry in finished:
-                record_play(entry, store, last_end, prompt=not args.no_prompt)
+            while pending:
+                record_play(pending.pop(0), store, last_end, prompt=not args.no_prompt)
             time.sleep(POLL_SECONDS)
     except KeyboardInterrupt:
-        for entry in tracker.finish_all():
-            record_play(entry, store, last_end, prompt=False)
+        flush_unrecorded()
         print("\nOK saved")
         return 0
 
