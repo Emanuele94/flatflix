@@ -83,7 +83,7 @@ No locked decisions. No ADRs were ingested (both source docs are unlocked SPECs)
 | Jellyfin + Caddy single origin as the home-theater backend/proxy | SPEC architecture (not ADR-locked); avoids CORS and server code | Baseline (SPEC, revisitable). Built in Phase 3 (jellyfin/jellyfin 12.3, own CSP on /jellyfin) |
 | Validate downloads with ffprobe inside Firecracker microVMs (not a hardened container) | User choice; strongest isolation for parsing untrusted files; KVM available on dev and required on production | Decided (user, 2026-10-21) |
 | Production host: dedicated box with Ubuntu Server, KVM-capable | User decision; the laptop is only for development | Decided (user, 2026-10-21); exact model pending |
-| Who puts downloads into Jellyfin naming layout (W1) | Options: portal post-download step, external library manager, relaxed Jellyfin requirement; decide on scan-test evidence | — Pending (Phase 3 decides, Phase 4 implements) |
+| Who puts downloads into Jellyfin naming layout (W1) | Options: portal post-download step, external library manager, relaxed Jellyfin requirement; decide on scan-test evidence | Decided (Phase 3, NAME-01): portal rename step after the safety check — scan test in [docs/naming-scan.md](../docs/naming-scan.md): 20/26 identified, 0 wrong title(s) (bar D-92 not met; all failures are flat episode files); Phase 4 implements |
 | Shared media wiring contract (W2): host paths, PUID/PGID, incomplete folder, read-only mounts, libraries, rescan trigger | Neither doc specified it | Phase 1 part defined in docs/ports-and-media.md; Phase 4 rest pending |
 | Laptop port map and whether Caddy also fronts the portal (W3) | Port 8080 ambiguity; Caddy port undefined | Port map defined in docs/ports-and-media.md; Caddy on port 80 fronts the portal since Phase 1 (D-03, D-04); Phase 3: Jellyfin at /jellyfin through Caddy (D-80), port 8096 never published and the dashboard only through /jellyfin (D-82), one compose project, network `jellyfin` = web + jellyfin; /tv stays reserved for Phase 5 |
 | Portal backend stack: FastAPI or Node | Spec says "FastAPI/Node" | FastAPI (D-01) — Decided (user, 2026-10-21) |
@@ -122,4 +122,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-25 after Phase 3 planning decisions*
+*Last updated: 2026-10-27 after the Phase 3 naming decision*

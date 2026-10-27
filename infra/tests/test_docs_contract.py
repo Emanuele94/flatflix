@@ -384,10 +384,35 @@ def test_key_decisions_parses_the_table_into_three_cells():
     assert row_starting("Build the qBittorrent portal first")[2].startswith("Decided")
 
 
-def test_no_decision_is_still_pending_for_phase_3_and_the_naming_row_waits_for_03_09():
+def test_no_decision_is_still_pending_for_phase_3():
     rows = project_rows()
     assert not [row for row in rows if "Pending (Phase 3)" in row[2]]
-    assert "Pending (Phase 3 decides, Phase 4 implements)" in row_starting("Who puts downloads")[2]
+    assert not [row for row in rows if "Pending (Phase 3 decides" in row[2]]
+
+
+def test_the_naming_decision_is_recorded():
+    outcome = row_starting("Who puts downloads")[2]
+    assert "Decided (Phase 3, NAME-01)" in outcome
+    assert "[docs/naming-scan.md](../docs/naming-scan.md)" in outcome
+    assert "Phase 4 implements" in outcome
+    assert "Pending" not in outcome
+
+
+def test_the_naming_row_link_points_at_a_file_that_exists():
+    link = re.search(r"\]\((\.\./docs/naming-scan\.md)\)", PROJECT.read_text(encoding="utf-8"))
+    assert link and (PROJECT.parent / link.group(1)).resolve().is_file()
+
+
+def test_the_real_corpus_is_reported():
+    text = (ROOT / "docs" / "naming-scan.md").read_text(encoding="utf-8")
+    real = section(text, "## Real corpus")
+    assert "Not run yet." not in real
+    for label in ("identified", "unidentified", "wrong title"):
+        assert re.search(rf"^\| {label} \| \d+ \|$", real, re.MULTILINE), label
+    assert re.search(r"^Meets the D-92 bar: (yes|no)$", real, re.MULTILINE)
+    decision = section(text, "## Decision").strip()
+    assert decision and not decision.startswith("Pending")
+    assert "Not run yet." not in decision
 
 
 def test_the_shared_user_row_names_household_the_hidden_admin_and_prof_01():
@@ -428,9 +453,9 @@ def test_the_compatibility_link_points_at_a_file_that_exists():
     assert link and (PROJECT.parent / link.group(1)).resolve().is_file()
 
 
-def test_the_footer_says_after_phase_3_planning_decisions():
+def test_the_footer_names_phase_3_and_a_date():
     last = PROJECT.read_text(encoding="utf-8").strip().splitlines()[-1]
-    assert "Phase 3" in last and "2026-10-25" in last
+    assert "Phase 3" in last and re.search(r"2026-10-\d\d", last)
 
 
 def test_the_new_rows_hold_no_secret_or_address():

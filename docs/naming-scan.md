@@ -10,7 +10,22 @@ Run it with `python3 scripts/name_scan.py run --corpus <file>`; `report` rewrite
 
 ## Real corpus
 
-Not run yet.
+| Result | Names |
+| --- | --- |
+| identified | 20 |
+| unidentified | 6 |
+| wrong title | 0 |
+| total | 26 |
+
+Identified: 76 %
+
+Meets the D-92 bar: no
+
+Failure classes (counts only):
+
+| Shape of the name | Unidentified | Wrong title |
+| --- | --- | --- |
+| flat episode file | 6 | 0 |
 
 ## Synthetic sample
 
@@ -31,4 +46,4 @@ RESULT 10 names: identified 8, unidentified 2, wrong title 0 (80 %)
 
 ## Decision
 
-Pending: recorded in .planning/PROJECT.md after the real scan (plan 03-09).
+The bar was not met: 20 of 26 names were identified (76 %, bar 90 %), with no wrong title. The decision is the portal rename step (D-90): after the safety check, the backend names the media hardlink Title (Year)/Title (Year).<ext> for a film or Series/Season NN/Series SNNEMM.<ext> for an episode, and Phase 4 implements it. All 6 failures are flat episode files, the shape Jellyfin cannot parse alone, so the rename step must read the series, season and episode from the torrent name and these failure classes are its test cases. With no wrong title in the real corpus, a TheMovieDb lookup with the opt-in key (D-93) is an optional Phase 4 input for series titles, not a requirement.
