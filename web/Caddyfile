@@ -40,6 +40,11 @@
 	# script-src, which would push the server into burning subtitles in.
 	# 'unsafe-inline' in style-src and script-src is the UI-SPEC starting line (upstream
 	# index.html has an inline style), and it applies to /jellyfin only.
+	# Accepted risk (D-04, one origin, no CORS): /jellyfin shares the portal's origin, so a script
+	# injected through Jellyfin (a provider text or a file name shown in jellyfin-web) runs with
+	# the portal's origin and can call /api/* with the household's session cookie. The portal
+	# policy does not apply there. See "One origin for the portal and Jellyfin" in
+	# docs/ports-and-media.md for the mitigations to reach for if this stops being acceptable.
 	handle /jellyfin/* {
 		header Content-Security-Policy "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' ws: wss:; font-src 'self' data:; worker-src 'self' blob:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 		reverse_proxy jellyfin:8096

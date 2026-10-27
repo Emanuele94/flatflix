@@ -115,6 +115,24 @@ run): the database holds password hashes and access tokens, and Jellyfin runs as
 `PUID:PGID`, the owner. The helper scripts that read `jellyfin/config/log` and
 `jellyfin/config/metadata` must therefore run as the same user as `PUID`.
 
+### One origin for the portal and Jellyfin
+
+Caddy serves the portal and proxies Jellyfin at `/jellyfin` from the same origin (D-04: no
+CORS, one address for phones and the TV). The cost is a known, accepted risk. Jellyfin's
+policy has to allow inline script (`'unsafe-inline'`, see `web/Caddyfile`), and jellyfin-web
+shows text that comes from TheMovieDb and from file names derived from torrent names. A script
+injected through that text would run on the portal's origin, where the portal's own policy does
+not apply. It could call `/api/*` with the household's session cookie (the browser sends it to
+the same origin) and, for example, queue downloads or read the download list. It cannot read
+qBittorrent or Jellyfin admin credentials: the backend keeps those, and the cookie is not
+readable by script if it is `HttpOnly`.
+
+If the risk stops being acceptable, the options are, from cheapest: scope the portal session
+cookie to `Path=/api` so `/jellyfin` pages cannot send it; or serve Jellyfin from its own port
+or host name (this gives up D-04 and needs CORS or a second address for the TV app). The CSP
+split in `web/Caddyfile` is pinned by `infra/tests/test_caddyfile.py`; do not loosen the portal
+policy to fix a Jellyfin page.
+
 ### Notes for later phases
 
 - When some files of a torrent are skipped, qBittorrent can leave a hidden

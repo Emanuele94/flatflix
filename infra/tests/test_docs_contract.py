@@ -551,3 +551,13 @@ def test_the_service_check_has_teeth():
     assert documented_services("`docker compose -f a.yml -f b.yml up -d`") == []
     assert documented_services("`docker compose port qbittorrent 8088`") == ["qbittorrent"]
     assert documented_services("docker compose stop jellyfin && sudo rm -rf x") == ["jellyfin"]
+
+
+def test_the_shared_origin_risk_is_written_down_next_to_the_policy_and_in_the_docs():
+    ports = (ROOT / "docs" / "ports-and-media.md").read_text(encoding="utf-8")
+    body = section(ports, "### One origin for the portal and Jellyfin")
+    for needle in ("D-04", "unsafe-inline", "session cookie", "Path=/api"):
+        assert needle in body, needle
+    caddyfile = (ROOT / "web" / "Caddyfile").read_text(encoding="utf-8")
+    assert "Accepted risk (D-04" in caddyfile
+    assert "One origin for the portal and Jellyfin" in caddyfile
