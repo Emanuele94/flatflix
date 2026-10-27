@@ -934,3 +934,58 @@ def test_validate_prints_ok_or_the_violations_and_exits_accordingly(
     assert capsys.readouterr().out.strip() == "OK"
     assert tg.cmd_validate(type("Args", (), {"doc": str(bad)})()) == 1
     assert "serial" in capsys.readouterr().out.lower()
+
+
+def feed_answers(monkeypatch: pytest.MonkeyPatch, tg: ModuleType, lines: list[str]) -> list[str]:
+    """Make input() return `lines` in turn (then EOF) and count how often the buffer was drained."""
+    queue = list(lines)
+    drained: list[str] = []
+
+    def fake_input(_prompt: str = "") -> str:
+        if not queue:
+            raise EOFError
+        return queue.pop(0)
+
+    monkeypatch.setattr("builtins.input", fake_input)
+    monkeypatch.setattr(tg, "_drain_stdin", lambda: drained.append("drained"))
+    return drained
+
+
+@pytest.mark.parametrize(
+    ("typed", "want"),
+    [(["y"], "yes"), ([" YES "], "yes"), (["n"], "no"), (["No"], "no"), ([""], None), ([], None)],
+)
+def test_ask_ok_reads_yes_no_or_skip(
+    tg: ModuleType, monkeypatch: pytest.MonkeyPatch, typed: list[str], want: str | None
+) -> None:
+    feed_answers(monkeypatch, tg, typed)
+
+    assert tg.ask_ok() == want
+
+
+def test_ask_ok_asks_again_on_an_unrecognised_answer_instead_of_skipping(
+    tg: ModuleType, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    feed_answers(monkeypatch, tg, ["yy", "yse", "y"])
+
+    assert tg.ask_ok() == "yes"
+    assert capsys.readouterr().out.count("type y, n, or just Enter") == 2
+
+
+def test_ask_ok_drops_what_was_typed_during_playback_before_asking(
+    tg: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    drained = feed_answers(monkeypatch, tg, ["n"])
+
+    assert tg.ask_ok() == "no"
+    assert drained == ["drained"]
+
+
+def test_drain_stdin_is_a_no_op_without_a_terminal(tg: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
+    class NotATty:
+        def isatty(self) -> bool:
+            return False
+
+    monkeypatch.setattr(tg.sys, "stdin", NotATty())
+
+    tg._drain_stdin()  # must not touch termios or raise

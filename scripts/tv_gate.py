@@ -813,13 +813,35 @@ def cmd_selftest(args: argparse.Namespace) -> int:
     return 1 if failures else 0
 
 
-def ask_ok() -> str | None:
-    """`yes` or `no` from the person at the TV; Enter, anything else or no terminal skips."""
+ANSWERS = {"y": "yes", "yes": "yes", "n": "no", "no": "no"}
+
+
+def _drain_stdin() -> None:
+    """Throw away keystrokes typed while the clip played, so they cannot become the answer."""
     try:
-        answer = input("Picture and sound OK? [y/n, Enter to skip] ").strip().lower()
-    except EOFError:
-        return None
-    return {"y": "yes", "yes": "yes", "n": "no", "no": "no"}.get(answer)
+        import termios
+    except ImportError:  # no termios (Windows): nothing to flush
+        return
+    try:
+        if sys.stdin.isatty():
+            termios.tcflush(sys.stdin, termios.TCIFLUSH)
+    except (OSError, ValueError, termios.error):
+        pass
+
+
+def ask_ok() -> str | None:
+    """`yes` or `no` from the person at the TV; Enter or no terminal skips, anything else asks again."""
+    _drain_stdin()
+    while True:
+        try:
+            raw = input("Picture and sound OK? [y/n, Enter to skip] ").strip().lower()
+        except EOFError:
+            return None
+        if raw == "":
+            return None
+        if raw in ANSWERS:
+            return ANSWERS[raw]
+        print("  type y, n, or just Enter to skip")
 
 
 def record_play(entry: dict, store: ResultStore, last_end: dict[str, float], *, prompt: bool) -> None:
@@ -836,6 +858,7 @@ def record_play(entry: dict, store: ResultStore, last_end: dict[str, float], *, 
         print(f"{entry['row']} {entry['flag']}")
     if prompt:
         entry["ok"] = ask_ok()
+        print(f"{entry['row']} recorded: {entry['ok'] or 'no answer'}")
     store.add(entry["row"], entry)
     store.save()
 
