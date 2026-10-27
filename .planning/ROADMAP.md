@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Portal Search & Start Download** - Log in from a phone, search films/series, start a download into the right folder; stack, port map and media contract set up (completed 2026-10-22)
 - [x] **Phase 2: Portal Download Management & Hardening** - See and cancel downloads, friendly errors, rate limiting and audit logs (completed 2026-10-23)
 - [ ] **Phase 2.1: Download Quarantine & Firecracker Validation** (INSERTED) - Completed downloads are verified with ffprobe inside a Firecracker microVM before they reach the media folders
-- [ ] **Phase 3: Jellyfin Server & TV Playback Gate** - Jellyfin behind Caddy, stable LAN address, real-TV compatibility verdict, naming decision recorded
+- [x] **Phase 3: Jellyfin Server & TV Playback Gate** - Jellyfin behind Caddy, stable LAN address, real-TV compatibility verdict, naming decision recorded (completed 2026-10-27)
 - [ ] **Phase 4: Library Hand-off** - Portal downloads appear in Jellyfin with correct names and artwork, no manual steps
 - [ ] **Phase 5: TV App Browse & Play** - Remote-only TV app with Home, Library, Detail and Player at 1080p without video transcoding
 - [ ] **Phase 6: TV Icon & End-to-End Acceptance** - Launch from the VIDAA home icon and prove the phone-to-TV flow for a household member
@@ -169,7 +169,7 @@ Plans:
   4. After a laptop or router restart the TV still reaches the same address, and Caddy, Jellyfin and the portal run on the documented port map with no collisions.
   5. The naming decision (who puts downloads into Jellyfin's layout) is recorded in PROJECT.md Key Decisions, backed by a scan test with raw torrent-style names.
 
-**Plans**: 9/9 plans executed in 7 waves (plans 08 and 09 need the user: the real-TV session and the verdict decision)
+**Plans**: 9/9 plans complete in 7 waves (plans 08 and 09 need the user: the real-TV session and the verdict decision)
 
 Plans:
 **Wave 1**
@@ -247,7 +247,7 @@ Phases execute in numeric order: 1 → 2 → 2.1 → 3 → 4 → 5 → 6 (Phases
 | 1. Portal Search & Start Download | 16/16 | Complete    | 2026-10-22 |
 | 2. Portal Download Management & Hardening | 11/11 | Complete    | 2026-10-23 |
 | 2.1 Download Quarantine & Firecracker Validation | 9/9 | In Progress | - |
-| 3. Jellyfin Server & TV Playback Gate | 9/9 | In Progress | - |
+| 3. Jellyfin Server & TV Playback Gate | 9/9 | Complete    | 2026-10-27 |
 | 4. Library Hand-off | 0/TBD | Not started | - |
 | 5. TV App Browse & Play | 0/TBD | Not started | - |
 | 6. TV Icon & End-to-End Acceptance | 0/TBD | Not started | - |
