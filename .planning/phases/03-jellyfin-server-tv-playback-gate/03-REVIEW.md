@@ -201,7 +201,7 @@ esac
 **Issue:**
 - The script prints `network.xml kept` whenever the file exists. If Jellyfin ever started with an empty BaseUrl (for example, it ran before this script was updated), `/jellyfin` stays broken and the script says nothing. It could grep the file for `<BaseUrl>/jellyfin</BaseUrl>` and warn.
 - The Jellyfin admin password is visible inside the backend container through `env_file`. It is documented as accepted (D-100), but the backend sits on the `edge` network next to Caddy, which proxies `/jellyfin`, so the credential is reachable from the exposed process.
-- The `IPV4` privacy regex also matches any four-part dotted version, for example `10.11.0.1`, so `validate` would reject a Jellyfin version string in that shape.
+- The `IPV4` privacy regex also matches any four-part dotted version (for example a Jellyfin version with four dotted numbers), so `validate` would reject a Jellyfin version string in that shape.
 
 **Fix:** Warn on a wrong BaseUrl. Consider a separate env file for the script-only keys. Narrow the `IPV4` check to octets 0-255 and let versions through when the line starts with `Jellyfin version tested:`.
 
